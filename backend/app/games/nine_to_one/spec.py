@@ -68,6 +68,10 @@ class NineToOne(GameSpec):
     def rotate_players(self, state: GameState, k: int) -> None:
         state.players[:] = state.players[k:] + state.players[:k]
 
+    def lobby_changed(self, state: GameState) -> list[Event]:
+        # Réaffirmer l'état « prêt » du siège 0 relance le test de démarrage du moteur.
+        return set_ready(state, 0, state.players[0].ready) if state.players else []
+
     def status(self, state: GameState) -> GameStatus:
         return state.status
 
@@ -114,7 +118,11 @@ class NineToOne(GameSpec):
         player = state.players[seat]
         if not player.hand:
             return flip_face_down(state, seat, random.randrange(len(player.face_down)))
-        value = min(playable_values(state, seat))
+        # La plus petite carte, mais pas un 2 ni un 10 s'il y a autre chose : un joueur
+        # absent ne doit pas griller ses cartes spéciales.
+        values = playable_values(state, seat)
+        ordinary = [v for v in values if v not in (2, 10)]
+        value = min(ordinary or values)
         direction = Comparator.GTE if value == 7 else None
         return play_cards(state, seat, value, count=1, direction=direction)
 

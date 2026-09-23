@@ -5,37 +5,32 @@ import { useState } from "react";
 import Lobby, { type BotChoice } from "@/components/Lobby";
 import PlayingCard, { CardBackLabel } from "@/components/PlayingCard";
 import TableFrame from "@/components/TableFrame";
+import { useT } from "@/lib/i18n";
 import type { CardT } from "@/lib/types";
 import GameTable from "./GameTable";
+import { preloadAssets } from "./assets";
+import { T } from "./i18n";
 import { GAME } from "./meta";
 import { useNineToOneSocket, type NineToOneSocket } from "./socket";
 import type { RoomView } from "./types";
 
-const BOT_CHOICES: BotChoice[] = [
-  { id: "easy", hint: "Joue au hasard, une carte à la fois. Pour apprendre." },
-  {
-    id: "normal",
-    hint: "Économe : garde ses 2 et ses 10, pose ses multiples.",
-  },
-  {
-    id: "hard",
-    hint: "Réseau entraîné par auto-jeu : compte les cartes, enchaîne.",
-  },
-];
+const BOT_IDS: BotChoice["id"][] = ["easy", "normal", "hard"];
 
 export default function TablePage() {
+  const t = useT(T);
   return (
     <CardBackLabel.Provider value="9→1">
       <TableFrame<RoomView, NineToOneSocket>
         game={GAME}
         useSocket={useNineToOneSocket}
         rules={<Rules />}
+        preload={preloadAssets}
         lobby={(socket, view) => (
           <Lobby
             socket={socket}
             view={view}
             maxSeats={5}
-            botChoices={BOT_CHOICES}
+            botChoices={BOT_IDS.map((id) => ({ id, hint: t.lobby.bots[id] }))}
             onReady={(ready) => socket.setReady(ready)}
           >
             <SwapSection socket={socket} view={view} />
@@ -61,18 +56,17 @@ function SwapSection({
   const you = view.players[view.your_seat];
   const [selectedHand, setSelectedHand] = useState<number | null>(null);
   const canSwap = !you.ready;
+  const t = useT(T);
 
   return (
     <section className="flex flex-col gap-2">
       <p className="text-sm text-ivory-dim/80">
-        {canSwap
-          ? "Avant de te déclarer prêt, échange librement ta main avec tes cartes visibles."
-          : "Tes cartes sont verrouillées, on attend les autres."}
+        {canSwap ? t.lobby.swapHint : t.lobby.swapLocked}
       </p>
       <LayoutGroup id="swap">
         <div className="rounded-2xl bg-black/25 p-3 ring-1 ring-white/10">
           <p className="mb-1 text-xs text-ivory-dim/70">
-            Cartes visibles sur la table
+            {t.lobby.faceUp}
           </p>
           <div className="flex gap-2">
             {you.face_up.map((card, i) => (
@@ -96,7 +90,7 @@ function SwapSection({
               </SwapCard>
             ))}
           </div>
-          <p className="mb-1 mt-3 text-xs text-ivory-dim/70">Ta main</p>
+          <p className="mb-1 mt-3 text-xs text-ivory-dim/70">{t.lobby.hand}</p>
           <div className="flex gap-2">
             {(you.hand ?? []).map((card, i) => (
               <SwapCard key={`${card.value}-${card.suit}`} card={card}>
@@ -143,35 +137,32 @@ function SwapCard({
 
 /* Rappel des règles, surtout les pouvoirs des cartes spéciales. */
 function Rules() {
+  const t = useT(T);
   const powers: { card: CardT; text: string }[] = [
     {
       card: { value: 2, suit: "spades" },
-      text: "Se pose sur tout. Le joueur suivant est libre.",
+      text: t.rules.two,
     },
     {
       card: { value: 7, suit: "diamonds" },
-      text: "Tu choisis : le suivant joue au-dessus ou en dessous de 7.",
+      text: t.rules.seven,
     },
     {
       card: { value: 9, suit: "clubs" },
-      text: "Le suivant doit jouer 9 ou moins.",
+      text: t.rules.nine,
     },
     {
       card: { value: 10, suit: "hearts" },
-      text: "Coupe le tas : tout part à la défausse et tu rejoues. Interdit quand il faut jouer en dessous.",
+      text: t.rules.ten,
     },
   ];
   return (
     <>
       <h2 className="mb-3 text-center text-lg font-extrabold">
-        Les règles en bref
+        {t.rules.title}
       </h2>
       <p className="mb-3 text-sm text-ivory-dim/85">
-        Chacun pose une carte égale ou plus forte que la précédente, et repioche
-        à 3 cartes tant que la pioche dure. Bloqué ? Tu ramasses tout le tas. 4
-        cartes identiques d&rsquo;affilée coupent le tas. Main vidée : tu joues
-        tes cartes visibles, puis tes cachées à l&rsquo;aveugle. Le dernier avec
-        des cartes perd.
+        {t.rules.summary}
       </p>
       <ul className="flex flex-col gap-2">
         {powers.map(({ card, text }) => (

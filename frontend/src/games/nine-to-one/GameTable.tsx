@@ -11,9 +11,11 @@ import PlayingCard, { valueLabel } from "@/components/PlayingCard";
 import { anchorDelta, offsetFromAnchor, registerAnchor } from "@/lib/anchors";
 import { fetchPlayerByPseudo } from "@/lib/api";
 import { EMOTES } from "@/lib/emotes";
+import { useT, tr } from "@/lib/i18n";
 import { forgetTable } from "@/lib/identity";
 import { sfx, vibrate } from "@/lib/sound";
-import { BOT_LABELS, NO_STATS, type CardT, type GameEvent, type GameStats } from "@/lib/types";
+import { NO_STATS, type CardT, type GameEvent, type GameStats } from "@/lib/types";
+import { T } from "./i18n";
 import { GAME } from "./meta";
 import type { NineToOneSocket } from "./socket";
 import type { PlayerView, RoomView } from "./types";
@@ -26,6 +28,7 @@ import { Sheet } from "@/components/Sheet";
 type Delta = { x: number; y: number; rotate?: number; delay?: number };
 
 export default function GameTable({ socket, view }: { socket: NineToOneSocket; view: RoomView }) {
+  const t = useT(T).table;
   const you = view.players[view.your_seat];
   const opponents = useMemo(
     () =>
@@ -46,28 +49,38 @@ export default function GameTable({ socket, view }: { socket: NineToOneSocket; v
     }
   }, [chaseValue]);
 
-  const [pendingValue, setPendingValue] = useState<{ value: number; copies: number } | null>(null);
+  // Combien de cartes poser (ou enchaîner, `chase`) quand on en a plusieurs.
+  const [pendingValue, setPendingValue] = useState<{
+    value: number;
+    copies: number;
+    chase?: boolean;
+  } | null>(null);
   const [pendingSeven, setPendingSeven] = useState<number | null>(null); // count à poser
   const [banner, setBanner] = useState<string | null>(null);
   const [lastMove, setLastMove] = useState<string | null>(null);
   const [chatOpen, setChatOpen] = useState(false);
   // Dernier message de chat, affiché quelques secondes en jeu (tap = chat complet).
   const [recentMsg, setRecentMsg] = useState<{ seat: number; text: string } | null>(null);
-  const chatSeenRef = useRef(0);
+  // On suit le dernier message affiché, pas la longueur du chat : une resynchronisation
+  // (même historique, nouveau tableau) ne doit rien rejouer, et au-delà de 100 messages
+  // la longueur ne grandit plus.
+  const chatSeenRef = useRef<string | null>(null);
   useEffect(() => {
-    if (socket.chat.length === 0) return;
-    if (chatSeenRef.current === 0) {
-      chatSeenRef.current = socket.chat.length; // historique initial : pas de bulle
+    const last = socket.chat[socket.chat.length - 1];
+    const key = last ? `${socket.chat.length}:${last.seat}:${last.text}` : "";
+    if (chatSeenRef.current === null) {
+      chatSeenRef.current = key; // historique à l'arrivée : pas de bulle
       return;
     }
-    if (socket.chat.length > chatSeenRef.current) {
-      chatSeenRef.current = socket.chat.length;
-      const last = socket.chat[socket.chat.length - 1];
-      setRecentMsg(last);
-      const timer = setTimeout(() => setRecentMsg(null), 4500);
-      return () => clearTimeout(timer);
-    }
+    if (key === chatSeenRef.current || !last) return;
+    chatSeenRef.current = key;
+    setRecentMsg(last);
   }, [socket.chat]);
+  useEffect(() => {
+    if (!recentMsg) return;
+    const timer = setTimeout(() => setRecentMsg(null), 4500);
+    return () => clearTimeout(timer);
+  }, [recentMsg]);
   const [inspectSeat, setInspectSeat] = useState<number | null>(null);
   const [shaking, setShaking] = useState(false);
   const [flash, setFlash] = useState(false);
@@ -79,9 +92,12 @@ export default function GameTable({ socket, view }: { socket: NineToOneSocket; v
     .map((c) => `${c.value}-${c.suit}`)
     .join(" ");
   useEffect(() => {
-    // La main change ou le tour passe : plus rien de soulevé.
+    // La main change ou le tour passe : plus rien de soulevé, et les questions en cours
+    // (combien de cartes, 7 au-dessus ou en dessous) n'ont plus lieu d'être.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setSelectedKey(null);
+    setPendingValue(null);
+    setPendingSeven(null);
   }, [handKeys, yourTurn]);
 
   // Cibles de vol pour les cartes qui entrent/sortent, fixées au moment des événements
@@ -94,9 +110,21 @@ export default function GameTable({ socket, view }: { socket: NineToOneSocket; v
     delay: number;
   }>({ keys: [], source: null, delay: 0 });
   const longPressRef = useRef(0);
+  // Un coup est parti, la réponse du serveur n'est pas encore là : les taps suivants
+  // sont ignorés (un double tap sur une carte cachée en retournerait une seconde).
+  const inFlight = useRef(false);
+  useEffect(() => {
+    inFlight.current = false;
+  }, [view, socket.error]);
+  const act = (send: () => void) => {
+    if (inFlight.current) return;
+    inFlight.current = true;
+    send();
+  };
 
   useEffect(() => {
     socket.onEvents((events: GameEvent[], nextView) => {
+      const t = tr(T).table;
       // Cartes qui viennent d'entrer dans ma main (pour les faire voler à l'arrivée).
       const oldKeys = new Set(
         (view.players[view.your_seat]?.hand ?? []).map((c) => `${c.value}-${c.suit}`)
@@ -131,9 +159,7 @@ export default function GameTable({ socket, view }: { socket: NineToOneSocket; v
           const cards = (event.cards as CardT[] | undefined) ?? [];
           const chase = Boolean(event.chase);
           setLastMove(
-            `${seat === view.your_seat ? "Tu as" : `${pseudo} a`} ${
-              chase ? "enchaîné" : "posé"
-            } ${count > 1 ? `${count}×` : "le "}${valueLabel(value)}`
+            t.played(seat === view.your_seat ? null : pseudo, chase, count, valueLabel(value))
           );
           setPileFrom(seat === view.your_seat ? "hand" : `seat-${seat}`);
           // La carte voyage dans la couche du dessus : jamais clippée par la main
@@ -193,7 +219,7 @@ export default function GameTable({ socket, view }: { socket: NineToOneSocket; v
             setFlash(true);
             setTimeout(() => setShaking(false), 400);
             setTimeout(() => setFlash(false), 350);
-            flashBanner("Coupé !");
+            flashBanner(t.cut);
           }, exitDelay * 1000);
         } else if (event.type === "pile_picked_up") {
           const mine = seat === view.your_seat;
@@ -218,18 +244,16 @@ export default function GameTable({ socket, view }: { socket: NineToOneSocket; v
             sfx.pickup();
             if (mine) {
               vibrate([40, 60, 40]);
-              flashBanner("Tu ne peux pas jouer : tu ramasses le tas.");
+              flashBanner(t.youPickUp);
             } else {
-              flashBanner(`${pseudo} ramasse le tas.`);
+              flashBanner(t.picksUp(pseudo));
             }
           }, exitDelay * 1000);
           if (mine) handSource = "pile";
-          setLastMove(`${mine ? "Tu as" : `${pseudo} a`} ramassé le tas`);
+          setLastMove(t.pickedUp(mine ? null : pseudo));
         } else if (event.type === "auto_played") {
           flashBanner(
-            seat === view.your_seat
-              ? "Temps écoulé : le serveur a joué pour toi."
-              : `Temps écoulé pour ${pseudo}.`
+            seat === view.your_seat ? t.timeoutYou : t.timeoutOther(pseudo)
           );
         }
       }
@@ -271,16 +295,21 @@ export default function GameTable({ socket, view }: { socket: NineToOneSocket; v
   }, [socket.emotes, view.your_seat]);
 
   const finished = view.status === "finished";
+  const myRank = view.players[view.your_seat]?.finish_rank ?? null;
+  const seats = view.players.length;
   useEffect(() => {
+    // Une fois par fin de partie (pas à chaque vue reçue sur l'écran de fin).
     if (!finished) return;
-    const me = view.players[view.your_seat];
-    const lastRank = view.players.length;
-    if (me.finish_rank === 1) sfx.win();
-    else if (me.finish_rank === lastRank) sfx.lose();
-  }, [finished, view.players, view.your_seat]);
+    if (myRank === 1) sfx.win();
+    else if (myRank === seats) sfx.lose();
+  }, [finished, myRank, seats]);
 
   function tapValue(value: number, key: string) {
-    if (Date.now() - longPressRef.current < 500) return; // un appui long vient de jouer
+    // Le relâchement d'un appui long produit aussi un tap : on l'absorbe, une fois.
+    if (longPressRef.current && Date.now() - longPressRef.current < 2000) {
+      longPressRef.current = 0;
+      return;
+    }
     if (!yourTurn) return;
     if (!view.playable_values.includes(value)) {
       // Coup interdit : secousse + petit son, pour comprendre sans lire.
@@ -303,7 +332,7 @@ export default function GameTable({ socket, view }: { socket: NineToOneSocket; v
     } else if (value === 7) {
       setPendingSeven(1);
     } else {
-      socket.play(value, 1);
+      act(() => socket.play(value, 1));
     }
   }
 
@@ -317,7 +346,7 @@ export default function GameTable({ socket, view }: { socket: NineToOneSocket; v
   function playCount(value: number, count: number) {
     setPendingValue(null);
     if (value === 7) setPendingSeven(count);
-    else socket.play(value, count);
+    else act(() => socket.play(value, count));
   }
 
   return (
@@ -345,9 +374,14 @@ export default function GameTable({ socket, view }: { socket: NineToOneSocket; v
         selectedKey={selectedKey}
         onTapValue={tapValue}
         onLongPress={longPressValue}
-        onFlip={(i) => socket.flip(i)}
-        onChase={() => socket.chase(1)}
-        onChaseFlip={(i) => socket.chaseFlip(i)}
+        onFlip={(i) => act(() => socket.flip(i))}
+        onChase={() => {
+          // Bonne pioche : toutes les copies peuvent suivre, celles gardées en main aussi.
+          const copies = chaseValue === null ? 1 : eligibleCopies(you, chaseValue);
+          if (copies > 1 && chaseValue !== null) setPendingValue({ value: chaseValue, copies, chase: true });
+          else act(() => socket.chase(1));
+        }}
+        onChaseFlip={(i) => act(() => socket.chaseFlip(i))}
       />
       <AnimatePresence>
         {recentMsg && !chatOpen && (
@@ -357,7 +391,7 @@ export default function GameTable({ socket, view }: { socket: NineToOneSocket; v
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0 }}
-            className="absolute bottom-16 left-3 z-20 max-w-[75%] truncate rounded-2xl bg-black/70 px-3 py-2 text-left text-sm shadow-card backdrop-blur"
+            className="absolute left-1/2 top-24 z-20 max-w-[80%] -translate-x-1/2 truncate rounded-2xl bg-black/70 px-3 py-2 text-left text-sm shadow-card backdrop-blur"
           >
             <span className="font-bold text-gold/90">
               {view.players[recentMsg.seat]?.pseudo ?? "?"}
@@ -392,14 +426,18 @@ export default function GameTable({ socket, view }: { socket: NineToOneSocket; v
           }}
         >
           <p className="mb-3 text-center font-bold">
-            Tu as {pendingValue.copies} {valueLabel(pendingValue.value)}. Combien en poses-tu ?
+            {t.howMany(pendingValue.copies, valueLabel(pendingValue.value))}
           </p>
           <div className="flex justify-center gap-2">
             {Array.from({ length: pendingValue.copies }, (_, i) => i + 1).map((n) => (
               <button
                 key={n}
                 type="button"
-                onClick={() => playCount(pendingValue.value, n)}
+                onClick={() => {
+                  if (!pendingValue.chase) return playCount(pendingValue.value, n);
+                  setPendingValue(null);
+                  act(() => socket.chase(n));
+                }}
                 className="rounded-2xl bg-gold px-6 py-3 text-lg font-extrabold text-ink active:translate-y-0.5"
               >
                 ×{n}
@@ -416,27 +454,27 @@ export default function GameTable({ socket, view }: { socket: NineToOneSocket; v
             setSelectedKey(null);
           }}
         >
-          <p className="mb-3 text-center font-bold">Ton 7 impose quoi au joueur suivant ?</p>
+          <p className="mb-3 text-center font-bold">{t.sevenAsk}</p>
           <div className="flex justify-center gap-2">
             <button
               type="button"
               onClick={() => {
-                socket.play(7, pendingSeven, "<=");
+                act(() => socket.play(7, pendingSeven, "<="));
                 setPendingSeven(null);
               }}
               className="rounded-2xl bg-ivory px-5 py-3 font-extrabold text-ink active:translate-y-0.5"
             >
-              En dessous de 7
+              {t.sevenBelow}
             </button>
             <button
               type="button"
               onClick={() => {
-                socket.play(7, pendingSeven, ">=");
+                act(() => socket.play(7, pendingSeven, ">="));
                 setPendingSeven(null);
               }}
               className="rounded-2xl bg-gold px-5 py-3 font-extrabold text-ink active:translate-y-0.5"
             >
-              Au-dessus de 7
+              {t.sevenAbove}
             </button>
           </div>
         </Sheet>
@@ -587,6 +625,7 @@ function OpponentsRow({
   emotes: NineToOneSocket["emotes"];
   onInspect: (seat: number) => void;
 }) {
+  const t = useT(T).table;
   // À 3 adversaires et plus, tout se resserre pour tenir sur les petits écrans.
   const compact = opponents.length >= 3;
   return (
@@ -620,7 +659,7 @@ function OpponentsRow({
                 <Avatar id={op.avatar} size={compact ? "sm" : "md"} dimmed={!op.connected} />
               </span>
               {active && view.turn_remaining !== null && (
-                <TurnRing remaining={view.turn_remaining} total={view.turn_seconds} />
+                <TurnRing key={`${view.turn}-${view.turn_remaining}`} remaining={view.turn_remaining} total={view.turn_seconds} />
               )}
               {op.finish_rank === null && op.hand_count > 0 && (
                 <span className="absolute -bottom-1 -right-2 rounded-full bg-black/70 px-1.5 text-[11px] font-bold text-ivory ring-1 ring-white/20">
@@ -642,7 +681,7 @@ function OpponentsRow({
               {op.pseudo}
             </span>
             {op.finish_rank !== null ? (
-              <span className="text-xs font-bold text-gold">{rankLabel(op.finish_rank)}</span>
+              <span className="text-xs font-bold text-gold">{t.rank(op.finish_rank)}</span>
             ) : (
               <Board
                 faceUp={op.face_up}
@@ -703,6 +742,7 @@ function CenterTable({
   pileFrom: string | null;
   lastMove: string | null;
 }) {
+  const t = useT(T).table;
   const top = view.pile.slice(-3);
   const turnPlayer = view.turn !== null ? view.players[view.turn] : null;
   // Série en cours au sommet du tas (2 ou 3 cartes identiques) : à 4 ça coupe.
@@ -731,7 +771,7 @@ function CenterTable({
         <div ref={registerAnchor("pile")} className="relative aspect-[2/3] w-[4.8rem]">
           {view.pile.length === 0 && (
             <span className="flex h-full w-full items-center justify-center rounded-xl border-2 border-dashed border-white/20 text-xs text-ivory-dim/60">
-              tas vide
+              {t.emptyPile}
             </span>
           )}
           <AnimatePresence custom={pileExit}>
@@ -799,7 +839,7 @@ function CenterTable({
       <p
         className={`text-sm font-bold ${yourTurn ? "animate-pulse text-gold" : "text-ivory-dim/80"}`}
       >
-        {yourTurn ? "À toi de jouer" : turnPlayer ? `Au tour de ${turnPlayer.pseudo}` : ""}
+        {yourTurn ? t.yourTurn : turnPlayer ? t.turnOf(turnPlayer.pseudo) : ""}
       </p>
       <p className="h-4 text-xs text-ivory-dim/60">{lastMove}</p>
     </div>
@@ -813,20 +853,21 @@ function cardAngle(card: CardT): number {
 }
 
 function RuleChip({ view }: { view: RoomView }) {
+  const t = useT(T).table;
   let text: string | null = null;
   let arrow: "up" | "down" | null = null;
   const topCard = view.pile[view.pile.length - 1];
   if (view.constraint) {
     const label = valueLabel(view.constraint.value);
     if (view.constraint.comparator === "<=") {
-      text = `Jouer ${label} ou moins`;
+      text = t.playOrLess(label);
       arrow = "down";
     } else {
-      text = `Jouer ${label} ou plus`;
+      text = t.playOrMore(label);
       arrow = "up";
     }
   } else if (topCard?.value === 2) {
-    text = "Après un 2 : tout est permis";
+    text = t.afterTwo;
   }
   if (!text) return <span className="h-7" />;
   return (
@@ -880,6 +921,7 @@ function YourArea({
   onChase: () => void;
   onChaseFlip: (index: number) => void;
 }) {
+  const t = useT(T).table;
   const hand = you.hand ?? [];
   const mustFlip = yourTurn && view.must_flip;
   // Bonne pioche : main (ou visibles) avec la valeur → bouton + cartes qui pulsent ;
@@ -899,7 +941,7 @@ function YourArea({
         onFlip={blindChase ? onChaseFlip : onFlip}
       />
       {mustFlip && (
-        <p className="text-sm font-bold text-gold">Choisis une carte cachée à retourner.</p>
+        <p className="text-sm font-bold text-gold">{t.mustFlip}</p>
       )}
       <AnimatePresence>
         {directChase && (
@@ -912,7 +954,7 @@ function YourArea({
             transition={{ scale: { repeat: Infinity, duration: 0.55 } }}
             className="rounded-full bg-gold px-4 py-1.5 text-sm font-extrabold text-ink shadow-card"
           >
-            Vite ! Enchaîne le {valueLabel(chaseValue!)}
+            {t.chase(valueLabel(chaseValue!))}
           </motion.button>
         )}
         {blindChase && (
@@ -923,7 +965,7 @@ function YourArea({
             transition={{ scale: { repeat: Infinity, duration: 0.55 } }}
             className="text-sm font-extrabold text-gold"
           >
-            Vite ! Retourne une carte : un {valueLabel(chaseValue!)} s&rsquo;enchaîne !
+            {t.blindChase(valueLabel(chaseValue!))}
           </motion.p>
         )}
       </AnimatePresence>
@@ -1003,11 +1045,11 @@ function YourArea({
             })}
           </AnimatePresence>
           {hand.length === 0 && !mustFlip && you.finish_rank === null && (
-            <span className="pb-3 text-sm text-ivory-dim/70">Main vide…</span>
+            <span className="pb-3 text-sm text-ivory-dim/70">{t.emptyHand}</span>
           )}
           {you.finish_rank !== null && (
             <span className="pb-3 font-bold text-gold">
-              Tu as fini {rankLabel(you.finish_rank)} !
+              {t.youFinished(t.rank(you.finish_rank))}
             </span>
           )}
         </div>
@@ -1027,6 +1069,7 @@ function BottomBar({
   socket: NineToOneSocket;
   onToggleChat: () => void;
 }) {
+  const t = useT(T).table;
   const myEmote = socket.emotes.findLast((e) => (e.target ?? e.seat) === you.seat);
   const myTurn = view.turn === you.seat;
   return (
@@ -1036,7 +1079,7 @@ function BottomBar({
           <Avatar id={you.avatar} size="sm" />
         </span>
         {myTurn && view.turn_remaining !== null && (
-          <TurnRing remaining={view.turn_remaining} total={view.turn_seconds} />
+          <TurnRing key={`${view.turn}-${view.turn_remaining}`} remaining={view.turn_remaining} total={view.turn_seconds} />
         )}
       </span>
       <AnimatePresence>
@@ -1060,8 +1103,8 @@ function BottomBar({
             key={id}
             type="button"
             onClick={() => socket.sendEmote(id)}
-            className="rounded-full bg-black/25 px-1 py-0.5 ring-1 ring-white/10 active:scale-90"
-            aria-label={`Envoyer ${emoji}`}
+            className="grid size-9 place-items-center rounded-full bg-black/25 text-lg ring-1 ring-white/10 active:scale-90"
+            aria-label={t.sendEmote(emoji)}
           >
             {emoji}
           </button>
@@ -1069,8 +1112,8 @@ function BottomBar({
         <button
           type="button"
           onClick={onToggleChat}
-          className="rounded-full bg-black/25 px-1.5 py-0.5 ring-1 ring-white/10 active:scale-90"
-          aria-label="Ouvrir le chat"
+          className="grid size-9 place-items-center rounded-full bg-black/25 text-lg ring-1 ring-white/10 active:scale-90"
+          aria-label={t.openChat}
         >
           💬
         </button>
@@ -1094,6 +1137,7 @@ function PlayerSheet({
   socket: NineToOneSocket;
   onClose: () => void;
 }) {
+  const t = useT(T).table;
   const player = view.players[seat];
   const profile = useQuery({
     queryKey: ["profile", player.pseudo],
@@ -1107,17 +1151,17 @@ function PlayerSheet({
         <div>
           <p className="text-lg font-extrabold">{player.pseudo}</p>
           {player.bot ? (
-            <p className="text-sm text-ivory-dim/80">Bot {BOT_LABELS[player.bot].toLowerCase()}</p>
+            <p className="text-sm text-ivory-dim/80">{t.bot(player.bot)}</p>
           ) : profile.data ? (
             <ProfileStats stats={profile.data.stats[GAME.slug] ?? NO_STATS} />
           ) : (
             <p className="text-sm text-ivory-dim/60">
-              {player.connected ? "" : "Hors ligne · "}Chargement des stats…
+              {player.connected ? "" : t.offline}{t.loadingStats}
             </p>
           )}
         </div>
       </div>
-      <p className="mb-2 mt-4 text-sm font-bold text-ivory-dim/80">Lui lancer une emote</p>
+      <p className="mb-2 mt-4 text-sm font-bold text-ivory-dim/80">{t.throwEmote}</p>
       <div className="flex gap-2">
         {Object.entries(EMOTES).map(([id, emoji]) => (
           <button
@@ -1128,7 +1172,7 @@ function PlayerSheet({
               onClose();
             }}
             className="rounded-full bg-black/25 px-3 py-2 text-2xl ring-1 ring-white/10 active:scale-90"
-            aria-label={`Lancer ${emoji}`}
+            aria-label={t.throwEmoteLabel(emoji)}
           >
             {emoji}
           </button>
@@ -1188,15 +1232,17 @@ function Confetti() {
 }
 
 function ProfileStats({ stats }: { stats: GameStats }) {
+  const t = useT(T).table;
   const rate = stats.played > 0 ? Math.round((stats.won / stats.played) * 100) : 0;
   return (
     <p className="text-sm text-ivory-dim/80">
-      {stats.played} parties · {stats.won} gagnées · {rate}% de victoires
+      {t.stats(stats.played, stats.won, rate)}
     </p>
   );
 }
 
 function Results({ view, socket }: { view: RoomView; socket: NineToOneSocket }) {
+  const t = useT(T).table;
   const ranked = [...view.players].sort((a, b) => (a.finish_rank ?? 99) - (b.finish_rank ?? 99));
   const loserRank = ranked.length;
   const youLost = view.players[view.your_seat].finish_rank === loserRank;
@@ -1209,7 +1255,7 @@ function Results({ view, socket }: { view: RoomView; socket: NineToOneSocket }) 
         className="w-full max-w-sm rounded-3xl bg-felt-800 p-6 ring-1 ring-white/15"
       >
         <h2 className="mb-4 text-center text-2xl font-extrabold">
-          {youLost ? "Perdu…" : "Fin de partie"}
+          {youLost ? t.lost : t.gameOver}
         </h2>
         <ul className="mb-4 flex flex-col gap-2">
           {ranked.map((player, i) => (
@@ -1231,8 +1277,7 @@ function Results({ view, socket }: { view: RoomView; socket: NineToOneSocket }) 
               <span className="font-bold">{player.pseudo}</span>
               {(view.stats.pickups[String(player.seat)] ?? 0) > 0 && (
                 <span className="text-xs text-ivory-dim/60">
-                  {view.stats.pickups[String(player.seat)]} ramassage
-                  {view.stats.pickups[String(player.seat)] > 1 ? "s" : ""}
+                  {t.pickups(view.stats.pickups[String(player.seat)])}
                 </span>
               )}
               <span
@@ -1241,14 +1286,14 @@ function Results({ view, socket }: { view: RoomView; socket: NineToOneSocket }) 
                 }`}
               >
                 {player.finish_rank === loserRank
-                  ? "perd la partie"
-                  : rankLabel(player.finish_rank ?? 0)}
+                  ? t.losesGame
+                  : t.rank(player.finish_rank ?? 0)}
               </span>
             </motion.li>
           ))}
         </ul>
         <p className="mb-4 text-center text-xs text-ivory-dim/60">
-          {view.stats.moves} coups joués cette manche
+          {t.moves(view.stats.moves)}
         </p>
         <div className="flex flex-col gap-2">
           <button
@@ -1256,21 +1301,17 @@ function Results({ view, socket }: { view: RoomView; socket: NineToOneSocket }) 
             onClick={() => socket.rematch()}
             className="rounded-2xl bg-gold py-3 text-center font-extrabold text-ink active:translate-y-0.5"
           >
-            Revanche !
+            {t.rematch}
           </button>
           <Link
             href={GAME.path}
             onClick={() => forgetTable(GAME.slug)}
             className="rounded-2xl bg-black/25 py-3 text-center font-bold text-ivory-dim ring-1 ring-white/15"
           >
-            Retour à l&rsquo;accueil
+            {t.backHome}
           </Link>
         </div>
       </motion.div>
     </div>
   );
-}
-
-function rankLabel(rank: number): string {
-  return rank === 1 ? "1er" : `${rank}e`;
 }

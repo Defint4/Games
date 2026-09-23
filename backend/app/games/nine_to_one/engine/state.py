@@ -97,6 +97,9 @@ class GameState:
     last_play_index: int | None = None
     # « Bonne pioche » armée : le dernier coup a fait piocher une carte de la valeur posée.
     chase_armed: bool = False
+    # « Bonne pioche » à l'aveugle (plus que des cartes cachées) : ouverte par un coup,
+    # refermée dès qu'un autre joueur agit (retourne une cachée à son tour).
+    blind_chase_open: bool = False
     # Nombre de rangs déjà attribués (pour finish_rank).
     ranks_assigned: int = 0
 
@@ -119,6 +122,7 @@ class GameState:
             "required_first_value": self.required_first_value,
             "last_play_index": self.last_play_index,
             "chase_armed": self.chase_armed,
+            "blind_chase_open": self.blind_chase_open,
             "ranks_assigned": self.ranks_assigned,
         }
 
@@ -135,5 +139,6 @@ class GameState:
             required_first_value=data["required_first_value"],
             last_play_index=data["last_play_index"],
             chase_armed=data.get("chase_armed", False),
+            blind_chase_open=data.get("blind_chase_open", False),
             ranks_assigned=data["ranks_assigned"],
         )

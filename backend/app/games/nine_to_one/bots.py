@@ -327,7 +327,10 @@ async def _act(room: Room, kind: str, seat: int) -> list[dict]:
     me = view["players"][seat]
     if kind == "chase":
         if me["hand"]:
-            return chase_play(state, seat, 1)
+            # Toutes ses copies de la valeur, celles gardées en main comprises.
+            value = chase_value(state, seat)
+            copies = sum(1 for c in me["hand"] if c["value"] == value)
+            return chase_play(state, seat, max(1, copies))
         return chase_flip(state, seat, random.randrange(me["face_down_count"]))
     if view["must_flip"]:
         return flip_face_down(state, seat, random.randrange(me["face_down_count"]))

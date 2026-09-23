@@ -1,29 +1,39 @@
-/* Sons du jeu : vrais bruits de cartes (pack casino de Kenney, CC0, /public/sounds),
-   plus un petit carillon synthétisé pour signaler ton tour. */
+/* Sons des jeux : vrais bruits de cartes, de coups et de dés (packs de Kenney, CC0,
+   /public/sounds, mono 22 kHz), plus de petits carillons synthétisés (ton tour, gagné…).
+   Chaque jeu ne télécharge que ses packs (voir preloadSounds). */
 
 const KEY = "games:muted";
 let ctx: AudioContext | null = null;
 const raw = new Map<string, ArrayBuffer>();
 const buffers = new Map<string, AudioBuffer>();
 
-const FILES = [
-  "place-1",
-  "place-2",
-  "place-3",
-  "slide-1",
-  "slide-2",
-  "shove-1",
-  "fan",
-  // Goulag : coups (pack Impact Sounds de Kenney), mélange (pack Casino).
-  "hit-1",
-  "hit-2",
-  "hit-3",
-  "block-1",
-  "block-2",
-  "bell",
-  "thud",
-  "shuffle",
-];
+/* Les packs de sons. Un fichier peut servir à plusieurs packs : il n'est téléchargé
+   qu'une fois. */
+const PACKS = {
+  /* Cartes posées, glissées, poussées, en éventail, mélangées (pack Casino). */
+  cards: ["place-1", "place-2", "place-3", "slide-1", "slide-2", "shove-1", "fan", "shuffle"],
+  /* Goulag : coups, boucliers (pack Impact Sounds), cloche, chute. */
+  combat: ["hit-1", "hit-2", "hit-3", "block-1", "block-2", "bell", "thud"],
+  /* Perudo : dés secoués, lancés, un dé qui roule, dés ramassés, jeton posé pour une
+     enchère (pack Casino), le coup sourd du Dudo. */
+  dice: [
+    "dice-shake-1",
+    "dice-shake-2",
+    "dice-shake-3",
+    "dice-throw-1",
+    "dice-throw-2",
+    "dice-throw-3",
+    "die-throw-1",
+    "die-throw-2",
+    "dice-grab-1",
+    "chip-lay-1",
+    "chip-lay-2",
+    "chip-lay-3",
+    "thud",
+  ],
+} as const;
+
+export type SoundPack = keyof typeof PACKS;
 
 export function isMuted(): boolean {
   try {
@@ -41,28 +51,29 @@ export function setMuted(muted: boolean) {
   }
 }
 
-/* À appeler en entrant sur une table : télécharge les échantillons en avance.
-   La promesse se résout quand tout est là (un échec ne bloque pas : ce son restera muet). */
-let pending: Promise<void> | null = null;
+/* Télécharge les échantillons des packs demandés (accueil du jeu, entrée à table). La
+   promesse se résout quand tout est là ; un échec ne bloque pas : ce son restera muet. */
+const loading = new Map<string, Promise<void>>();
 
-export function preloadSounds(): Promise<void> {
-  if (typeof window === "undefined") return Promise.resolve();
-  if (pending) return pending;
-  pending = Promise.all(
-    FILES.map((name) =>
-      raw.has(name)
-        ? Promise.resolve()
-        : fetch(`/sounds/${name}.wav`)
-            .then((res) => res.arrayBuffer())
-            .then((buf) => {
-              raw.set(name, buf);
-            })
-            .catch(() => {
-              /* le jeu reste silencieux pour ce son */
-            })
-    )
-  ).then(() => undefined);
+function load(name: string): Promise<void> {
+  let pending = loading.get(name);
+  if (!pending) {
+    pending = fetch(`/sounds/${name}.wav`)
+      .then((res) => res.arrayBuffer())
+      .then((buf) => {
+        raw.set(name, buf);
+      })
+      .catch(() => {
+        /* le jeu reste silencieux pour ce son */
+      });
+    loading.set(name, pending);
+  }
   return pending;
+}
+
+export function preloadSounds(...packs: SoundPack[]): Promise<void> {
+  if (typeof window === "undefined") return Promise.resolve();
+  return Promise.all(packs.flatMap((pack) => PACKS[pack].map(load))).then(() => undefined);
 }
 
 function audio(): AudioContext | null {
@@ -144,6 +155,13 @@ export const sfx = {
   lose: () => {
     [392, 330, 262, 196].forEach((f, i) => tone(f, i * 0.16, 0.4, 0.1));
   },
+  /* Perudo : le gobelet qu'on secoue, les dés qui tombent sous le gobelet claqué,
+     un dé seul qui roule (perdu ou gagné), les dés qu'on ramasse. */
+  diceShake: () => sample(["dice-shake-1", "dice-shake-2", "dice-shake-3"], 0.85),
+  diceThrow: () => sample(["dice-throw-1", "dice-throw-2", "dice-throw-3"], 0.9),
+  dieRoll: () => sample(["die-throw-1", "die-throw-2"], 0.8),
+  diceGrab: () => sample(["dice-grab-1"], 0.7),
+  chip: () => sample(["chip-lay-1", "chip-lay-2", "chip-lay-3"], 0.75),
   /* Petit "pop" à la réception d'un message. */
   pop: () => tone(980, 0, 0.07, 0.07),
 };

@@ -4,21 +4,20 @@
    Purement cosmétique et local — chacun voit la table à son goût. */
 
 import { useSyncExternalStore } from "react";
+import { dict } from "@/lib/i18n";
 
 export type BackStyle = "classic" | "crimson" | "royal";
 export type FeltStyle = "green" | "navy" | "wine";
 
-export const BACK_STYLES: Record<BackStyle, string> = {
-  classic: "Vert rayé",
-  crimson: "Rouge losanges",
-  royal: "Bleu pointillé",
-};
+export const BACK_STYLES = dict<Record<BackStyle, string>>({
+  fr: { classic: "Vert rayé", crimson: "Rouge losanges", royal: "Bleu pointillé" },
+  en: { classic: "Green stripes", crimson: "Red diamonds", royal: "Blue dots" },
+});
 
-export const FELT_STYLES: Record<FeltStyle, string> = {
-  green: "Tapis vert",
-  navy: "Tapis nuit",
-  wine: "Tapis bordeaux",
-};
+export const FELT_STYLES = dict<Record<FeltStyle, string>>({
+  fr: { green: "Tapis vert", navy: "Tapis nuit", wine: "Tapis bordeaux" },
+  en: { green: "Green felt", navy: "Midnight felt", wine: "Burgundy felt" },
+});
 
 const KEY = "games:prefs";
 

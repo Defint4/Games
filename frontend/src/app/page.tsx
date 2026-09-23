@@ -4,10 +4,13 @@ import { useMutation } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import Avatar from "@/components/Avatar";
+import Brand from "@/components/Brand";
 import { ShufflingCards } from "@/components/Loading";
 import { ApiError, enter } from "@/lib/api";
 import { GALLERY } from "@/lib/avatars";
-import { APP_NAME, HUB_PATH } from "@/lib/games";
+import { HUB_PATH } from "@/lib/games";
+import { dict, useT } from "@/lib/i18n";
+import { COMMON } from "@/lib/texts";
 import {
   currentProfile,
   forgetProfile,
@@ -21,6 +24,27 @@ import {
 
 const AFTER_ENTER = HUB_PATH;
 
+const T = dict({
+  fr: {
+    whoPlays: "Qui joue ?",
+    forget: (pseudo: string) => `Oublier ${pseudo}`,
+    newPlayer: "Nouveau joueur",
+    pseudo: "Ton pseudo",
+    pseudoHint: "2 à 20 caractères",
+    avatar: "Ton avatar",
+    enter: "Entrer",
+  },
+  en: {
+    whoPlays: "Who's playing?",
+    forget: (pseudo: string) => `Forget ${pseudo}`,
+    newPlayer: "New player",
+    pseudo: "Your name",
+    pseudoHint: "2 to 20 characters",
+    avatar: "Your avatar",
+    enter: "Let's go",
+  },
+});
+
 type Screen =
   | { name: "loading" }
   | { name: "choose"; profiles: StoredProfile[] }
@@ -29,6 +53,7 @@ type Screen =
 export default function Page() {
   const router = useRouter();
   const [screen, setScreen] = useState<Screen>({ name: "loading" });
+  const common = useT(COMMON);
 
   useEffect(() => {
     // La sélection des jeux est la page suivante dans tous les cas : on la précharge.
@@ -45,14 +70,15 @@ export default function Page() {
 
   return (
     <main className="mx-auto flex min-h-0 w-full max-w-md grow flex-col overflow-y-auto px-5 pb-[max(2rem,env(safe-area-inset-bottom))] pt-10">
-      <header className="mb-10 flex flex-col items-center">
-        <h1 className="text-4xl font-extrabold tracking-tight">{APP_NAME}</h1>
-        <p className="mt-1 text-sm text-ivory-dim/80">Des jeux entre amis, sur le téléphone.</p>
+      <header className="mb-10">
+        <h1>
+          <Brand size="lg" />
+        </h1>
       </header>
       {screen.name === "loading" && (
         <div className="flex flex-col items-center gap-4 pt-6 text-ivory-dim">
           <ShufflingCards />
-          <p className="text-sm">Un instant…</p>
+          <p className="text-sm">{common.wait}</p>
         </div>
       )}
       {screen.name === "choose" && (
@@ -77,9 +103,10 @@ function ChooseProfile({
   onNew: () => void;
 }) {
   const [items, setItems] = useState(profiles);
+  const t = useT(T);
   return (
     <section className="flex flex-col gap-3">
-      <h2 className="text-lg font-bold">Qui joue ?</h2>
+      <h2 className="text-lg font-bold">{t.whoPlays}</h2>
       {items.map((profile) => (
         <div
           key={profile.pseudo}
@@ -98,7 +125,7 @@ function ChooseProfile({
           </button>
           <button
             type="button"
-            aria-label={`Oublier ${profile.pseudo}`}
+            aria-label={t.forget(profile.pseudo)}
             className="rounded-full px-3 py-2 text-ivory-dim/60 hover:text-ivory"
             onClick={() => {
               forgetProfile(profile.pseudo);
@@ -116,7 +143,7 @@ function ChooseProfile({
         onClick={onNew}
         className="mt-2 rounded-2xl border border-dashed border-ivory-dim/40 p-4 font-bold text-ivory-dim hover:text-ivory"
       >
-        Nouveau joueur
+        {t.newPlayer}
       </button>
     </section>
   );
@@ -125,6 +152,8 @@ function ChooseProfile({
 function CreateProfile({ onDone }: { onDone: (profile: StoredProfile) => void }) {
   const [pseudo, setPseudo] = useState("");
   const [avatar, setAvatar] = useState(GALLERY[0]);
+  const t = useT(T);
+  const common = useT(COMMON);
   const mutation = useMutation({
     mutationFn: () => enter(pseudo.trim(), avatar),
     onSuccess: ({ token }) => {
@@ -143,18 +172,18 @@ function CreateProfile({ onDone }: { onDone: (profile: StoredProfile) => void })
       }}
     >
       <label className="flex flex-col gap-2">
-        <span className="font-bold">Ton pseudo</span>
+        <span className="font-bold">{t.pseudo}</span>
         <input
           value={pseudo}
           onChange={(e) => setPseudo(e.target.value)}
           maxLength={20}
           autoFocus
-          placeholder="2 à 20 caractères"
+          placeholder={t.pseudoHint}
           className="rounded-xl bg-black/30 px-4 py-3 text-lg font-bold text-ivory placeholder:font-normal placeholder:text-ivory-dim/50 ring-1 ring-white/15 focus:outline-2 focus:outline-gold"
         />
       </label>
       <div className="flex flex-col gap-2">
-        <span className="font-bold">Ton avatar</span>
+        <span className="font-bold">{t.avatar}</span>
         <div className="grid grid-cols-6 gap-2">
           {GALLERY.map((id) => (
             <button
@@ -172,7 +201,7 @@ function CreateProfile({ onDone }: { onDone: (profile: StoredProfile) => void })
         <p className="text-sm text-card-red">
           {mutation.error instanceof ApiError
             ? mutation.error.message
-            : "Le serveur est injoignable. Réessaie dans un instant."}
+            : common.unreachable}
         </p>
       )}
       <button
@@ -180,7 +209,7 @@ function CreateProfile({ onDone }: { onDone: (profile: StoredProfile) => void })
         disabled={pseudo.trim().length < 2 || mutation.isPending}
         className="rounded-2xl bg-gold py-4 text-lg font-extrabold text-ink shadow-card enabled:active:translate-y-0.5 disabled:opacity-40"
       >
-        {mutation.isPending ? "Un instant…" : "Entrer"}
+        {mutation.isPending ? common.wait : t.enter}
       </button>
     </form>
   );

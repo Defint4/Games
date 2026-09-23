@@ -9,8 +9,55 @@ import Avatar from "@/components/Avatar";
 import { LoadingScreen, ShufflingCards } from "@/components/Loading";
 import { fetchLeaderboard } from "@/lib/api";
 import { GAMES, HUB_PATH, type GameMeta } from "@/lib/games";
+import { dict, useLang, useT } from "@/lib/i18n";
 import { currentProfile, type StoredProfile } from "@/lib/identity";
+import { COMMON } from "@/lib/texts";
 import type { LeaderboardEntry } from "@/lib/types";
+
+const T = dict({
+  fr: {
+    byGame: "Classement par jeu",
+    all: "Tous",
+    counting: "On compte les points…",
+    failed: "Le classement n’est pas arrivé.",
+    retry: "Réessayer",
+    nobody: (game: string | null) => `Personne n’est encore classé${game ? ` au ${game}` : ""}.`,
+    firstGame: "La première partie ouvre le bal.",
+    ranked: (n: number) => `${n} ${n > 1 ? "joueurs classés" : "joueur classé"}`,
+    topThree: "Les trois premiers",
+    wins: (n: number): string => (n > 1 ? "victoires" : "victoire"),
+    games: (n: number) => `${n} ${n > 1 ? "parties" : "partie"}`,
+    free: "Libre",
+    upForGrabs: "à prendre",
+    notYou: (game: string | null) =>
+      `Tu n’es pas encore classé${game ? ` au ${game}` : ""}. Une partie suffit.`,
+    yourPlace: "Ta place",
+    lastPlace: "Le nullos",
+    winRate: (pct: number) => `${pct} % de victoires`,
+    played: (n: number) => `${n} ${n > 1 ? "parties jouées" : "partie jouée"}`,
+  },
+  en: {
+    byGame: "Leaderboard by game",
+    all: "All",
+    counting: "Counting the points…",
+    failed: "The leaderboard didn't load.",
+    retry: "Try again",
+    nobody: (game: string | null) => `Nobody's ranked${game ? ` at ${game}` : ""} yet.`,
+    firstGame: "The first game gets things going.",
+    ranked: (n: number) => `${n} ranked ${n > 1 ? "players" : "player"}`,
+    topThree: "Top three",
+    wins: (n: number) => (n > 1 ? "wins" : "win"),
+    games: (n: number) => `${n} ${n > 1 ? "games" : "game"}`,
+    free: "Open",
+    upForGrabs: "up for grabs",
+    notYou: (game: string | null) =>
+      `You're not ranked${game ? ` at ${game}` : ""} yet. One game is all it takes.`,
+    yourPlace: "Your rank",
+    lastPlace: "The loser",
+    winRate: (pct: number) => `${pct}% wins`,
+    played: (n: number) => `${n} ${n > 1 ? "games played" : "game played"}`,
+  },
+});
 
 /* Le classement, d'un jeu ou de tous les jeux cumulés. Les trois premiers montent
    sur le podium, les autres suivent en liste, page après page, jusqu'à la lanterne
@@ -23,6 +70,9 @@ export function leaderboardPath(game: string | null): string {
 export default function Leaderboard({ game }: { game: GameMeta | null }) {
   const router = useRouter();
   const [profile, setProfile] = useState<StoredProfile | null>(null);
+  const t = useT(T);
+  const common = useT(COMMON);
+  const lang = useLang();
 
   useEffect(() => {
     const current = currentProfile();
@@ -40,19 +90,19 @@ export default function Leaderboard({ game }: { game: GameMeta | null }) {
         href={game ? game.path : HUB_PATH}
         className="mb-4 self-start rounded-xl py-2 pr-3 text-sm font-semibold text-ivory-dim/75 hover:text-ivory"
       >
-        ‹ {game ? game.name : "Tous les jeux"}
+        ‹ {game ? game.name[lang] : common.allGames}
       </Link>
 
       <nav
-        aria-label="Classement par jeu"
+        aria-label={t.byGame}
         className="mb-6 flex rounded-full bg-black/30 p-1 ring-1 ring-white/10"
       >
         <Tab href={leaderboardPath(null)} active={game === null}>
-          Tous
+          {t.all}
         </Tab>
         {GAMES.filter((g) => g.available).map((g) => (
           <Tab key={g.slug} href={leaderboardPath(g.slug)} active={game?.slug === g.slug}>
-            {g.name}
+            {g.name[lang]}
           </Tab>
         ))}
       </nav>
@@ -79,6 +129,8 @@ function Tab({ href, active, children }: { href: string; active: boolean; childr
 
 function Ranking({ game, profile }: { game: GameMeta | null; profile: StoredProfile }) {
   const slug = game?.slug ?? null;
+  const t = useT(T);
+  const lang = useLang();
   const pages = useInfiniteQuery({
     queryKey: ["leaderboard", slug, profile.pseudo],
     queryFn: ({ pageParam }) => fetchLeaderboard(slug, pageParam, profile.pseudo),
@@ -105,17 +157,17 @@ function Ranking({ game, profile }: { game: GameMeta | null; profile: StoredProf
     return () => observer.disconnect();
   }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
-  if (pages.isPending) return <LoadingScreen label="On compte les points…" />;
+  if (pages.isPending) return <LoadingScreen label={t.counting} />;
   if (pages.isError) {
     return (
       <div className="flex flex-col items-center gap-4 py-10 text-center">
-        <p className="text-sm text-card-red">Le classement n&rsquo;est pas arrivé.</p>
+        <p className="text-sm text-card-red">{t.failed}</p>
         <button
           type="button"
           onClick={() => pages.refetch()}
           className="rounded-xl bg-felt-600 px-5 py-3 font-bold ring-1 ring-white/15 active:translate-y-0.5"
         >
-          Réessayer
+          {t.retry}
         </button>
       </div>
     );
@@ -129,9 +181,9 @@ function Ranking({ game, profile }: { game: GameMeta | null; profile: StoredProf
   if (total === 0) {
     return (
       <p className="rounded-2xl border border-dashed border-ivory-dim/30 p-5 text-center text-sm leading-relaxed text-ivory-dim/70">
-        Personne n&rsquo;est encore classé{game ? ` au ${game.name}` : ""}.
+        {t.nobody(game?.name[lang] ?? null)}
         <br />
-        La première partie ouvre le bal.
+        {t.firstGame}
       </p>
     );
   }
@@ -163,11 +215,11 @@ function Ranking({ game, profile }: { game: GameMeta | null; profile: StoredProf
         {isFetchingNextPage ? (
           <>
             <ShufflingCards />
-            <p className="text-sm text-ivory-dim/70">On compte les points…</p>
+            <p className="text-sm text-ivory-dim/70">{t.counting}</p>
           </>
         ) : complete ? (
           <p className="text-sm text-ivory-dim/55">
-            {total} {total > 1 ? "joueurs classés" : "joueur classé"}
+            {t.ranked(total)}
           </p>
         ) : null}
       </div>
@@ -183,11 +235,12 @@ const MEDALS = ["#e5b54a", "#cfd3d8", "#c98552"] as const;
 
 function Podium({ entries, me }: { entries: LeaderboardEntry[]; me: LeaderboardEntry | null }) {
   const reduced = useReducedMotion();
+  const t = useT(T);
   // Le premier au centre, plus haut ; le deuxième à sa gauche, le troisième à sa droite.
   const order = [1, 0, 2];
   const heights = ["h-24", "h-16", "h-11"];
   return (
-    <ol className="flex items-end gap-2" aria-label="Les trois premiers">
+    <ol className="flex items-end gap-2" aria-label={t.topThree}>
       {order.map((i) => {
         const entry = entries[i];
         const medal = MEDALS[i];
@@ -224,17 +277,15 @@ function Podium({ entries, me }: { entries: LeaderboardEntry[]; me: LeaderboardE
                 </p>
                 <p className="text-xs text-ivory-dim/70">
                   <span className="font-bold text-ivory">{entry.won}</span>{" "}
-                  {entry.won > 1 ? "victoires" : "victoire"}
+                  {t.wins(entry.won)}
                 </p>
-                <p className="text-xs text-ivory-dim/55">
-                  {entry.played} {entry.played > 1 ? "parties" : "partie"}
-                </p>
+                <p className="text-xs text-ivory-dim/55">{t.games(entry.played)}</p>
               </>
             ) : (
               <>
                 <span className="size-16 rounded-full border-2 border-dashed border-ivory-dim/25" />
-                <p className="mt-2 text-sm font-bold text-ivory-dim/45">Libre</p>
-                <p className="text-xs text-ivory-dim/40">à prendre</p>
+                <p className="mt-2 text-sm font-bold text-ivory-dim/45">{t.free}</p>
+                <p className="text-xs text-ivory-dim/40">{t.upForGrabs}</p>
               </>
             )}
             <div
@@ -271,10 +322,12 @@ function MyPlace({
   total: number;
   game: GameMeta | null;
 }) {
+  const t = useT(T);
+  const lang = useLang();
   if (!me) {
     return (
       <p className="rounded-2xl bg-black/25 px-4 py-3 text-sm text-ivory-dim/75 ring-1 ring-white/10">
-        Tu n&rsquo;es pas encore classé{game ? ` au ${game.name}` : ""}. Une partie suffit.
+        {t.notYou(game?.name[lang] ?? null)}
       </p>
     );
   }
@@ -283,7 +336,7 @@ function MyPlace({
       <span className="text-2xl font-extrabold tabular-nums text-gold">{me.rank}</span>
       <span className="text-sm text-ivory-dim/60">/ {total}</span>
       <div className="min-w-0 grow">
-        <p className="truncate text-sm font-bold">Ta place</p>
+        <p className="truncate text-sm font-bold">{t.yourPlace}</p>
         <WinBar entry={me} />
       </div>
       <Score entry={me} />
@@ -296,6 +349,7 @@ function MyPlace({
 /* ----------------------------------------------------------------------- */
 
 function Row({ entry, mine, last }: { entry: LeaderboardEntry; mine: boolean; last: boolean }) {
+  const t = useT(T);
   return (
     <li
       className={`flex items-center gap-3 rounded-2xl p-3 ring-1 ${
@@ -310,7 +364,7 @@ function Row({ entry, mine, last }: { entry: LeaderboardEntry; mine: boolean; la
         <p className={`truncate font-bold ${mine ? "text-gold" : ""}`}>{entry.pseudo}</p>
         {last && (
           <span className="mt-1 inline-block rounded-full bg-card-red/20 px-2 py-0.5 text-[0.65rem] font-bold text-card-red ring-1 ring-card-red/40">
-            Lanterne rouge
+            {t.lastPlace}
           </span>
         )}
         <WinBar entry={entry} />
@@ -323,11 +377,12 @@ function Row({ entry, mine, last }: { entry: LeaderboardEntry; mine: boolean; la
 /* Part de victoires sur les parties jouées : un trait, pas un pourcentage à lire. */
 function WinBar({ entry }: { entry: LeaderboardEntry }) {
   const ratio = entry.played ? entry.won / entry.played : 0;
+  const t = useT(T);
   return (
     <span
       className="mt-1.5 block h-1 w-full overflow-hidden rounded-full bg-white/10"
       role="img"
-      aria-label={`${Math.round(ratio * 100)} % de victoires`}
+      aria-label={t.winRate(Math.round(ratio * 100))}
     >
       <span
         className="block h-full rounded-full bg-gold"
@@ -338,16 +393,17 @@ function WinBar({ entry }: { entry: LeaderboardEntry }) {
 }
 
 function Score({ entry }: { entry: LeaderboardEntry }) {
+  const t = useT(T);
   return (
     <div className="shrink-0 text-right">
       <p className="text-xl font-extrabold leading-none tabular-nums">
         {entry.won}{" "}
         <span className="text-xs font-semibold text-ivory-dim/70">
-          {entry.won > 1 ? "victoires" : "victoire"}
+          {t.wins(entry.won)}
         </span>
       </p>
       <p className="mt-1 text-xs text-ivory-dim/60 tabular-nums">
-        {entry.played} {entry.played > 1 ? "parties jouées" : "partie jouée"}
+        {t.played(entry.played)}
       </p>
     </div>
   );

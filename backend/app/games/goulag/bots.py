@@ -80,6 +80,30 @@ TARGET_DELAY = (0.9, 1.5)
 SUIT_DELAY = (1.2, 2.0)
 LOBBY_DELAY = 0.8
 
+# Durée approximative de l'animation de chaque événement côté client
+# (frontend/src/games/goulag/useChoreography.tsx) : un bot attend que la table ait fini
+# de raconter le coup précédent avant de jouer, sinon le client prend du retard à chaque
+# tour et le tour d'un humain commence avant que ses boutons n'apparaissent.
+REPLAY_SECONDS = {
+    "announced": 0.7,
+    "charged": 0.7,
+    "revealed": 2.0,
+    "attacked": 1.8,
+    "charges_lost": 0.6,
+    "lives_updated": 1.2,
+    "defense_changed": 1.3,
+    "died": 1.6,
+    "suit_chosen": 0.8,
+    "revival_flip": 2.5,
+    "revived": 1.0,
+    "eliminated": 1.2,
+    "deck_reshuffled": 1.0,
+}
+
+
+def replay_time(events: list[dict]) -> float:
+    return sum(REPLAY_SECONDS.get(e.get("type", ""), 0.0) for e in events)
+
 
 def add_bot(room: Room, difficulty: str) -> Seat:
     """Assoit un bot en lobby (lève GameError si la table est pleine)."""
@@ -113,6 +137,14 @@ def _choose_action(view: dict, difficulty: str) -> Action:
     options = [Action.ATTACK, Action.DEFEND] + ([Action.CHARGE] if view["can_charge"] else [])
     if difficulty == "easy":
         return random.choice(options)
+    # Œil de faucon : la carte est connue. Forte, on frappe ; faible, on l'impose en
+    # défense à l'adversaire le plus solide (voir _choose_target).
+    known = view["peek"]["value"] if view["peek"] else None
+    if known is not None:
+        if known >= 9:
+            return Action.ATTACK
+        if known <= 5:
+            return Action.DEFEND
     # Normal : une défense faible se répare ; sinon on charge un peu, puis on frappe.
     defense = me["defense"]["value"] if me["defense"] else 0
     if defense <= 4 and random.random() < 0.6:
@@ -171,6 +203,15 @@ def _choose_suit(view: dict, difficulty: str) -> Suit:
 
 def _plan(room: Room) -> tuple[str, int, float] | None:
     """(action, siège, délai) du prochain bot qui doit agir, ou None."""
+    plan = _next_action(room)
+    if plan is None or plan[0] == "lobby":
+        return plan
+    kind, seat, delay = plan
+    replay = room.data.get("replay", 0.0) if isinstance(room.data, dict) else 0.0
+    return kind, seat, delay + replay
+
+
+def _next_action(room: Room) -> tuple[str, int, float] | None:
     state = room.state
     if state.status is GameStatus.LOBBY:
         for i, seat in enumerate(room.seats):

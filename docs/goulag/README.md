@@ -54,9 +54,11 @@ avant d'annoncer son action.
   l'œil de faucon la connaît d'avance).
 - Une attaque qui touche les vies fait perdre ses charges au défenseur ; la défense et les
   charges d'un joueur éliminé vont à la défausse (elles reviennent en jeu).
-- S'il n'existe aucune carte de la valeur exacte à recomposer, deux cartes qui font la
-  somme ; s'il n'existe aucune combinaison (les quatre As déjà en jeu alors qu'il faut 1),
-  la plus petite carte au-dessus, au bénéfice du blessé (événement `lives_rounded_up`).
+- S'il n'existe aucune carte de la valeur exacte à recomposer, deux cartes qui font tout
+  le total (jamais trois cartes de vie). S'il n'existe aucune combinaison (les quatre As
+  déjà en jeu alors qu'il faut 1), une carte « hors jeu » de la valeur manquante est créée
+  pour l'occasion : elle n'entre jamais dans la pioche ni la défausse et disparaît quand
+  elle est cassée (événement `ghost_card`, arbitrages de Matthieu du 23 sept 2026).
 - Les cartes retournées lors d'une résurrection ratée vont à la défausse.
 - Six joueurs maximum : au-delà, les tapis adverses ne sont plus lisibles sur un téléphone.
 

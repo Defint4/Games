@@ -47,6 +47,17 @@ class Goulag(GameSpec):
     def rotate_players(self, state: GameState, k: int) -> None:
         state.players[:] = state.players[k:] + state.players[:k]
 
+    def lobby_changed(self, state: GameState) -> list[Event]:
+        # Réaffirmer l'état « prêt » du siège 0 relance le test de démarrage du moteur.
+        return set_ready(state, 0, state.players[0].ready) if state.players else []
+
+    def new_room_data(self) -> dict:
+        # Durée estimée de l'animation du dernier coup côté client (voir bots.replay_time).
+        return {"replay": 0.0}
+
+    def on_events(self, room: Room, events: list[Event]) -> None:
+        room.data["replay"] = bots.replay_time(events)
+
     def status(self, state: GameState) -> GameStatus:
         return state.status
 
@@ -89,8 +100,11 @@ class Goulag(GameSpec):
             return choose_target(state, seat, random.choice(others))
         if can_charge(state, seat):
             return announce(state, seat, Action.CHARGE)
-        events = announce(state, seat, Action.DEFEND)
-        return events + choose_target(state, seat, seat)
+        # Charges au complet : on attaque au hasard avec elles plutôt que de risquer de
+        # remplacer sa propre défense par une carte faible.
+        events = announce(state, seat, Action.ATTACK)
+        others = [i for i in state.alive_indices() if i != seat]
+        return events + choose_target(state, seat, random.choice(others))
 
     # --- Fin de partie -----------------------------------------------------------
 

@@ -1,0 +1,52 @@
+"""Moteur de jeu du Perudo (pur, sans I/O)."""
+
+from .errors import GameError, IllegalMove, InvalidAction, NotYourTurn
+from .game import (
+    FACES,
+    MAX_PLAYERS,
+    MIN_PLAYERS,
+    START_DICE,
+    add_player,
+    bid,
+    calza,
+    can_calza,
+    count_matching,
+    create_game,
+    dudo,
+    is_legal_bid,
+    legal_bids,
+    next_round,
+    remove_player,
+    set_ready,
+)
+from .state import PACO, Bid, GameState, GameStatus, Phase, PlayerState, Reveal
+
+__all__ = [
+    "GameError",
+    "IllegalMove",
+    "InvalidAction",
+    "NotYourTurn",
+    "FACES",
+    "MAX_PLAYERS",
+    "MIN_PLAYERS",
+    "START_DICE",
+    "add_player",
+    "bid",
+    "calza",
+    "can_calza",
+    "count_matching",
+    "create_game",
+    "dudo",
+    "is_legal_bid",
+    "legal_bids",
+    "next_round",
+    "remove_player",
+    "set_ready",
+    "PACO",
+    "Bid",
+    "GameState",
+    "GameStatus",
+    "Phase",
+    "PlayerState",
+    "Reveal",
+]

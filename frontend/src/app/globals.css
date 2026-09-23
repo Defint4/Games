@@ -17,6 +17,7 @@
   --color-gold-deep: #c4923a;
 
   --font-sans: var(--font-bricolage), system-ui, sans-serif;
+  --font-script: var(--font-yellowtail), cursive;
 
   --shadow-card: 0 2px 0 rgba(0, 0, 0, 0.18), 0 8px 18px rgba(0, 0, 0, 0.28);
   /* Jamais de liseré serré (0 0 1px) ni d'ombre dure décalée d'un pixel : sur une

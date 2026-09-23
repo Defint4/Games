@@ -72,6 +72,11 @@ class GameSpec(ABC):
     def current_turn(self, state: Any) -> int | None:
         """Siège dont c'est le tour, None hors partie."""
 
+    def lobby_changed(self, state: Any) -> list[Event]:
+        """Un siège de lobby vient d'être libéré : si tous les joueurs restants sont
+        prêts (et assez nombreux), la partie démarre. Rien par défaut."""
+        return []
+
     def new_room_data(self) -> Any:
         """Données propres au jeu pour la table (None par défaut)."""
         return None

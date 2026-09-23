@@ -9,6 +9,7 @@ import { LoadingScreen } from "@/components/Loading";
 import SettingsSheet from "@/components/SettingsSheet";
 import { joinRoom } from "@/lib/api";
 import type { GameMeta } from "@/lib/games";
+import { dict, tr, useT } from "@/lib/i18n";
 import { tablePath } from "@/lib/games";
 import {
   currentProfile,
@@ -17,13 +18,17 @@ import {
   type StoredProfile,
 } from "@/lib/identity";
 import { applyFelt } from "@/lib/prefs";
-import { preloadCards } from "@/lib/preloadCards";
-import { preloadSounds } from "@/lib/sound";
 import type { BaseRoomView } from "@/lib/types";
+import { COMMON } from "@/lib/texts";
 import type { RoomSocket } from "@/lib/useRoomSocket";
 
+const T = dict({
+  fr: { loadingCards: "On sort les cartes…", back: "Retour à l’accueil" },
+  en: { loadingCards: "Getting the cards out…", back: "Back to the game screen" },
+});
+
 /* Le cadre d'une page de table, commun à tous les jeux : identité, prise de place,
-   chargement des cartes et des sons avant tout affichage, connexion WebSocket,
+   chargement des ressources du jeu avant tout affichage, connexion WebSocket,
    revanche, écran verrouillé, menu ⚙️, couche de vols, erreurs.
    Le jeu fournit son hook de socket, son lobby, sa table et ses règles. */
 
@@ -33,15 +38,19 @@ type Props<V extends BaseRoomView, S extends RoomSocket<V>> = {
   lobby: (socket: S, view: V) => React.ReactNode;
   table: (socket: S, view: V) => React.ReactNode;
   rules: React.ReactNode;
-  /* Chargements propres au jeu à attendre en plus des cartes et des sons communs. */
-  preload?: () => Promise<unknown>;
+  /* Les ressources du jeu (images, sons, 3D) à avoir en cache avant d'afficher la
+     table : sur un réseau lent, mieux vaut attendre un peu que voir des trous en pleine
+     partie. Fonction stable (déclarée au niveau du module), chaque jeu a la sienne. */
+  preload: () => Promise<unknown>;
+  /* Texte de l'écran d'attente pendant ce chargement. */
+  loadingLabel?: string;
 };
 
 export default function TableFrame<
   V extends BaseRoomView,
   S extends RoomSocket<V>,
 >(props: Props<V, S>) {
-  const { game, preload } = props;
+  const { game, preload, loadingLabel } = props;
   const { code } = useParams<{ code: string }>();
   const router = useRouter();
   const [profile, setProfile] = useState<StoredProfile | null>(null);
@@ -50,6 +59,8 @@ export default function TableFrame<
   // Cartes et sons chargés avant d'afficher quoi que ce soit : sur un réseau lent,
   // mieux vaut attendre un peu que voir des cartes blanches en pleine partie.
   const [assetsReady, setAssetsReady] = useState(false);
+  const t = useT(T);
+  const common = useT(COMMON);
 
   useEffect(() => {
     const current = currentProfile();
@@ -68,7 +79,7 @@ export default function TableFrame<
       .catch((e) => {
         forgetTable(game.slug);
         setJoinError(
-          e instanceof Error ? e.message : "Impossible de rejoindre.",
+          e instanceof Error ? e.message : tr(COMMON).cantJoin,
         );
       });
   }, [code, router, game.slug]);
@@ -76,7 +87,7 @@ export default function TableFrame<
   useEffect(() => {
     applyFelt();
     let cancelled = false;
-    Promise.all([preloadCards(), preloadSounds(), preload?.()]).then(() => {
+    preload().then(() => {
       if (!cancelled) setAssetsReady(true);
     });
     return () => {
@@ -107,8 +118,8 @@ export default function TableFrame<
 
   if (joinError) return <Blocked game={game} message={joinError} />;
   if (!profile || !joined)
-    return <LoadingScreen label="Connexion à la table…" />;
-  if (!assetsReady) return <LoadingScreen label="On sort les cartes…" />;
+    return <LoadingScreen label={common.connecting} />;
+  if (!assetsReady) return <LoadingScreen label={loadingLabel ?? t.loadingCards} />;
   return <Room {...props} code={code} token={profile.token} />;
 }
 
@@ -124,6 +135,7 @@ function Room<V extends BaseRoomView, S extends RoomSocket<V>>({
   const socket = useSocket(code, token);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const router = useRouter();
+  const common = useT(COMMON);
 
   const rematchCode = socket.rematchCode;
   useEffect(() => {
@@ -146,7 +158,7 @@ function Room<V extends BaseRoomView, S extends RoomSocket<V>>({
   if (socket.closedReason)
     return <Blocked game={game} message={socket.closedReason} />;
   const view = socket.view;
-  if (!view) return <LoadingScreen label="Connexion à la table…" />;
+  if (!view) return <LoadingScreen label={common.connecting} />;
   const inLobby = view.status === "lobby";
 
   return (
@@ -154,7 +166,7 @@ function Room<V extends BaseRoomView, S extends RoomSocket<V>>({
       <button
         type="button"
         onClick={() => setSettingsOpen(true)}
-        aria-label="Paramètres"
+        aria-label={common.settings}
         className="absolute right-3 top-3 z-30 rounded-full bg-black/30 p-2.5 text-ivory-dim ring-1 ring-white/15 backdrop-blur-sm active:scale-90"
       >
         <GearIcon />
@@ -191,7 +203,7 @@ function Room<V extends BaseRoomView, S extends RoomSocket<V>>({
   );
 }
 
-function GearIcon() {
+export function GearIcon() {
   return (
     <svg
       viewBox="0 0 24 24"
@@ -213,6 +225,7 @@ export function Blocked({
   game: GameMeta;
   message: string;
 }) {
+  const t = useT(T);
   return (
     <div className="flex h-full flex-col items-center justify-center overflow-y-auto px-6 text-center text-ivory-dim">
       <p className="font-bold text-ivory">{message}</p>
@@ -220,7 +233,7 @@ export function Blocked({
         href={game.path}
         className="mt-4 rounded-2xl bg-gold px-6 py-3 font-extrabold text-ink"
       >
-        Retour à l&rsquo;accueil
+        {t.back}
       </Link>
     </div>
   );

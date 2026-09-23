@@ -5,12 +5,50 @@ import Avatar from "@/components/Avatar";
 import ChatPanel, { RecentChat } from "@/components/ChatPanel";
 import { Sheet } from "@/components/Sheet";
 import { EMOTES } from "@/lib/emotes";
+import { dict, useT } from "@/lib/i18n";
 import { BOT_LABELS, type BasePlayerView, type BaseRoomView, type BotDifficulty } from "@/lib/types";
 import type { RoomSocket } from "@/lib/useRoomSocket";
 
 /* Le lobby commun à tous les jeux : sièges, bots, temps par tour, prêt, chat.
    Chaque jeu glisse sa propre section entre le timer et le bouton « prêt »
    (Nine to One : l'échange initial). */
+
+const T = dict({
+  fr: {
+    table: "Table",
+    share: "Partage ce code — la partie démarre quand tout le monde est prêt.",
+    freeSeats: (n: number) => `${n} place${n > 1 ? "s" : ""} libre${n > 1 ? "s" : ""}`,
+    addBot: "Ajouter un bot",
+    turnTime: "Temps par tour",
+    noTimer: "Sans",
+    notReadyAnymore: "Je ne suis plus prêt",
+    imReady: "Je suis prêt",
+    you: "(toi)",
+    bot: (label: string) => `Bot ${label.toLowerCase()}`,
+    ready: "Prêt",
+    notReady: "Pas prêt",
+    remove: (pseudo: string) => `Retirer ${pseudo}`,
+    botHint: "Il se met prêt tout seul et suit la revanche.",
+    send: (emoji: string) => `Envoyer ${emoji}`,
+  },
+  en: {
+    table: "Table",
+    share: "Share this code. The game starts when everyone's ready.",
+    freeSeats: (n: number) => `${n} free seat${n > 1 ? "s" : ""}`,
+    addBot: "Add a bot",
+    turnTime: "Time per turn",
+    noTimer: "None",
+    notReadyAnymore: "Not ready anymore",
+    imReady: "I'm ready",
+    you: "(you)",
+    bot: (label: string) => `${label} bot`,
+    ready: "Ready",
+    notReady: "Not ready",
+    remove: (pseudo: string) => `Remove ${pseudo}`,
+    botHint: "It readies up on its own and stays for the rematch.",
+    send: (emoji: string) => `Send ${emoji}`,
+  },
+});
 
 export type LobbyPlayer = BasePlayerView & { ready: boolean };
 export type LobbyView = Omit<BaseRoomView, "players"> & { players: LobbyPlayer[] };
@@ -36,16 +74,15 @@ export default function Lobby({
   const [botSheetOpen, setBotSheetOpen] = useState(false);
   const isCreator = view.your_seat === 0;
   const free = maxSeats - view.players.length;
+  const t = useT(T);
 
   return (
     <div className="flex min-h-full flex-col gap-5">
       <header className="pr-12">
         <h1 className="text-2xl font-extrabold">
-          Table <span className="tracking-widest text-gold">{view.code}</span>
+          {t.table} <span className="tracking-widest text-gold">{view.code}</span>
         </h1>
-        <p className="text-sm text-ivory-dim/80">
-          Partage ce code — la partie démarre quand tout le monde est prêt.
-        </p>
+        <p className="text-sm text-ivory-dim/80">{t.share}</p>
       </header>
 
       <ul className="flex flex-col gap-2">
@@ -59,13 +96,11 @@ export default function Lobby({
         ))}
         {free > 0 && (
           <li className="flex items-center rounded-2xl border border-dashed border-ivory-dim/30 py-1.5 pl-3 pr-1.5 text-sm text-ivory-dim/60">
-            <span className="grow text-center">
-              {free} place{free > 1 ? "s" : ""} libre{free > 1 ? "s" : ""}
-            </span>
+            <span className="grow text-center">{t.freeSeats(free)}</span>
             {botChoices.length > 0 && (
               <button
                 type="button"
-                aria-label="Ajouter un bot"
+                aria-label={t.addBot}
                 disabled={!isCreator}
                 onClick={() => setBotSheetOpen(true)}
                 className={`flex items-center gap-1 rounded-full px-2.5 py-1.5 font-bold ring-1 ring-white/15 ${
@@ -92,7 +127,7 @@ export default function Lobby({
       )}
 
       <section className="flex items-center gap-2 rounded-2xl bg-black/25 p-3 ring-1 ring-white/10">
-        <span className="grow text-sm font-bold">Temps par tour</span>
+        <span className="grow text-sm font-bold">{t.turnTime}</span>
         {[0, 30, 60].map((seconds) => (
           <button
             key={seconds}
@@ -103,7 +138,7 @@ export default function Lobby({
               view.turn_seconds === seconds ? "bg-gold text-ink" : "bg-white/10 text-ivory-dim/70"
             } ${isCreator ? "active:scale-95" : "cursor-default"}`}
           >
-            {seconds === 0 ? "Sans" : `${seconds} s`}
+            {seconds === 0 ? t.noTimer : `${seconds} s`}
           </button>
         ))}
       </section>
@@ -117,7 +152,7 @@ export default function Lobby({
           you.ready ? "bg-felt-600 text-ivory ring-1 ring-white/15" : "bg-gold text-ink"
         }`}
       >
-        {you.ready ? "Je ne suis plus prêt" : "Je suis prêt"}
+        {you.ready ? t.notReadyAnymore : t.imReady}
       </button>
 
       <LobbyChat socket={socket} view={view} />
@@ -134,17 +169,19 @@ function SeatRow({
   you: boolean;
   onRemove?: () => void;
 }) {
+  const t = useT(T);
+  const botLabels = useT(BOT_LABELS);
   return (
     <li className="flex items-center gap-3 rounded-2xl bg-black/25 p-3 ring-1 ring-white/10">
       <Avatar id={player.avatar} dimmed={!player.connected} />
       <span className={`min-w-0 font-bold ${player.connected ? "" : "text-ivory-dim/50"}`}>
         <span className="block truncate">
           {player.pseudo}
-          {you && <span className="text-ivory-dim/60"> (toi)</span>}
+          {you && <span className="text-ivory-dim/60"> {t.you}</span>}
         </span>
         {player.bot && (
           <span className="flex items-center gap-1 text-xs font-semibold text-ivory-dim/70">
-            <RobotIcon className="size-3.5" /> Bot {BOT_LABELS[player.bot].toLowerCase()}
+            <RobotIcon className="size-3.5" /> {t.bot(botLabels[player.bot])}
           </span>
         )}
       </span>
@@ -153,13 +190,13 @@ function SeatRow({
           player.ready ? "bg-gold text-ink" : "bg-white/10 text-ivory-dim/70"
         }`}
       >
-        {player.ready ? "Prêt" : "Pas prêt"}
+        {player.ready ? t.ready : t.notReady}
       </span>
       {onRemove && (
         <button
           type="button"
           onClick={onRemove}
-          aria-label={`Retirer ${player.pseudo}`}
+          aria-label={t.remove(player.pseudo)}
           className="-mr-1 shrink-0 rounded-full p-1.5 text-ivory-dim/70 ring-1 ring-white/15 active:scale-90"
         >
           <svg viewBox="0 0 24 24" className="size-4 fill-none stroke-current stroke-[2.5]">
@@ -181,14 +218,14 @@ function BotSheet({
   onPick: (difficulty: BotDifficulty) => void;
   onClose: () => void;
 }) {
+  const t = useT(T);
+  const botLabels = useT(BOT_LABELS);
   return (
     <Sheet onClose={onClose}>
       <h2 className="mb-1 flex items-center justify-center gap-2 text-center text-lg font-extrabold">
-        <RobotIcon className="size-5" /> Ajouter un bot
+        <RobotIcon className="size-5" /> {t.addBot}
       </h2>
-      <p className="mb-4 text-center text-sm text-ivory-dim/80">
-        Il se met prêt tout seul et suit la revanche.
-      </p>
+      <p className="mb-4 text-center text-sm text-ivory-dim/80">{t.botHint}</p>
       <div className="flex flex-col gap-2">
         {choices.map((choice) => (
           <button
@@ -197,7 +234,7 @@ function BotSheet({
             onClick={() => onPick(choice.id)}
             className="flex flex-col rounded-2xl bg-black/25 p-4 text-left ring-1 ring-white/10 active:translate-y-0.5"
           >
-            <span className="font-extrabold text-gold">{BOT_LABELS[choice.id]}</span>
+            <span className="font-extrabold text-gold">{botLabels[choice.id]}</span>
             <span className="text-sm text-ivory-dim/80">{choice.hint}</span>
           </button>
         ))}
@@ -219,6 +256,7 @@ export function RobotIcon({ className = "size-5" }: { className?: string }) {
 
 function LobbyChat({ socket, view }: { socket: RoomSocket<BaseRoomView>; view: LobbyView }) {
   const [open, setOpen] = useState(false);
+  const t = useT(T);
   return (
     <section className="mt-auto flex flex-col gap-2">
       <RecentChat socket={socket} view={view} onOpen={() => setOpen(true)} />
@@ -229,7 +267,7 @@ function LobbyChat({ socket, view }: { socket: RoomSocket<BaseRoomView>; view: L
             type="button"
             onClick={() => socket.sendEmote(id)}
             className="rounded-full bg-black/25 px-2 py-1 text-lg ring-1 ring-white/10 active:scale-90"
-            aria-label={`Envoyer ${emoji}`}
+            aria-label={t.send(emoji)}
           >
             {emoji}
           </button>

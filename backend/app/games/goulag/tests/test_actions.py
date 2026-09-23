@@ -129,3 +129,16 @@ def test_hawk_eye_sees_top_card_only_when_single_ace():
     assert peek(state, 1) is None
     state.players[0].lives = [card(1, H), card(1, S)]
     assert peek(state, 0) is None
+
+
+def test_hawk_eye_keeps_the_card_in_sight_while_choosing_a_target():
+    state = playing_state(
+        [
+            player("P0", [card(1, H)], card(5, S)),
+            player("P1", [card(9, C), card(8, H)], card(7, D)),
+        ],
+        draw=[card(2, C), card(11, D)],
+    )
+    announce(state, 0, Action.ATTACK)
+    assert state.phase is Phase.TARGET
+    assert peek(state, 0) == card(11, D)

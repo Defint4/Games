@@ -9,6 +9,7 @@ from app.games.nine_to_one.engine import (
     chase_flip,
     chase_play,
     chase_value,
+    flip_face_down,
     play_cards,
 )
 from app.games.nine_to_one.tests.helpers import cards, playing_state
@@ -107,3 +108,33 @@ def test_face_up_completion_requires_empty_hand():
     )
     with pytest.raises(IllegalMove):
         play_cards(state, 0, 2, count=2)
+
+
+def test_drawn_copy_opens_the_chase_for_kept_copies_too():
+    # P0 garde un 4 et en pose un seul ; la pioche lui donne un autre 4 : il peut
+    # enchaîner les deux, celui gardé en main compris.
+    state = playing_state(
+        [[Card(4, Suit.HEARTS), Card(4, Suit.SPADES), Card(9, Suit.HEARTS)], cards(5, 6, 7)],
+        draw=[Card(4, Suit.CLUBS)],
+    )
+    play_cards(state, 0, 4, count=1)
+    assert chase_value(state, 0) == 4
+    chase_play(state, 0, 2)
+    assert [c.value for c in state.pile] == [4, 4, 4]
+
+
+def test_blind_chase_closes_once_the_next_player_flips():
+    # P0 vient de poser sa dernière carte ; P1 retourne une cachée à son tour : trop
+    # tard pour la bonne pioche à l'aveugle de P0.
+    state = playing_state(
+        [[], []],
+        face_down=[[Card(8, Suit.SPADES)], [Card(12, Suit.HEARTS)]],
+        pile=cards(8),
+        turn=1,
+        last_play=0,
+    )
+    assert chase_value(state, 0) == 8
+    flip_face_down(state, 1, 0)
+    assert chase_value(state, 0) is None
+    with pytest.raises(IllegalMove):
+        chase_flip(state, 0, 0)

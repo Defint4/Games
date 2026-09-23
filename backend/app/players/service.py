@@ -2,6 +2,7 @@ import uuid
 from dataclasses import dataclass
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.players.models import Player, PlayerGameStats
@@ -22,6 +23,35 @@ async def enter(db: AsyncSession, pseudo: str, avatar: str) -> Player:
         player.pseudo = pseudo
         player.avatar = avatar
     await db.commit()
+    await db.refresh(player)
+    return player
+
+
+class PseudoTaken(Exception):
+    pass
+
+
+async def update_profile(
+    db: AsyncSession, player: Player, pseudo: str | None, avatar: str | None
+) -> Player:
+    """Renomme le joueur et/ou change son avatar. Le pseudo d'un autre joueur est refusé ;
+    changer seulement la casse de son propre pseudo est permis."""
+    if pseudo is not None:
+        key = pseudo.lower()
+        if key != player.pseudo_key:
+            taken = await db.scalar(select(Player.id).where(Player.pseudo_key == key))
+            if taken is not None:
+                raise PseudoTaken
+            player.pseudo_key = key
+        player.pseudo = pseudo
+    if avatar is not None:
+        player.avatar = avatar
+    try:
+        await db.commit()
+    except IntegrityError:
+        # Pris entre la vérification et l'écriture.
+        await db.rollback()
+        raise PseudoTaken from None
     await db.refresh(player)
     return player
 

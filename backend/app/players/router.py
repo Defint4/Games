@@ -9,7 +9,13 @@ from app.games.registry import get_game
 from app.players import service
 from app.players.dependencies import get_current_player
 from app.players.models import Player
-from app.players.schemas import EnterRequest, EnterResponse, LeaderboardOut, PlayerOut
+from app.players.schemas import (
+    EnterRequest,
+    EnterResponse,
+    LeaderboardOut,
+    PlayerOut,
+    UpdateMeRequest,
+)
 
 router = APIRouter(prefix="/api/players", tags=["players"])
 
@@ -25,6 +31,21 @@ async def enter(
 
 @router.get("/me", response_model=PlayerOut)
 async def me(player: Player = Depends(get_current_player)) -> PlayerOut:
+    return PlayerOut.from_player(player)
+
+
+@router.patch("/me", response_model=PlayerOut)
+@limiter.limit("20/minute")
+async def update_me(
+    request: Request,
+    payload: UpdateMeRequest,
+    player: Player = Depends(get_current_player),
+    db: AsyncSession = Depends(get_db),
+) -> PlayerOut:
+    try:
+        player = await service.update_profile(db, player, payload.pseudo, payload.avatar)
+    except service.PseudoTaken:
+        raise HTTPException(status_code=409, detail="Ce pseudo est déjà pris.") from None
     return PlayerOut.from_player(player)
 
 

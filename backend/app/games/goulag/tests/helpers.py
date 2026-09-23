@@ -51,4 +51,7 @@ def playing_state(
 
 
 def total_cards(state: GameState) -> int:
-    return sum(p.card_count for p in state.players) + len(state.draw_pile) + len(state.discard)
+    """Cartes du paquet en jeu (les cartes hors jeu, créées à la demande, ne comptent pas)."""
+    ghosts = sum(1 for p in state.players for c in p.lives if c.ghost)
+    in_play = sum(p.card_count for p in state.players) + len(state.draw_pile) + len(state.discard)
+    return in_play - ghosts

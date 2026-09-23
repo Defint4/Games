@@ -1,6 +1,9 @@
 import PlayingCard from "@/components/PlayingCard";
+import { useT } from "@/lib/i18n";
+import { T } from "./i18n";
 
 export default function Wordmark({ compact }: { compact: boolean }) {
+  const t = useT(T);
   // Les cartes md font 84 px de haut (w-14, ratio 2/3) : le conteneur doit les
   // absorber, rotation comprise, pour que l'as ne déborde pas sur le titre.
   return (
@@ -20,7 +23,7 @@ export default function Wordmark({ compact }: { compact: boolean }) {
       <h1 className={`font-extrabold tracking-tight ${compact ? "text-2xl" : "text-4xl"}`}>
         Nine to One
       </h1>
-      {!compact && <p className="mt-1 text-sm text-ivory-dim/80">La table est ouverte.</p>}
+      {!compact && <p className="mt-1 text-sm text-ivory-dim/80">{t.tagline}</p>}
     </header>
   );
 }

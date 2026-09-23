@@ -43,6 +43,12 @@ export function saveProfile(profile: Omit<StoredProfile, "lastUsed">) {
   }
 }
 
+/* Après un renommage : l'entrée de l'ancien pseudo est remplacée, le jeton ne change pas. */
+export function replaceProfile(oldPseudo: string, profile: Omit<StoredProfile, "lastUsed">) {
+  forgetProfile(oldPseudo);
+  saveProfile(profile);
+}
+
 export function forgetProfile(pseudo: string) {
   write(read().filter((p) => p.pseudo.toLowerCase() !== pseudo.toLowerCase()));
 }

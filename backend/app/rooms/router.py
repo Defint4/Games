@@ -40,6 +40,14 @@ CHAT_MAX_LENGTH = 200
 EMOTE_PATTERN = re.compile(r"^[a-z0-9_\-]{1,30}$")
 TURN_SECONDS_CHOICES = {0, 30, 60}
 LOBBY_SEAT_GRACE_SECONDS = 10
+# Revanche : le temps d'arriver sur la nouvelle table (chargement des ressources du jeu
+# sur un réseau lent compris) avant d'être considéré comme parti.
+REMATCH_SEAT_GRACE_SECONDS = 45
+# Joueur déconnecté à son tour : coup joué d'office au bout de ABSENT_SECONDS (même sur
+# une table sans timer), et un bot prend sa place après ABSENT_STRIKES coups d'affilée.
+ABSENT_SECONDS = 120
+ABSENT_STRIKES = 3
+REPLACEMENT_BOT = "normal"
 
 
 # ---------------------------------------------------------------------------
@@ -150,7 +158,14 @@ async def room_ws(websocket: WebSocket, code: str) -> None:
             except Exception:
                 pass
         seat.socket = websocket
+        seat.missed = 0
         room.touch()
+        if seat.replaced:
+            # De retour : il reprend sa place au bot qui jouait pour lui.
+            seat.bot = None
+            seat.replaced = False
+            _schedule_turn_timer(room)
+            room.spec.schedule_bots(room, _after_move)
         await _send_view(room, seat_index)
         await _broadcast_state(room, [])
 
@@ -178,11 +193,15 @@ async def _handle_disconnect(room: Room, player_id: uuid.UUID, websocket: WebSoc
             # de page ne doit pas éjecter le joueur. En partie, le siège attend
             # la reconnexion sans limite.
             asyncio.get_running_loop().create_task(_expire_lobby_seat(room, player_id))
+        elif room.status is GameStatus.PLAYING and room.spec.current_turn(room.state) == seat_index:
+            _schedule_absence(room, seat_index)
         await _broadcast_state(room, [])
 
 
-async def _expire_lobby_seat(room: Room, player_id: uuid.UUID) -> None:
-    await asyncio.sleep(LOBBY_SEAT_GRACE_SECONDS)
+async def _expire_lobby_seat(
+    room: Room, player_id: uuid.UUID, delay: float = LOBBY_SEAT_GRACE_SECONDS
+) -> None:
+    await asyncio.sleep(delay)
     async with room.lock:
         if manager.get(room.code) is not room or room.status is not GameStatus.LOBBY:
             return
@@ -201,8 +220,11 @@ async def _free_seat(room: Room, seat_index: int) -> None:
         await lobby.notify(room.game)
         return
     room.humans_first()
-    await _broadcast_state(room, [{"type": "player_left", "seat": seat_index}])
-    await lobby.notify(room.game)
+    # Le partant était peut-être le seul pas prêt : la partie démarre sans lui. Et les
+    # coups de bots programmés visaient d'anciens indices de sièges : on replanifie
+    # (_after_move diffuse, met à jour la liste des tables et relance les bots).
+    events = room.spec.lobby_changed(room.state)
+    await _after_move(room, [{"type": "player_left", "seat": seat_index}, *events])
 
 
 async def _handle_message(
@@ -290,6 +312,7 @@ async def _handle_message(
                 if events is None:
                     await _send_error(websocket, "Action inconnue.")
                 else:
+                    room.seats[seat_index].missed = 0
                     await _after_move(room, events)
         except GameError as exc:
             await _send_error(websocket, str(exc))
@@ -316,11 +339,59 @@ async def _after_move(room: Room, events: list[dict]) -> None:
 def _schedule_turn_timer(room: Room) -> None:
     """(Re)programme l'échéance du tour courant ; invalide le timer précédent."""
     room.turn_token += 1
-    if room.status is not GameStatus.PLAYING or room.turn_seconds <= 0:
+    if room.status is not GameStatus.PLAYING:
+        room.turn_deadline = None
+        return
+    seat = room.spec.current_turn(room.state)
+    if seat is not None and room.seats[seat].bot is None and room.seats[seat].socket is None:
+        _schedule_absence(room, seat)
+    if room.turn_seconds <= 0:
         room.turn_deadline = None
         return
     room.turn_deadline = time.monotonic() + room.turn_seconds
     asyncio.get_running_loop().create_task(_turn_timeout(room, room.turn_token, room.turn_seconds))
+
+
+def _schedule_absence(room: Room, seat_index: int) -> None:
+    """Le joueur au trait est déconnecté : son coup partira d'office dans ABSENT_SECONDS,
+    sauf s'il revient ou si le tour change (turn_token) entre-temps."""
+    asyncio.get_running_loop().create_task(_absence_timeout(room, room.turn_token, seat_index))
+
+
+async def _absence_timeout(room: Room, token: int, seat_index: int) -> None:
+    await asyncio.sleep(ABSENT_SECONDS)
+    async with room.lock:
+        if (
+            manager.get(room.code) is not room
+            or room.turn_token != token
+            or room.status is not GameStatus.PLAYING
+            or room.spec.current_turn(room.state) != seat_index
+        ):
+            return
+        seat = room.seats[seat_index]
+        if seat.socket is not None or seat.bot is not None:
+            return
+        try:
+            events = room.spec.auto_play(room, seat_index)
+        except GameError:
+            logger.exception("Coup d'office impossible sur la table %s", room.code)
+            return
+        events = [{"type": "auto_played", "player": seat_index}, *events]
+        await _after_move(room, events + _strike(room, seat_index))
+
+
+def _strike(room: Room, seat_index: int) -> list[dict]:
+    """Un coup joué d'office pour un joueur déconnecté ; au troisième d'affilée, un bot
+    prend sa place (il la reprendra en se reconnectant)."""
+    seat = room.seats[seat_index]
+    if seat.bot is not None or seat.socket is not None:
+        return []
+    seat.missed += 1
+    if seat.missed < ABSENT_STRIKES or REPLACEMENT_BOT not in room.spec.bot_difficulties:
+        return []
+    seat.bot = REPLACEMENT_BOT
+    seat.replaced = True
+    return [{"type": "replaced_by_bot", "seat": seat_index}]
 
 
 async def _turn_timeout(room: Room, token: int, delay: float) -> None:
@@ -340,7 +411,8 @@ async def _turn_timeout(room: Room, token: int, delay: float) -> None:
         except GameError:
             logger.exception("Coup automatique impossible sur la table %s", room.code)
             return
-        await _after_move(room, [{"type": "auto_played", "player": seat}, *events])
+        events = [{"type": "auto_played", "player": seat}, *events]
+        await _after_move(room, events + _strike(room, seat))
 
 
 async def _handle_rematch(room: Room, websocket: WebSocket) -> None:
@@ -352,7 +424,10 @@ async def _handle_rematch(room: Room, websocket: WebSocket) -> None:
         await _broadcast(room, {"type": "rematch", "code": room.rematch_code})
         return
     # Les humains connectés d'abord (le siège 0 doit rester un humain), puis les bots.
-    connected = [s for s in room.seats if s.socket is not None] + [s for s in room.seats if s.bot]
+    # Un bot qui remplaçait un absent ne suit pas : la place revient à l'absent, pas au bot.
+    connected = [s for s in room.seats if s.socket is not None] + [
+        s for s in room.seats if s.bot and not s.replaced
+    ]
     if len(connected) < room.spec.min_players:
         await _send_error(websocket, "Il faut au moins deux joueurs connectés pour une revanche.")
         return
@@ -368,6 +443,14 @@ async def _handle_rematch(room: Room, websocket: WebSocket) -> None:
             Seat(player_id=seat.player_id, pseudo=seat.pseudo, avatar=seat.avatar, bot=seat.bot)
         )
     new_room.turn_seconds = room.turn_seconds
+    # Un joueur qui ne rejoindra jamais la revanche (téléphone verrouillé sur l'écran de
+    # fin) ne doit pas bloquer le lobby : même délai de grâce qu'une déconnexion.
+    loop = asyncio.get_running_loop()
+    for seat in new_room.seats:
+        if seat.bot is None:
+            loop.create_task(
+                _expire_lobby_seat(new_room, seat.player_id, REMATCH_SEAT_GRACE_SECONDS)
+            )
     room.rematch_code = new_room.code
     room.touch()
     await _broadcast(room, {"type": "rematch", "code": new_room.code})
