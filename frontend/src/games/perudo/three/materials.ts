@@ -6,7 +6,9 @@ import { dieFaceMap, dieFaceNormal, leatherMaps, type DiceColor } from "./textur
 
 const dice = new Map<string, THREE.Material[]>();
 
-/* Résine polie : un vernis (clearcoat) qui accroche les reflets des lampes. */
+/* Résine satinée. La lampe est juste au-dessus de la table et la caméra en surplomb :
+   un vernis trop lisse renvoyait un point blanc sur le dessus des dés, qui mangeait
+   les points. Reflet large et doux, les faces restent lisibles. */
 export function diceMaterials(color: DiceColor): THREE.Material[] {
   let set = dice.get(color.body);
   if (!set) {
@@ -16,9 +18,10 @@ export function diceMaterials(color: DiceColor): THREE.Material[] {
           map: dieFaceMap(value, color),
           normalMap: dieFaceNormal(value),
           normalScale: new THREE.Vector2(0.9, 0.9),
-          roughness: 0.32,
-          clearcoat: 0.8,
-          clearcoatRoughness: 0.18,
+          roughness: 0.55,
+          clearcoat: 0.25,
+          clearcoatRoughness: 0.55,
+          envMapIntensity: 0.6,
         }),
     );
     dice.set(color.body, set);

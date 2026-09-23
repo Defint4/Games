@@ -86,7 +86,7 @@ AVATAR_ANIMALS = [
 # Délais (secondes) : réfléchir à son enchère, se mettre prêt, laisser voir la révélation.
 BID_DELAY = (1.4, 2.6)
 LOBBY_DELAY = 0.8
-REVEAL_DELAY = 7.0
+REVEAL_DELAY = 12.0
 
 
 def add_bot(room: Room, difficulty: str) -> Seat:
