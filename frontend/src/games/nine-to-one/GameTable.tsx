@@ -975,13 +975,16 @@ function YourArea({
           quand elle défile (justify-center rendrait la gauche inatteignable).
           Le défilement horizontal rogne aussi en hauteur : la marge haute absorbe
           la carte soulevée (30 px + halo), le -mt garde la main à sa place. Cette
-          bande chevauche le bas du plateau : elle laisse passer les taps, seules
-          les cartes en reçoivent. */}
+          bande chevauche le bas du plateau, qui n'est cliquable que main vide :
+          c'est là seulement qu'elle laisse passer les taps. Pas avant, un
+          conteneur sans pointer-events ne défile plus au doigt (iOS). */}
       <div
-        className="pointer-events-none -mt-7 w-full overflow-x-auto pb-3 pt-11"
+        className={`-mt-7 w-full overflow-x-auto pb-3 pt-11 ${
+          hand.length === 0 ? "pointer-events-none" : ""
+        }`}
         ref={registerAnchor("hand")}
       >
-        <div className="pointer-events-auto mx-auto flex w-max items-end px-6">
+        <div className="mx-auto flex w-max items-end px-6">
           <AnimatePresence initial={false}>
             {hand.map((card, i) => {
               const key = `${card.value}-${card.suit}`;
@@ -1007,8 +1010,10 @@ function YourArea({
                   transition={{ type: "spring", stiffness: 480, damping: 32 }}
                   className={`origin-bottom ${overlap} ${selected ? "relative z-10" : ""}`}
                 >
+                  {/* La carte de bonne pioche apparaît directement en place : en vol,
+                      elle serait encore près de la pioche au moment du tap réflexe. */}
                   <FlyIn
-                    from={entryIndex >= 0 ? handEntry.source : null}
+                    from={entryIndex >= 0 && !chaseable ? handEntry.source : null}
                     delay={handEntry.delay + Math.max(entryIndex, 0) * 0.12}
                     flip={handEntry.source !== "pile"}
                   >
