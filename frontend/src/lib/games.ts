@@ -21,6 +21,8 @@ export type GameMeta = {
   mat: string;
   /* Faux tant que le jeu n'est pas jouable : sa tuile est visible mais inerte. */
   available: boolean;
+  /* Un mot pour quelqu'un, écrit à la main sur la tuile. */
+  dedication?: Dict<string>;
 };
 
 export const GAMES: GameMeta[] = [
@@ -59,6 +61,20 @@ export const GAMES: GameMeta[] = [
     path: "/perudo",
     mat: "radial-gradient(130% 110% at 85% 15%, #8e3b28 0%, #5e2218 45%, #30110c 100%)",
     available: true,
+  },
+  {
+    slug: "solitaire",
+    name: { fr: "Solitaire", en: "Solitaire" },
+    tagline: {
+      fr: "Du roi à l’as, rien que toi et le paquet.",
+      en: "King down to ace, just you and the deck.",
+    },
+    players: { fr: "1 joueur", en: "1 player" },
+    path: "/solitaire",
+    // Le lagon d'Ouvéa.
+    mat: "radial-gradient(130% 110% at 85% 15%, #2fa39b 0%, #17706c 45%, #0a3a3b 100%)",
+    available: false,
+    dedication: { fr: "Pour Ouvéa", en: "For Ouvéa" },
   },
   {
     slug: "chess",

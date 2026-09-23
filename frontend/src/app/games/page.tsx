@@ -236,6 +236,11 @@ function GameTile({
         <p className="mt-1 text-sm leading-snug text-ivory-dim/80">
           {game.tagline[lang]}
         </p>
+        {game.dedication && (
+          <p className="mt-2 -rotate-2 font-script text-[1.7rem] leading-none text-gold drop-shadow-[0_2px_2px_rgba(0,0,0,0.35)]">
+            {game.dedication[lang]}
+          </p>
+        )}
         {game.available ? (
           stats && stats.played > 0 ? (
             <p className="mt-2 text-xs font-semibold text-gold/90">
@@ -274,6 +279,7 @@ function Illustration({ slug, index }: { slug: string; index: number }) {
   const spring = { type: "spring" as const, stiffness: 260, damping: 24 };
   if (slug === "chess") return <ChessIllustration />;
   if (slug === "perudo") return <DiceIllustration index={index} />;
+  if (slug === "solitaire") return <SolitaireIllustration index={index} />;
   const cards =
     slug === "nine-to-one"
       ? [
@@ -342,6 +348,33 @@ function ChessIllustration() {
       <span className="absolute -bottom-2 left-1/2 -translate-x-1/2 -rotate-12 font-serif text-6xl leading-none text-ivory [text-shadow:0_3px_0_#20241f,0_8px_14px_rgba(0,0,0,0.5)]">
         {"\u265E\uFE0E"}
       </span>
+    </div>
+  );
+}
+
+/* Solitaire : une colonne en cascade, roi, dame, valet en couleurs alternées, et l'as
+   de cœur monté sur sa pile, à côté. Les cartes tombent une à une à l'arrivée. */
+function SolitaireIllustration({ index }: { index: number }) {
+  const reduced = useReducedMotion();
+  const cards = [
+    { card: { value: 13, suit: "spades" as const }, x: 0, y: 0, rotate: -4 },
+    { card: { value: 12, suit: "hearts" as const }, x: 1, y: 15, rotate: -3 },
+    { card: { value: 11, suit: "clubs" as const }, x: 2, y: 30, rotate: -2 },
+    { card: { value: 14, suit: "hearts" as const }, x: 50, y: 4, rotate: 9 },
+  ];
+  return (
+    <div aria-hidden className="absolute right-5 top-4 h-24 w-[6.5rem]">
+      {cards.map((c, i) => (
+        <motion.span
+          key={i}
+          className="absolute left-0 top-0"
+          initial={reduced ? false : { x: c.x, y: c.y - 26, rotate: 0, opacity: 0 }}
+          animate={{ x: c.x, y: c.y, rotate: c.rotate, opacity: 1 }}
+          transition={{ type: "spring", stiffness: 300, damping: 22, delay: 0.15 + index * 0.12 + i * 0.1 }}
+        >
+          <PlayingCard card={c.card} size="md" />
+        </motion.span>
+      ))}
     </div>
   );
 }
