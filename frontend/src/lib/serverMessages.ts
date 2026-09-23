@@ -16,7 +16,10 @@ const EN: Record<string, string> = {
   "Ce pseudo est déjà pris.": "That name is already taken.",
   "Ce siège n'est pas un bot.": "That seat isn't a bot.",
   "Cette carte ne peut pas être posée maintenant.": "That card can't be played right now.",
+  "Choisis un avatar.": "Pick an avatar.",
   "Cible invalide.": "Invalid target.",
+  "Code PIN actuel incorrect.": "Your current PIN is wrong.",
+  "Code PIN incorrect.": "Wrong PIN.",
   "Deux charges maximum.": "Two charges at most.",
   "Difficulté inconnue.": "Unknown difficulty.",
   "Durée de tour invalide.": "Invalid turn length.",
@@ -55,9 +58,13 @@ const EN: Record<string, string> = {
   "Profil introuvable.": "Player not found. Pick your player again.",
   "Pseudo invalide : lettres, chiffres, espaces, - et _ uniquement.":
     "Invalid name: letters, digits, spaces, - and _ only.",
+  "Session fermée : le code PIN de ce compte a changé.":
+    "Signed out: this account's PIN was changed.",
   "Seul le créateur de la table ajoute des bots.": "Only the table's creator can add bots.",
   "Seul le créateur de la table retire des bots.": "Only the table's creator can remove bots.",
   "Seul le créateur de la table règle le temps.": "Only the table's creator sets the timer.",
+  "Trop d'essais : ce compte est bloqué quelques minutes.":
+    "Too many tries: this account is locked for a few minutes.",
   "Trop tard : le coup ne peut plus être enchaîné.": "Too late: that move can't be chained anymore.",
   "Vous n'avez pas assez de cartes de cette valeur.": "You don't have enough cards of that value.",
 };

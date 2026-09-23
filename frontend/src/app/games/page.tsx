@@ -10,14 +10,14 @@ import Brand from "@/components/Brand";
 import { leaderboardPath } from "@/components/Leaderboard";
 import { LoadingScreen } from "@/components/Loading";
 import PlayingCard, { CardBackLabel } from "@/components/PlayingCard";
-import ProfileSheet from "@/components/ProfileSheet";
+import ProfileSheet, { type AccountView } from "@/components/ProfileSheet";
 import { DICE_COLORS } from "@/games/perudo/colors";
 import DieFace from "@/games/perudo/DieFace";
 import { Sheet } from "@/components/Sheet";
 import LangSwitch from "@/components/LangSwitch";
 import SoundToggle from "@/components/SoundToggle";
 import { GearIcon } from "@/components/TableFrame";
-import { fetchMe } from "@/lib/api";
+import { ApiError, fetchMe } from "@/lib/api";
 import { GAMES, type GameMeta } from "@/lib/games";
 import { dict, useLang, useT } from "@/lib/i18n";
 import { currentProfile, signOut, type StoredProfile } from "@/lib/identity";
@@ -41,6 +41,9 @@ const T = dict({
   },
 });
 
+/* L'invite à quitter le code 0000 : une fois écartée, plus avant le prochain lancement. */
+let securePromptDismissed = false;
+
 /* La sélection des jeux : une tuile par jeu, posée sur le tapis comme un plateau.
    Les cartes de chaque tuile sont les vraies cartes du jeu, disposées comme on
    les trouve sur sa table — c'est ce qui distingue un jeu d'un autre au premier
@@ -50,10 +53,11 @@ export default function Page() {
   const router = useRouter();
   const [profile, setProfile] = useState<StoredProfile | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [profileOpen, setProfileOpen] = useState(false);
+  const [account, setAccount] = useState<AccountView | null>(null);
+  const [secureDismissed, setSecureDismissed] = useState(securePromptDismissed);
+  const [secure, setSecure] = useState(false);
   const t = useT(T);
   const common = useT(COMMON);
-
 
   useEffect(() => {
     const current = currentProfile();
@@ -71,7 +75,24 @@ export default function Page() {
     enabled: profile !== null,
   });
 
-  if (!profile) return <LoadingScreen />;
+  // Session expirée (30 jours sans venir) ou révoquée (code changé ailleurs) : l'entrée
+  // s'ouvre directement sur le code PIN de ce compte.
+  const revoked = me.error instanceof ApiError && me.error.status === 401;
+  const pseudo = profile?.pseudo;
+  useEffect(() => {
+    if (!revoked || !pseudo) return;
+    signOut();
+    router.replace(`/?pin=${encodeURIComponent(pseudo)}`);
+  }, [revoked, pseudo, router]);
+
+  // Ouverte une fois pour toutes : le code changé, `default_pin` repasse à false et la
+  // feuille doit rester le temps d'afficher le succès.
+  if (me.data?.default_pin && !secureDismissed && !secure && account === null) {
+    setSecure(true);
+    setAccount("pin");
+  }
+
+  if (!profile || revoked) return <LoadingScreen />;
 
   return (
     <main className="mx-auto flex min-h-0 w-full max-w-md grow flex-col overflow-y-auto px-5 pb-[max(2rem,env(safe-area-inset-bottom))] pt-6">
@@ -80,10 +101,10 @@ export default function Page() {
           <Brand size="sm" />
         </h1>
         <div className="flex items-center gap-1">
-          {/* Tap sur le joueur : son profil (pseudo, avatar, changer de joueur). */}
+          {/* Tap sur le joueur : son compte (pseudo, avatar, code PIN, déconnexion). */}
           <button
             type="button"
-            onClick={() => setProfileOpen(true)}
+            onClick={() => setAccount("menu")}
             className="flex min-w-0 grow items-center gap-3 rounded-2xl py-1 pr-2 text-left active:scale-[0.98]"
           >
             <Avatar id={profile.avatar} size="lg" />
@@ -121,15 +142,25 @@ export default function Page() {
         ))}
       </ul>
 
-      {profileOpen && (
+      {account !== null && (
         <ProfileSheet
           profile={profile}
+          me={me.data}
+          initialView={account}
+          secure={secure}
           onSaved={setProfile}
-          onSwitch={() => {
+          onSignOut={() => {
             signOut();
             router.replace("/");
           }}
-          onClose={() => setProfileOpen(false)}
+          onClose={() => {
+            if (secure) {
+              securePromptDismissed = true;
+              setSecureDismissed(true);
+              setSecure(false);
+            }
+            setAccount(null);
+          }}
         />
       )}
 

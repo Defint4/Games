@@ -12,10 +12,12 @@ from app.players.models import Player
 
 _bearer = HTTPBearer(auto_error=False)
 
+SESSION_REVOKED = "Session fermée : le code PIN de ce compte a changé."
 
-def get_player_id(
+
+def get_player_claims(
     credentials: HTTPAuthorizationCredentials | None = Depends(_bearer),
-) -> uuid.UUID:
+) -> tuple[uuid.UUID, int]:
     if credentials is None:
         raise HTTPException(status_code=401, detail="Jeton manquant.")
     try:
@@ -25,10 +27,13 @@ def get_player_id(
 
 
 async def get_current_player(
-    player_id: uuid.UUID = Depends(get_player_id),
+    claims: tuple[uuid.UUID, int] = Depends(get_player_claims),
     db: AsyncSession = Depends(get_db),
 ) -> Player:
+    player_id, version = claims
     player = await service.get_player(db, player_id)
     if player is None:
         raise HTTPException(status_code=401, detail="Profil introuvable.")
+    if version != player.token_version:
+        raise HTTPException(status_code=401, detail=SESSION_REVOKED)
     return player

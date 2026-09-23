@@ -164,6 +164,8 @@ export const sfx = {
   chip: () => sample(["chip-lay-1", "chip-lay-2", "chip-lay-3"], 0.75),
   /* Petit "pop" à la réception d'un message. */
   pop: () => tone(980, 0, 0.07, 0.07),
+  /* Touche du pavé du code PIN : un clic à peine audible. */
+  key: () => tone(1320, 0, 0.035, 0.035),
 };
 
 export function vibrate(pattern: number | number[]) {

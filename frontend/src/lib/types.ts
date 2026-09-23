@@ -57,6 +57,9 @@ export type PlayerProfile = {
   stats: Record<string, GameStats>;
 };
 
+/* Son propre profil : `default_pin` si le compte s'ouvre encore avec 0000. */
+export type MyProfile = PlayerProfile & { default_pin: boolean };
+
 export const NO_STATS: GameStats = { played: 0, won: 0, lost: 0 };
 
 export type LeaderboardEntry = GameStats & {

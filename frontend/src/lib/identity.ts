@@ -1,6 +1,7 @@
-/* Identités mémorisées sur l'appareil : un joueur revient et reprend son pseudo en un tap.
-   Le token signé prouve juste "ce pseudo sur cet appareil" — pas de compte, pas de mot de passe.
-   Une seule identité pour tous les jeux de la plateforme. */
+/* L'identité sur l'appareil : une session (le compte connecté et son jeton) et la liste
+   des comptes déjà utilisés ici, proposés en raccourci — mais qui redemandent le code PIN.
+   Se déconnecter efface le jeton : sur un téléphone partagé, le suivant ne peut pas
+   reprendre le compte sans le code. Une seule identité pour tous les jeux. */
 
 export type StoredProfile = {
   pseudo: string;
@@ -9,55 +10,86 @@ export type StoredProfile = {
   lastUsed: number;
 };
 
-const KEY = "games:profiles";
-const CURRENT_KEY = "games:current";
+export type RecentAccount = Omit<StoredProfile, "token">;
 
-function read(): StoredProfile[] {
+const SESSION_KEY = "games:session";
+const RECENT_KEY = "games:recent";
+
+/* Avant les codes PIN : plusieurs profils avec leur jeton, dont un « courant ». */
+const LEGACY_KEY = "games:profiles";
+const LEGACY_CURRENT_KEY = "games:current";
+
+/* Le profil courant reste connecté (son jeton vaut jusqu'au premier changement de code),
+   les autres deviennent des comptes récents qui demanderont leur code. */
+function migrate() {
   try {
-    const raw = localStorage.getItem(KEY);
-    return raw ? (JSON.parse(raw) as StoredProfile[]) : [];
+    const raw = localStorage.getItem(LEGACY_KEY);
+    if (raw === null) return;
+    const profiles = JSON.parse(raw) as StoredProfile[];
+    const current = localStorage.getItem(LEGACY_CURRENT_KEY);
+    const session = profiles.find((p) => p.pseudo.toLowerCase() === current);
+    if (session) localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+    writeRecent(profiles.map(({ pseudo, avatar, lastUsed }) => ({ pseudo, avatar, lastUsed })));
+    localStorage.removeItem(LEGACY_KEY);
+    localStorage.removeItem(LEGACY_CURRENT_KEY);
+  } catch {
+    /* stockage illisible : on repart de zéro */
+  }
+}
+
+function readRecent(): RecentAccount[] {
+  migrate();
+  try {
+    const raw = localStorage.getItem(RECENT_KEY);
+    return raw ? (JSON.parse(raw) as RecentAccount[]) : [];
   } catch {
     return [];
   }
 }
 
-function write(profiles: StoredProfile[]) {
+function writeRecent(accounts: RecentAccount[]) {
   try {
-    localStorage.setItem(KEY, JSON.stringify(profiles));
+    localStorage.setItem(RECENT_KEY, JSON.stringify(accounts));
   } catch {
     /* stockage indisponible : l'app reste utilisable, sans mémoire */
   }
 }
 
-export function listProfiles(): StoredProfile[] {
-  return read().sort((a, b) => b.lastUsed - a.lastUsed);
+function samePseudo(a: string, b: string) {
+  return a.toLowerCase() === b.toLowerCase();
 }
 
+export function listProfiles(): RecentAccount[] {
+  return readRecent().sort((a, b) => b.lastUsed - a.lastUsed);
+}
+
+/* Ouvre la session de ce compte et le range en tête des comptes récents. */
 export function saveProfile(profile: Omit<StoredProfile, "lastUsed">) {
-  const others = read().filter((p) => p.pseudo.toLowerCase() !== profile.pseudo.toLowerCase());
-  write([{ ...profile, lastUsed: Date.now() }, ...others]);
+  const lastUsed = Date.now();
+  const others = readRecent().filter((p) => !samePseudo(p.pseudo, profile.pseudo));
+  writeRecent([{ pseudo: profile.pseudo, avatar: profile.avatar, lastUsed }, ...others]);
   try {
-    localStorage.setItem(CURRENT_KEY, profile.pseudo.toLowerCase());
+    localStorage.setItem(SESSION_KEY, JSON.stringify({ ...profile, lastUsed }));
   } catch {
     /* idem */
   }
 }
 
-/* Après un renommage : l'entrée de l'ancien pseudo est remplacée, le jeton ne change pas. */
+/* Après un renommage : l'entrée de l'ancien pseudo est remplacée. */
 export function replaceProfile(oldPseudo: string, profile: Omit<StoredProfile, "lastUsed">) {
   forgetProfile(oldPseudo);
   saveProfile(profile);
 }
 
 export function forgetProfile(pseudo: string) {
-  write(read().filter((p) => p.pseudo.toLowerCase() !== pseudo.toLowerCase()));
+  writeRecent(readRecent().filter((p) => !samePseudo(p.pseudo, pseudo)));
 }
 
 export function currentProfile(): StoredProfile | null {
+  migrate();
   try {
-    const key = localStorage.getItem(CURRENT_KEY);
-    if (!key) return null;
-    return read().find((p) => p.pseudo.toLowerCase() === key) ?? null;
+    const raw = localStorage.getItem(SESSION_KEY);
+    return raw ? (JSON.parse(raw) as StoredProfile) : null;
   } catch {
     return null;
   }
@@ -92,9 +124,10 @@ export function forgetTable(game: string) {
   }
 }
 
+/* Efface le jeton de l'appareil ; le compte reste dans les récents. */
 export function signOut() {
   try {
-    localStorage.removeItem(CURRENT_KEY);
+    localStorage.removeItem(SESSION_KEY);
   } catch {
     /* idem */
   }

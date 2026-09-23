@@ -18,6 +18,7 @@ import uuid
 
 import jwt
 from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket, WebSocketDisconnect
+from sqlalchemy import select
 
 from app.core.database import async_session_maker
 from app.core.rate_limit import limiter
@@ -132,8 +133,14 @@ async def live_rooms(websocket: WebSocket, game: str) -> None:
 @router.websocket("/{code}/ws")
 async def room_ws(websocket: WebSocket, code: str) -> None:
     try:
-        player_id = decode_player_token(websocket.query_params.get("token") or "")
+        player_id, version = decode_player_token(websocket.query_params.get("token") or "")
     except jwt.InvalidTokenError:
+        await websocket.close(code=4401)
+        return
+    # Jeton d'avant un changement de code PIN : cet appareil a été déconnecté.
+    async with async_session_maker() as db:
+        current = await db.scalar(select(Player.token_version).where(Player.id == player_id))
+    if current != version:
         await websocket.close(code=4401)
         return
     room = manager.get(code)

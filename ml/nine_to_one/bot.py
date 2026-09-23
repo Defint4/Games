@@ -13,6 +13,8 @@ API = "http://127.0.0.1:8004"
 WS = "ws://127.0.0.1:8004"
 PSEUDO = "Claude"
 AVATAR = "renard-0"
+# Compte de test : le code par défaut suffit (créé avec, ou ancien compte sans code).
+PIN = "0000"
 
 import websockets  # noqa: E402
 
@@ -77,7 +79,7 @@ async def play_room(token: str, code: str) -> str | None:
 
 
 async def main() -> None:
-    token = post("/api/players/enter", {"pseudo": PSEUDO, "avatar": AVATAR})["token"]
+    token = post("/api/players/enter", {"pseudo": PSEUDO, "pin": PIN, "avatar": AVATAR})["token"]
     code = post("/api/rooms", None, token)["code"]
     print(f"TABLE={code}", flush=True)
     while True:

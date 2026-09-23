@@ -37,7 +37,7 @@ def post(api: str, path: str, payload: dict | None, token: str | None = None) ->
 
 
 async def play_table(api: str, ws_base: str, idx: int, bots: int, difficulty: str, latencies: list):
-    token = post(api, "/api/players/enter", {"pseudo": f"charge_{idx}", "avatar": "chat-0"})["token"]
+    token = post(api, "/api/players/enter", {"pseudo": f"charge_{idx}", "pin": "0000", "avatar": "chat-0"})["token"]
     code = post(api, "/api/rooms", None, token)["code"]
     my_seat = None
     bot_turn_since: dict[int, float] = {}

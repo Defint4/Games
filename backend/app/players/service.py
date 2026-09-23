@@ -1,34 +1,95 @@
+import asyncio
+import hmac
 import uuid
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.security import hash_pin, verify_pin
 from app.players.models import Player, PlayerGameStats
 
-
-async def enter(db: AsyncSession, pseudo: str, avatar: str) -> Player:
-    """Récupère le profil lié au pseudo (insensible à la casse) ou le crée.
-
-    Pas de mot de passe : le pseudo suffit à reprendre son profil, choix assumé
-    pour un jeu entre amis. L'avatar est mis à jour à chaque entrée.
-    """
-    key = pseudo.lower()
-    player = await db.scalar(select(Player).where(Player.pseudo_key == key))
-    if player is None:
-        player = Player(pseudo_key=key, pseudo=pseudo, avatar=avatar)
-        db.add(player)
-    else:
-        player.pseudo = pseudo
-        player.avatar = avatar
-    await db.commit()
-    await db.refresh(player)
-    return player
+DEFAULT_PIN = "0000"
+PIN_MAX_FAILURES = 5
+PIN_LOCK = timedelta(minutes=15)
 
 
 class PseudoTaken(Exception):
     pass
+
+
+class WrongPin(Exception):
+    pass
+
+
+class PinLocked(Exception):
+    pass
+
+
+class AvatarRequired(Exception):
+    pass
+
+
+async def _check_pin(db: AsyncSession, player: Player, pin: str) -> None:
+    """Vérifie le code du joueur, dont la ligne est verrouillée (FOR UPDATE) par l'appelant :
+    les essais sur un même compte passent un par un, le compteur d'échecs ne peut pas être
+    contourné en rafale. Après PIN_MAX_FAILURES échecs d'affilée, le compte est bloqué
+    PIN_LOCK, quel que soit l'appareil."""
+    now = datetime.now(UTC)
+    if player.pin_locked_until is not None and player.pin_locked_until > now:
+        raise PinLocked
+    if player.pin_hash is None:
+        ok = hmac.compare_digest(pin, DEFAULT_PIN)
+    else:
+        # scrypt occupe le processeur ~50 ms : hors de la boucle, les tables continuent de jouer.
+        ok = await asyncio.to_thread(verify_pin, pin, player.pin_hash)
+    if ok:
+        player.pin_failures = 0
+        player.pin_locked_until = None
+        return
+    player.pin_failures += 1
+    if player.pin_failures >= PIN_MAX_FAILURES:
+        player.pin_failures = 0
+        player.pin_locked_until = now + PIN_LOCK
+    await db.commit()
+    raise WrongPin
+
+
+async def enter(db: AsyncSession, pseudo: str, pin: str, avatar: str | None) -> Player:
+    """Connexion par pseudo (insensible à la casse) + code PIN, ou création du compte si
+    le pseudo est libre. Un compte d'avant les codes se déverrouille avec DEFAULT_PIN."""
+    key = pseudo.lower()
+    player = await db.scalar(select(Player).where(Player.pseudo_key == key).with_for_update())
+    if player is None:
+        if avatar is None:
+            raise AvatarRequired
+        pin_hash = await asyncio.to_thread(hash_pin, pin)
+        player = Player(pseudo_key=key, pseudo=pseudo, avatar=avatar, pin_hash=pin_hash)
+        db.add(player)
+    else:
+        await _check_pin(db, player, pin)
+    try:
+        await db.commit()
+    except IntegrityError:
+        # Le même pseudo créé au même instant sur un autre appareil.
+        await db.rollback()
+        raise PseudoTaken from None
+    await db.refresh(player)
+    return player
+
+
+async def change_pin(db: AsyncSession, player: Player, current_pin: str, new_pin: str) -> Player:
+    """Nouveau code, après vérification de l'actuel. Les autres appareils sont déconnectés :
+    leur jeton porte l'ancienne version."""
+    await db.refresh(player, with_for_update=True)
+    await _check_pin(db, player, current_pin)
+    player.pin_hash = await asyncio.to_thread(hash_pin, new_pin)
+    player.token_version += 1
+    await db.commit()
+    await db.refresh(player)
+    return player
 
 
 async def update_profile(

@@ -1,6 +1,7 @@
 import uuid
+from datetime import datetime
 
-from sqlalchemy import ForeignKey, Integer, String
+from sqlalchemy import DateTime, ForeignKey, Integer, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -16,6 +17,15 @@ class Player(IdMixin, TimestampMixin, Base):
     pseudo_key: Mapped[str] = mapped_column(String(20), unique=True, index=True)
     pseudo: Mapped[str] = mapped_column(String(20))
     avatar: Mapped[str] = mapped_column(String(40))
+
+    # Code PIN haché ; NULL = compte créé avant les codes, son code est DEFAULT_PIN.
+    pin_hash: Mapped[str | None] = mapped_column(String(200), default=None)
+    # Essais ratés d'affilée ; au-delà de la limite, le compte est bloqué jusqu'à pin_locked_until.
+    pin_failures: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    pin_locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+    # Incrémentée à chaque changement de code : les jetons d'une version antérieure
+    # (les autres appareils) ne sont plus acceptés.
+    token_version: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
 
     # Chargées avec le profil : le hub et les fiches joueur les affichent toujours.
     stats: Mapped[list["PlayerGameStats"]] = relationship(
