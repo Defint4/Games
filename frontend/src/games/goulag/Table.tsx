@@ -2,14 +2,19 @@
 
 import { AnimatePresence, motion, useAnimate } from "motion/react";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
 import Avatar from "@/components/Avatar";
 import FlipCard from "@/components/FlipCard";
 import PlayingCard from "@/components/PlayingCard";
 import { Sheet } from "@/components/Sheet";
+import TableReactions from "@/components/TableReactions";
+import { EMOTES } from "@/lib/emotes";
 import { registerAnchor } from "@/lib/anchors";
+import { useT } from "@/lib/i18n";
 import type { CardT } from "@/lib/types";
-import { SUIT_GLYPH, SUIT_LABEL, face } from "./cards";
+import type { EmoteEvent } from "@/lib/useRoomSocket";
+import { SUIT_GLYPH, face } from "./cards";
+import { T } from "./i18n";
 import { GAME } from "./meta";
 import type { GoulagSocket } from "./socket";
 import type { ActionKind, PlayerView, RoomView, SuitName } from "./types";
@@ -27,15 +32,37 @@ import {
    cran plus petits ; les objets posés restent en 2D (nets et tapables), la 3D est
    réservée aux cartes qui bougent et à la scène du centre où tout se retourne. */
 
+/* Les emotes en cours, lues par l'en-tête de chaque siège. */
+const EmotesContext = createContext<EmoteEvent[]>([]);
+
 export default function Table({
-  socket,
+  socket: raw,
   view: live,
 }: {
   socket: GoulagSocket;
   view: RoomView;
 }) {
   // La vue affichée suit la chorégraphie : elle ne bascule qu'une fois les vols joués.
-  const { shown: view, fx } = useChoreography(socket, live);
+  const { shown: view, fx } = useChoreography(raw, live);
+  // Un coup est parti, la réponse du serveur n'est pas encore là : les taps suivants
+  // sont ignorés (un double tap enverrait deux cibles, et un message d'erreur).
+  const inFlight = useRef(false);
+  useEffect(() => {
+    inFlight.current = false;
+  }, [live, raw.error]);
+  const once =
+    <A extends unknown[]>(send: (...args: A) => void) =>
+    (...args: A) => {
+      if (inFlight.current) return;
+      inFlight.current = true;
+      send(...args);
+    };
+  const socket: GoulagSocket = {
+    ...raw,
+    announce: once(raw.announce),
+    target: once(raw.target),
+    chooseSuit: once(raw.chooseSuit),
+  };
   const me = view.your_seat;
   const you = view.players[me];
   const n = view.players.length;
@@ -67,6 +94,20 @@ export default function Table({
     setAskedBefore(view.must_choose_suit);
     setSuitPicked(false);
   }
+  // Couleur touchée mais jamais reçue (socket coupé à ce moment-là) : si le serveur la
+  // demande toujours quelques secondes plus tard, le choix revient. Sinon la table
+  // resterait bloquée, sans timer, pour tout le monde.
+  const liveRef = useRef(live);
+  useEffect(() => {
+    liveRef.current = live;
+  }, [live]);
+  useEffect(() => {
+    if (!suitPicked) return;
+    const timer = setTimeout(() => {
+      if (liveRef.current.must_choose_suit) setSuitPicked(false);
+    }, 5000);
+    return () => clearTimeout(timer);
+  }, [suitPicked]);
 
   // La table entière tremble à l'impact (sans remonter quoi que ce soit).
   const [scope, animate] = useAnimate();
@@ -80,49 +121,58 @@ export default function Table({
   }, [fx.tableShake, animate, scope]);
 
   return (
-    <div ref={scope} className="relative flex h-full flex-col">
-      <Banner view={view} you={you} />
+    <EmotesContext.Provider value={raw.emotes}>
+      <div ref={scope} className="relative flex h-full flex-col">
+        <Banner view={view} you={you} />
 
-      {/* Le tapis et les adversaires */}
-      <div className="relative min-h-0 flex-1">
-        <Felt />
-        {opponents.map((p, i) => (
-          <OpponentSeat
-            key={p.seat}
-            player={p}
-            place={seatPlacement(i + 1, n)}
-            active={active === p.seat}
-            targetable={canTarget(p)}
-            fx={fx.seats[p.seat]}
-            onTarget={() => socket.target(p.seat)}
-          />
-        ))}
-        <Stage stage={fx.center.stage} seats={n} />
-        <Piles view={view} center={fx.center} />
-      </div>
+        {/* Le tapis et les adversaires */}
+        <div className="relative min-h-0 flex-1">
+          <Felt />
+          {opponents.map((p, i) => (
+            <OpponentSeat
+              key={p.seat}
+              player={p}
+              place={seatPlacement(i + 1, n)}
+              active={active === p.seat}
+              targetable={canTarget(p)}
+              fx={fx.seats[p.seat]}
+              onTarget={() => socket.target(p.seat)}
+            />
+          ))}
+          <Stage stage={fx.center.stage} seats={n} />
+          <Piles view={view} center={fx.center} />
+        </div>
 
-      {/* Ta place */}
-      <YourZone
-        socket={socket}
-        view={view}
-        you={you}
-        announcing={announcing}
-        targeting={targeting}
-        targetable={canTarget(you)}
-        active={active === me}
-        fx={fx.seats[me]}
-      />
-
-      {view.must_choose_suit && !suitPicked && (
-        <SuitPicker
-          onPick={(suit) => {
-            setSuitPicked(true);
-            socket.chooseSuit(suit);
-          }}
+        {/* Ta place */}
+        <YourZone
+          socket={socket}
+          view={view}
+          you={you}
+          announcing={announcing}
+          targeting={targeting}
+          targetable={canTarget(you)}
+          active={active === me}
+          fx={fx.seats[me]}
         />
-      )}
-      {view.status === "finished" && <Results view={view} socket={socket} />}
-    </div>
+
+        {view.must_choose_suit && !suitPicked && (
+          <SuitPicker
+            onPick={(suit) => {
+              setSuitPicked(true);
+              socket.chooseSuit(suit);
+            }}
+          />
+        )}
+        {view.status === "playing" && (
+          <TableReactions
+            socket={raw}
+            view={view}
+            className="bottom-[13.5rem]"
+          />
+        )}
+        {view.status === "finished" && <Results view={view} socket={socket} />}
+      </div>
+    </EmotesContext.Provider>
   );
 }
 
@@ -225,6 +275,7 @@ function OpponentSeat({
   fx?: SeatFx;
   onTarget: () => void;
 }) {
+  const t = useT(T);
   const dead = !player.alive;
   return (
     <div
@@ -236,7 +287,7 @@ function OpponentSeat({
           type="button"
           disabled={!targetable}
           onClick={onTarget}
-          aria-label={targetable ? `Viser ${player.pseudo}` : player.pseudo}
+          aria-label={targetable ? t.seat.aim(player.pseudo) : player.pseudo}
           className={`flex flex-col items-center gap-1 rounded-2xl p-1 transition ${
             targetable
               ? "bg-gold/15 ring-2 ring-gold shadow-[0_0_24px_rgba(229,181,74,0.5)] active:scale-95"
@@ -347,9 +398,26 @@ function SeatHeader({
   active: boolean;
   size: "md" | "lg";
 }) {
+  const t = useT(T);
+  const emote = useContext(EmotesContext).findLast(
+    (e) => e.seat === player.seat,
+  );
   return (
     <div className="flex items-center gap-1.5">
       <span className="relative" ref={registerAnchor(`seat-${player.seat}`)}>
+        <AnimatePresence>
+          {emote && (
+            <motion.span
+              key={emote.id}
+              initial={{ opacity: 0, scale: 0.4, y: 6 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              className="absolute -top-8 left-1/2 z-20 -translate-x-1/2 rounded-full bg-black/60 px-2 py-0.5 text-xl"
+            >
+              {EMOTES[emote.emote] ?? emote.emote}
+            </motion.span>
+          )}
+        </AnimatePresence>
         {active && (
           <motion.span
             aria-hidden
@@ -366,7 +434,7 @@ function SeatHeader({
         </span>
         {player.hawk_eye && player.alive && (
           <span className="text-[10px] font-semibold text-gold">
-            Œil de faucon
+            {t.seat.hawkEye}
           </span>
         )}
       </span>
@@ -410,6 +478,7 @@ const DIM: Record<
 };
 
 function Mat({ player, size }: { player: PlayerView; size: MatSize }) {
+  const t = useT(T);
   const dead = !player.alive;
   const lifeCards = player.lives;
   const d = DIM[size];
@@ -429,8 +498,23 @@ function Mat({ player, size }: { player: PlayerView; size: MatSize }) {
           ref={registerAnchor(`lives-${player.seat}`)}
         >
           {lifeCards.map((card, i) => (
-            <Laid key={`${card.value}-${card.suit}`} index={i} size={size}>
-              <PlayingCard card={face(card)} size={size} />
+            <Laid
+              key={`${card.value}-${card.suit}${card.ghost ? "-ghost" : ""}`}
+              index={i}
+              size={size}
+            >
+              {card.ghost ? (
+                // Carte hors jeu : translucide, cerclée de pointillés dorés.
+                <span
+                  className="block rounded-md opacity-75 outline-2 outline-offset-1 outline-dashed outline-gold/80"
+                  title={t.seat.ghost}
+                  aria-label={t.seat.ghost}
+                >
+                  <PlayingCard card={face(card)} size={size} />
+                </span>
+              ) : (
+                <PlayingCard card={face(card)} size={size} />
+              )}
             </Laid>
           ))}
           {lifeCards.length === 0 && (
@@ -449,11 +533,7 @@ function Mat({ player, size }: { player: PlayerView; size: MatSize }) {
           player.charges ? "-ml-2.5" : "w-0"
         }`}
         ref={registerAnchor(`charges-${player.seat}`)}
-        aria-label={
-          player.charges
-            ? `${player.charges} charge${player.charges > 1 ? "s" : ""}`
-            : undefined
-        }
+        aria-label={player.charges ? t.seat.charges(player.charges) : undefined}
       >
         {player.charges > 0 && (
           <div className="relative">
@@ -469,7 +549,7 @@ function Mat({ player, size }: { player: PlayerView; size: MatSize }) {
               </span>
             ))}
             <span className="absolute -top-3 left-1/2 z-20 -translate-x-1/2 whitespace-nowrap rounded-full bg-gold px-1.5 text-[11px] font-extrabold leading-4 tracking-wide text-ink ring-1 ring-black/30">
-              {player.charges === 1 ? "1 charge" : `${player.charges} charges`}
+              {t.seat.charges(player.charges)}
             </span>
           </div>
         )}
@@ -623,7 +703,10 @@ function Stage({ stage, seats }: { stage: StageFx | null; seats: number }) {
                 {stage.cards.map((c, i) => (
                   <motion.span
                     key={`${c.value}-${c.suit}`}
-                    initial={{ x: i === 0 ? 0 : (i % 2 ? 1 : -1) * -30, opacity: 0 }}
+                    initial={{
+                      x: i === 0 ? 0 : (i % 2 ? 1 : -1) * -30,
+                      opacity: 0,
+                    }}
                     animate={{ x: 0, opacity: 1 }}
                     transition={{ delay: 0.05 * i, duration: 0.3 }}
                     className={`block rounded-lg ${glow[stage.tone]}`}
@@ -721,25 +804,21 @@ function Piles({ view, center }: { view: RoomView; center: CenterFx }) {
 /* ----------------------------------------------------------------------- */
 
 function Banner({ view, you }: { view: RoomView; you: PlayerView }) {
+  const t = useT(T).banner;
   let text: string;
   if (view.status !== "playing") text = "";
   else if (view.phase === "revival") {
     const dead = view.players[view.reviving ?? 0];
-    text =
-      dead.seat === you.seat
-        ? "Tu es à terre. Choisis ta couleur."
-        : `${dead.pseudo} joue sa peau…`;
+    text = dead.seat === you.seat ? t.youAreDown : t.reviving(dead.pseudo);
   } else if (view.turn === you.seat) {
-    text = view.phase === "target" ? "Désigne ta cible." : "À toi de jouer.";
+    text = view.phase === "target" ? t.pickTarget : t.yourTurn;
   } else {
     const p = view.players[view.turn ?? 0];
     text =
-      view.phase === "target"
-        ? `${p.pseudo} choisit sa cible…`
-        : `Au tour de ${p.pseudo}.`;
+      view.phase === "target" ? t.choosingTarget(p.pseudo) : t.turnOf(p.pseudo);
   }
   return (
-    <div className="pointer-events-none relative z-10 flex h-11 items-center justify-center pr-14 pl-4">
+    <div className="pointer-events-none relative z-10 flex h-11 flex-col items-center justify-center gap-1 pr-14 pl-4">
       <AnimatePresence mode="wait">
         <motion.p
           key={text}
@@ -752,6 +831,34 @@ function Banner({ view, you }: { view: RoomView; you: PlayerView }) {
           {text}
         </motion.p>
       </AnimatePresence>
+      {/* Le temps qui reste pour le tour en cours (table avec timer). */}
+      {view.status === "playing" && view.turn_remaining !== null && (
+        <TimerBar
+          key={`${view.turn}-${view.phase}-${view.reviving}-${view.turn_remaining}`}
+          remaining={view.turn_remaining}
+          total={view.turn_seconds}
+        />
+      )}
+    </div>
+  );
+}
+
+function TimerBar({ remaining, total }: { remaining: number; total: number }) {
+  const [gone, setGone] = useState(false);
+  useEffect(() => {
+    const raf = requestAnimationFrame(() => setGone(true));
+    return () => cancelAnimationFrame(raf);
+  }, []);
+  const start = Math.max(0, remaining) / Math.max(total, 1);
+  return (
+    <div className="h-1 w-28 overflow-hidden rounded-full bg-black/40">
+      <div
+        className="h-full rounded-full bg-gold"
+        style={{
+          width: `${(gone ? 0 : start) * 100}%`,
+          transition: gone ? `width ${remaining}s linear` : undefined,
+        }}
+      />
     </div>
   );
 }
@@ -779,6 +886,7 @@ function YourZone({
   active: boolean;
   fx?: SeatFx;
 }) {
+  const t = useT(T);
   return (
     <div className="relative z-10 flex flex-col gap-2 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2">
       <div className="flex items-end justify-between gap-3">
@@ -787,9 +895,7 @@ function YourZone({
             type="button"
             disabled={!targetable}
             onClick={() => socket.target(you.seat)}
-            aria-label={
-              targetable ? "Garder cette défense pour toi" : "Ton tapis"
-            }
+            aria-label={targetable ? t.seat.keepDefense : t.seat.yourMat}
             className={`rounded-2xl p-1.5 ${
               targetable
                 ? "bg-gold/15 ring-2 ring-gold shadow-[0_0_24px_rgba(229,181,74,0.5)] active:scale-95"
@@ -817,9 +923,9 @@ function YourZone({
                 // boutons (qui se resserrent pour lui laisser la place).
                 <div className="flex shrink-0 items-center gap-2 rounded-2xl bg-black/30 px-2.5 ring-1 ring-gold/40">
                   <span className="text-[10px] font-bold leading-tight text-gold">
-                    Tu
+                    {t.actions.peekTop}
                     <br />
-                    vois
+                    {t.actions.peekBottom}
                   </span>
                   <PlayingCard card={face(view.peek)} size="ms" />
                 </div>
@@ -829,7 +935,7 @@ function YourZone({
                 compact={Boolean(view.peek)}
                 onClick={() => socket.announce("defend")}
               >
-                Défense
+                {t.actions.defend}
               </ActionButton>
               <ActionButton
                 kind="charge"
@@ -837,14 +943,14 @@ function YourZone({
                 disabled={!view.can_charge}
                 onClick={() => socket.announce("charge")}
               >
-                Charge
+                {t.actions.charge}
               </ActionButton>
               <ActionButton
                 kind="attack"
                 compact={Boolean(view.peek)}
                 onClick={() => socket.announce("attack")}
               >
-                Attaque
+                {t.actions.attack}
               </ActionButton>
             </motion.div>
           ) : targeting ? (
@@ -855,11 +961,16 @@ function YourZone({
               exit={{ opacity: 0, y: 10 }}
               className="flex items-center gap-3 rounded-2xl bg-black/30 p-3 ring-1 ring-white/10"
             >
-              <PlayingCard faceDown size="md" />
+              {/* L'œil de faucon garde la carte sous les yeux pendant qu'il vise. */}
+              {view.peek ? (
+                <PlayingCard card={face(view.peek)} size="md" />
+              ) : (
+                <PlayingCard faceDown size="md" />
+              )}
               <p className="text-sm font-semibold text-ivory-dim">
                 {view.pending_action === "attack"
-                  ? `Tu attaques${you.charges ? ` avec ${you.charges} charge${you.charges > 1 ? "s" : ""}` : ""}. Touche un adversaire, la carte sera retournée ensuite.`
-                  : "Cette défense : pour toi, ou pour quelqu'un d'autre ? La carte sera retournée ensuite."}
+                  ? t.actions.attacking(you.charges)
+                  : t.actions.defending}
               </p>
             </motion.div>
           ) : (
@@ -870,7 +981,7 @@ function YourZone({
               exit={{ opacity: 0 }}
               className="pt-6 text-center text-sm text-ivory-dim/60"
             >
-              {you.alive ? "" : "Tu es éliminé. La partie continue sans toi."}
+              {you.alive ? "" : t.actions.eliminated}
             </motion.p>
           )}
         </AnimatePresence>
@@ -916,15 +1027,15 @@ function ActionButton({
 /* ----------------------------------------------------------------------- */
 
 function SuitPicker({ onPick }: { onPick: (suit: SuitName) => void }) {
+  const t = useT(T);
   const suits: SuitName[] = ["hearts", "diamonds", "clubs", "spades"];
   return (
     <Sheet onClose={() => {}}>
       <h2 className="mb-1 text-center text-lg font-extrabold">
-        Tu es à terre.
+        {t.suitPicker.title}
       </h2>
       <p className="mb-4 text-center text-sm text-ivory-dim/80">
-        Choisis une couleur : si la prochaine carte est de cette couleur, tu
-        revis avec.
+        {t.suitPicker.body}
       </p>
       <div className="grid grid-cols-2 gap-2">
         {suits.map((suit) => (
@@ -938,8 +1049,7 @@ function SuitPicker({ onPick }: { onPick: (suit: SuitName) => void }) {
                 : "text-ink"
             }`}
           >
-            <span className="text-2xl">{SUIT_GLYPH[suit]}</span>{" "}
-            {SUIT_LABEL[suit]}
+            <span className="text-2xl">{SUIT_GLYPH[suit]}</span> {t.suits[suit]}
           </button>
         ))}
       </div>
@@ -952,6 +1062,7 @@ function SuitPicker({ onPick }: { onPick: (suit: SuitName) => void }) {
 /* ----------------------------------------------------------------------- */
 
 function Results({ view, socket }: { view: RoomView; socket: GoulagSocket }) {
+  const t = useT(T).results;
   const ranked = [...view.players].sort(
     (a, b) => (a.finish_rank ?? 99) - (b.finish_rank ?? 99),
   );
@@ -967,11 +1078,16 @@ function Results({ view, socket }: { view: RoomView; socket: GoulagSocket }) {
       <motion.div
         initial={{ opacity: 0, scale: 0.86, y: 24 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
-        transition={{ type: "spring", stiffness: 260, damping: 22, delay: 0.15 }}
+        transition={{
+          type: "spring",
+          stiffness: 260,
+          damping: 22,
+          delay: 0.15,
+        }}
         className="flex w-full max-w-sm flex-col gap-3 rounded-3xl bg-felt-800 p-5 ring-1 ring-white/10"
       >
         <h2 className="text-center text-2xl font-extrabold">
-          {won ? "Dernier debout." : `${winner.pseudo} survit.`}
+          {won ? t.youWon : t.survives(winner.pseudo)}
         </h2>
         <ol className="flex flex-col gap-1">
           {ranked.map((p, i) => (
@@ -995,13 +1111,13 @@ function Results({ view, socket }: { view: RoomView; socket: GoulagSocket }) {
           onClick={() => socket.rematch()}
           className="rounded-2xl bg-gold py-3 text-center font-extrabold text-ink active:translate-y-0.5"
         >
-          Revanche !
+          {t.rematch}
         </button>
         <Link
           href={GAME.path}
           className="rounded-2xl bg-black/25 py-3 text-center font-bold text-ivory-dim ring-1 ring-white/15"
         >
-          Retour à l&rsquo;accueil
+          {t.home}
         </Link>
       </motion.div>
     </motion.div>

@@ -2,6 +2,9 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { joinRoom, wsUrl } from "./api";
+import { dict, tr } from "./i18n";
+import { serverText } from "./serverMessages";
+import { COMMON } from "./texts";
 import { sfx } from "./sound";
 import type { BaseRoomView, BotDifficulty, ChatEntry, GameEvent, ServerMessage } from "./types";
 
@@ -29,11 +32,20 @@ export type RoomSocket<V extends BaseRoomView = BaseRoomView> = {
   onEvents: (handler: (events: GameEvent[], nextView: V) => void) => void;
 };
 
-const CLOSE_REASONS: Record<number, string> = {
-  4401: "Session expirée : reviens à l'accueil pour entrer à nouveau.",
-  4403: "Tu n'es pas assis à cette table.",
-  4404: "Cette table n'existe plus.",
-};
+const CLOSE_REASONS = dict<Record<number, string>>({
+  fr: {
+    4000: "Cette table est ouverte sur un autre écran.",
+    4401: "Session expirée : reviens à l'accueil pour entrer à nouveau.",
+    4403: "Tu n'es pas assis à cette table.",
+    4404: "Cette table n'existe plus.",
+  },
+  en: {
+    4000: "This table is open on another screen.",
+    4401: "Session expired: go back to the start screen and come in again.",
+    4403: "You don't have a seat at this table.",
+    4404: "This table no longer exists.",
+  },
+});
 
 let emoteId = 0;
 
@@ -49,6 +61,9 @@ export function useRoomSocket<V extends BaseRoomView>(
   const [rematchCode, setRematchCode] = useState<string | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
   const eventsHandlerRef = useRef<((events: GameEvent[], nextView: V) => void) | null>(null);
+  // Événements arrivés sans personne pour les jouer (le lobby est encore affiché au
+  // démarrage de la partie) : gardés pour la table, qui les rejoue en s'abonnant.
+  const pendingEventsRef = useRef<{ events: GameEvent[]; view: V }[]>([]);
   const retryRef = useRef(0);
   const rejoinRef = useRef(0);
 
@@ -67,7 +82,13 @@ export function useRoomSocket<V extends BaseRoomView>(
           retryRef.current = 0;
           setView(msg.view);
           if (msg.chat) setChat(msg.chat);
-          if (msg.events.length) eventsHandlerRef.current?.(msg.events, msg.view);
+          if (msg.events.length) {
+            if (eventsHandlerRef.current) eventsHandlerRef.current(msg.events, msg.view);
+            else {
+              const batch = { events: msg.events, view: msg.view };
+              pendingEventsRef.current = [...pendingEventsRef.current, batch].slice(-4);
+            }
+          }
         } else if (msg.type === "chat") {
           setChat((prev) => [...prev.slice(-99), msg]);
           sfx.pop();
@@ -81,24 +102,27 @@ export function useRoomSocket<V extends BaseRoomView>(
         } else if (msg.type === "rematch") {
           setRematchCode(msg.code);
         } else if (msg.type === "error") {
-          setError(msg.detail);
+          setError(serverText(msg.detail));
           setTimeout(() => setError(null), 3500);
         }
       };
 
       socket.onclose = (event) => {
         if (disposed || socketRef.current !== socket) return;
+        // Départ volontaire (« Quitter ») : surtout ne pas se reconnecter, on serait
+        // rassis à la table qu'on vient de quitter.
+        if (event.code === 1000) return;
         if (event.code === 4403 && rejoinRef.current < 2) {
           // Siège expiré (délai de grâce dépassé) : on se rassoit puis on se reconnecte.
           rejoinRef.current += 1;
           joinRoom(token!, code)
             .then(() => connect())
             .catch((e) =>
-              setClosedReason(e instanceof Error ? e.message : "Impossible de rejoindre.")
+              setClosedReason(e instanceof Error ? e.message : tr(COMMON).cantJoin)
             );
           return;
         }
-        const terminal = CLOSE_REASONS[event.code];
+        const terminal = tr(CLOSE_REASONS)[event.code];
         if (terminal) {
           setClosedReason(terminal);
           return;
@@ -159,6 +183,9 @@ export function useRoomSocket<V extends BaseRoomView>(
     leave: useCallback(() => send({ action: "leave" }), [send]),
     onEvents: useCallback((handler) => {
       eventsHandlerRef.current = handler;
+      const pending = pendingEventsRef.current;
+      pendingEventsRef.current = [];
+      for (const { events, view } of pending) handler(events, view);
     }, []),
   };
 }

@@ -39,6 +39,10 @@ class Seat:
     socket: WebSocket | None = None
     # Difficulté du bot qui occupe ce siège (clé de GameSpec.bot_difficulties), None pour un humain.
     bot: str | None = None
+    # Coups joués d'office d'affilée pendant que le joueur était déconnecté ; au bout de
+    # ABSENT_STRIKES, un bot prend sa place (`replaced`) jusqu'à son retour.
+    missed: int = 0
+    replaced: bool = False
 
 
 @dataclass

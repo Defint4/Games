@@ -1,13 +1,30 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { dict, useT } from "@/lib/i18n";
 import type { BaseRoomView } from "@/lib/types";
 import type { RoomSocket } from "@/lib/useRoomSocket";
+
+const T = dict({
+  fr: {
+    empty: "Personne n’a encore rien dit.",
+    placeholder: "Écrire à la table",
+    send: "Envoyer",
+    open: "Ouvrir le chat…",
+  },
+  en: {
+    empty: "Nobody's said anything yet.",
+    placeholder: "Say something to the table",
+    send: "Send",
+    open: "Open the chat…",
+  },
+});
 
 /* Le chat complet : tout l'historique + saisie. Affiché dans une bottom-sheet. */
 export default function ChatPanel({ socket, view }: { socket: RoomSocket; view: BaseRoomView }) {
   const [draft, setDraft] = useState("");
   const listRef = useRef<HTMLDivElement>(null);
+  const t = useT(T);
 
   useEffect(() => {
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight });
@@ -17,7 +34,7 @@ export default function ChatPanel({ socket, view }: { socket: RoomSocket; view: 
     <div className="flex flex-col gap-2">
       <div ref={listRef} className="flex max-h-60 flex-col gap-1 overflow-y-auto text-sm">
         {socket.chat.length === 0 && (
-          <p className="text-ivory-dim/60">Personne n&rsquo;a encore rien dit.</p>
+          <p className="text-ivory-dim/60">{t.empty}</p>
         )}
         {socket.chat.map((entry, i) => (
           <p key={i}>
@@ -44,14 +61,14 @@ export default function ChatPanel({ socket, view }: { socket: RoomSocket; view: 
           onChange={(e) => setDraft(e.target.value)}
           maxLength={200}
           autoFocus
-          placeholder="Écrire à la table"
+          placeholder={t.placeholder}
           className="grow rounded-xl bg-black/30 px-3 py-2 text-sm ring-1 ring-white/15 placeholder:text-ivory-dim/50 focus:outline-2 focus:outline-gold"
         />
         <button
           type="submit"
           className="rounded-xl bg-felt-600 px-4 text-sm font-bold ring-1 ring-white/15 active:translate-y-0.5"
         >
-          Envoyer
+          {t.send}
         </button>
       </form>
     </div>
@@ -71,13 +88,14 @@ export function RecentChat({
   limit?: number;
 }) {
   const recent = socket.chat.slice(-limit);
+  const t = useT(T);
   return (
     <button
       type="button"
       onClick={onOpen}
       className="flex w-full flex-col gap-0.5 rounded-2xl bg-black/25 p-3 text-left text-sm ring-1 ring-white/10"
     >
-      {recent.length === 0 && <span className="text-ivory-dim/60">Ouvrir le chat…</span>}
+      {recent.length === 0 && <span className="text-ivory-dim/60">{t.open}</span>}
       {recent.map((entry, i) => (
         <span key={i} className="truncate">
           <span className="font-bold text-gold/90">

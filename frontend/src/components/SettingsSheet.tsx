@@ -1,9 +1,12 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import LangSwitch from "@/components/LangSwitch";
 import { Sheet } from "@/components/Sheet";
+import SoundToggle from "@/components/SoundToggle";
 import type { GameMeta } from "@/lib/games";
+import { dict, useT } from "@/lib/i18n";
 import { forgetTable } from "@/lib/identity";
 import {
   BACK_STYLES,
@@ -13,7 +16,25 @@ import {
   type BackStyle,
   type FeltStyle,
 } from "@/lib/prefs";
-import { isMuted, setMuted } from "@/lib/sound";
+
+const T = dict({
+  fr: {
+    table: "Table",
+    backs: "Dos des cartes",
+    felt: "Tapis",
+    rules: "Règles du jeu",
+    leave: (inLobby: boolean) => `Quitter la ${inLobby ? "table" : "partie"}`,
+    seatKept: "Ta place reste réservée : tu pourras revenir depuis l’accueil.",
+  },
+  en: {
+    table: "Table",
+    backs: "Card backs",
+    felt: "Felt",
+    rules: "Game rules",
+    leave: (inLobby: boolean) => (inLobby ? "Leave the table" : "Leave the game"),
+    seatKept: "Your seat stays saved: you can come back from the game screen.",
+  },
+});
 
 /* Le menu ⚙️ d'une table, commun à tous les jeux : sons, dos des cartes, tapis,
    règles (fournies par le jeu), quitter. */
@@ -35,47 +56,30 @@ export default function SettingsSheet({
 }) {
   const router = useRouter();
   const prefs = usePrefs();
-  const [muted, setMutedState] = useState(false);
+  const t = useT(T);
+  const backLabels = useT(BACK_STYLES);
+  const feltLabels = useT(FELT_STYLES);
   const [showRules, setShowRules] = useState(false);
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setMutedState(isMuted());
-  }, []);
 
   if (showRules) return <Sheet onClose={() => setShowRules(false)}>{rules}</Sheet>;
 
   return (
     <Sheet onClose={onClose}>
       <h2 className="mb-4 text-center text-lg font-extrabold">
-        Table <span className="tracking-widest text-gold">{code}</span>
+        {t.table} <span className="tracking-widest text-gold">{code}</span>
       </h2>
       <div className="flex flex-col gap-3">
-        <button
-          type="button"
-          onClick={() => {
-            setMuted(!muted);
-            setMutedState(!muted);
-          }}
-          className="flex items-center justify-between rounded-2xl bg-black/25 p-4 ring-1 ring-white/10"
-        >
-          <span className="font-bold">Sons</span>
-          <span
-            className={`rounded-full px-3 py-1 text-sm font-bold ${
-              muted ? "bg-white/10 text-ivory-dim/70" : "bg-gold text-ink"
-            }`}
-          >
-            {muted ? "Coupés" : "Activés"}
-          </span>
-        </button>
+        <LangSwitch />
+        <SoundToggle />
 
         <div className="rounded-2xl bg-black/25 p-4 ring-1 ring-white/10">
-          <p className="mb-2 font-bold">Dos des cartes</p>
+          <p className="mb-2 font-bold">{t.backs}</p>
           <div className="flex gap-3">
-            {(Object.keys(BACK_STYLES) as BackStyle[]).map((style) => (
+            {(Object.keys(backLabels) as BackStyle[]).map((style) => (
               <button
                 key={style}
                 type="button"
-                aria-label={BACK_STYLES[style]}
+                aria-label={backLabels[style]}
                 onClick={() => setPref("back", style)}
                 className={`rounded-lg p-1 ${prefs.back === style ? "ring-2 ring-gold" : ""}`}
               >
@@ -83,13 +87,13 @@ export default function SettingsSheet({
               </button>
             ))}
           </div>
-          <p className="mb-2 mt-4 font-bold">Tapis</p>
+          <p className="mb-2 mt-4 font-bold">{t.felt}</p>
           <div className="flex gap-3">
-            {(Object.keys(FELT_STYLES) as FeltStyle[]).map((style) => (
+            {(Object.keys(feltLabels) as FeltStyle[]).map((style) => (
               <button
                 key={style}
                 type="button"
-                aria-label={FELT_STYLES[style]}
+                aria-label={feltLabels[style]}
                 onClick={() => setPref("felt", style)}
                 className={`size-10 rounded-full ring-2 ${
                   prefs.felt === style ? "ring-gold" : "ring-white/20"
@@ -107,7 +111,7 @@ export default function SettingsSheet({
           onClick={() => setShowRules(true)}
           className="rounded-2xl bg-black/25 p-4 text-left font-bold ring-1 ring-white/10"
         >
-          Règles du jeu
+          {t.rules}
         </button>
 
         <button
@@ -119,11 +123,11 @@ export default function SettingsSheet({
           }}
           className="rounded-2xl bg-card-red/90 p-4 font-extrabold text-ivory ring-1 ring-white/10 active:translate-y-0.5"
         >
-          Quitter la {inLobby ? "table" : "partie"}
+          {t.leave(inLobby)}
         </button>
         {!inLobby && (
           <p className="text-center text-sm text-ivory-dim/70">
-            Ta place reste réservée : tu pourras revenir depuis l&rsquo;accueil.
+            {t.seatKept}
           </p>
         )}
       </div>

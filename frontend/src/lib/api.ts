@@ -1,4 +1,11 @@
+import { dict, tr } from "./i18n";
+import { serverText } from "./serverMessages";
 import type { LeaderboardPage, OpenRoom, PlayerProfile } from "./types";
+
+const T = dict({
+  fr: { unexpected: "Le serveur ne répond pas comme prévu." },
+  en: { unexpected: "The server sent an unexpected answer." },
+});
 
 export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -25,10 +32,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     headers: { "Content-Type": "application/json", ...init?.headers },
   });
   if (!res.ok) {
-    let detail = "Le serveur ne répond pas comme prévu.";
+    let detail = tr(T).unexpected;
     try {
       const body = await res.json();
-      if (typeof body.detail === "string") detail = body.detail;
+      if (typeof body.detail === "string") detail = serverText(body.detail);
     } catch {
       /* réponse sans corps JSON */
     }
@@ -52,6 +59,15 @@ export function enter(pseudo: string, avatar: string) {
 
 export function fetchMe(token: string) {
   return request<PlayerProfile>("/api/players/me", { headers: authed(token) });
+}
+
+/* Renommer et/ou changer d'avatar : même joueur, mêmes stats, même jeton. */
+export function updateMe(token: string, changes: { pseudo?: string; avatar?: string }) {
+  return request<PlayerProfile>("/api/players/me", {
+    method: "PATCH",
+    headers: authed(token),
+    body: JSON.stringify(changes),
+  });
 }
 
 export function fetchPlayerByPseudo(pseudo: string) {

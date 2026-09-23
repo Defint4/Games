@@ -4,9 +4,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { spawnFlight } from "@/components/FlightLayer";
 import { burst, screenFx, shockwave, tracer } from "@/components/FxLayer";
 import PlayingCard from "@/components/PlayingCard";
+import { tr } from "@/lib/i18n";
 import { sfx, vibrate } from "@/lib/sound";
 import type { CardT, GameEvent } from "@/lib/types";
 import { SUIT_GLYPH, face } from "./cards";
+import { T as TEXT } from "./i18n";
 import type { GoulagSocket } from "./socket";
 import type { PlayerView, RoomView } from "./types";
 
@@ -223,6 +225,15 @@ export function useChoreography(
       busyRef.current = true;
       try {
         while (queueRef.current.length) {
+          // Retour d'arrière-plan : les coups se sont empilés. Plutôt que de les rejouer
+          // un par un pendant que la partie continue, on pose la dernière vue.
+          if (queueRef.current.length > 2) {
+            const last = queueRef.current[queueRef.current.length - 1].next;
+            queueRef.current = [];
+            center({ ...EMPTY_CENTER });
+            commit(last);
+            break;
+          }
           const { events, next } = queueRef.current.shift()!;
           await play(events, shownRef.current, next);
           commit(next);
@@ -267,6 +278,8 @@ export function useChoreography(
       after: RoomView,
     ) {
       const me = before.your_seat;
+      // Les textes dans la langue courante au moment où le coup est raconté.
+      const t = tr(TEXT).fx;
       const name = (seat: number) => before.players[seat]?.pseudo ?? "";
       const seatNow = (seat: number) => shownRef.current.players[seat];
       // Les boucliers déjà remplacés sur le tapis pendant la révélation.
@@ -283,9 +296,9 @@ export function useChoreography(
             const seat = e.player as number;
             const action = e.action as "attack" | "defend" | "charge";
             const label = {
-              attack: "Attaque !",
-              defend: "Défense",
-              charge: "Charge",
+              attack: t.attack,
+              defend: t.defend,
+              charge: t.charge,
             }[action];
             if (action === "attack") {
               sfx.cut();
@@ -330,6 +343,8 @@ export function useChoreography(
                 spin: -6,
               }),
             );
+            // Parties vers la scène : elles ne restent pas aussi sur le tapis.
+            if (charges.length) patchShown(seat, { charges: 0 });
             await wait(T.fly + 80 * charges.length);
 
             // 2. Sur la scène, tout se retourne, et on laisse le temps de lire.
@@ -347,15 +362,15 @@ export function useChoreography(
               stage({
                 caption:
                   total !== undefined && defense !== undefined
-                    ? `${total} contre ${defense} — ${name(target)}`
-                    : `Sur ${name(target)}`,
+                    ? t.versus(total, defense, name(target))
+                    : t.on(name(target)),
               });
             } else {
               stage({
                 caption:
                   target === seat
-                    ? "Nouveau bouclier"
-                    : `Bouclier pour ${name(target)}`,
+                    ? t.newShield
+                    : t.shieldFor(name(target)),
               });
             }
             await wait(T.read);
@@ -446,7 +461,7 @@ export function useChoreography(
                 gravity: 600,
               });
               await wait(180);
-              popup(target, "Bloqué", "block", 1400, true);
+              popup(target, t.blocked, "block", 1400, true);
             }
             await wait(T.verdict);
             // Les cartes jouées glissent à la défausse.
@@ -462,7 +477,7 @@ export function useChoreography(
             const count = seatNow(seat)?.charges ?? 0;
             if (count) {
               sfx.pickup();
-              popup(seat, "Charges perdues", "info", 1200);
+              popup(seat, t.chargesLost, "info", 1200);
               for (let i = 0; i < count; i++) {
                 fly(`charges-${seat}`, "discard", null, { delay: i * 0.1 });
               }
@@ -506,7 +521,7 @@ export function useChoreography(
               const lives = [...(seatNow(seat)?.lives ?? []), ...addedRaw];
               patchShown(seat, { lives, life_total: total(lives) });
               sfx.play();
-              popup(seat, `Vies : ${total(lives)}`, "info", 1300);
+              popup(seat, t.lives(total(lives)), "info", 1300);
               await wait(500);
             }
             break;
@@ -534,7 +549,7 @@ export function useChoreography(
               gravity: 200,
               streak: false,
             });
-            popup(target, `Bouclier ${value}`, "info", 1500);
+            popup(target, t.shield(value), "info", 1500);
             await wait(T.verdict);
             break;
           }
@@ -557,7 +572,7 @@ export function useChoreography(
               streak: false,
             });
             await wait(220);
-            popup(seat, "À terre", "damage", 2000, true);
+            popup(seat, t.down, "damage", 2000, true);
             await wait(600);
             lives.forEach((c, i) =>
               fly(`lives-${seat}`, "discard", c, {
@@ -599,15 +614,15 @@ export function useChoreography(
               cards: [card],
               caption:
                 attempt === 2
-                  ? `Dernière chance — ${name(seat)}`
-                  : `${name(seat)} joue sa peau`,
+                  ? t.lastChance(name(seat))
+                  : t.revival(name(seat)),
             });
             await wait(T.flip + T.read);
             if (success) {
               sfx.bell();
               vibrate([20, 30, 20]);
               screenFx("gold");
-              stage({ tone: "success", caption: "Bonne couleur !" });
+              stage({ tone: "success", caption: t.rightSuit });
               burst("stage", {
                 colors: SPARK_GOLD,
                 count: 40,
@@ -621,7 +636,7 @@ export function useChoreography(
               sfx.nope();
               stage({
                 tone: "fail",
-                caption: attempt === 2 ? "Éliminé." : "Raté…",
+                caption: attempt === 2 ? t.out : t.missed,
               });
               burst("stage", {
                 colors: DUST,
@@ -659,7 +674,7 @@ export function useChoreography(
               life: 0.7,
               gravity: 250,
             });
-            popup(seat, "Revient !", "info", 1600, true);
+            popup(seat, t.revived, "info", 1600, true);
             await wait(700);
             break;
           }
@@ -668,7 +683,7 @@ export function useChoreography(
             const defense = e.defense as CardT | null;
             flash(seat, "death", 1200);
             screenFx("dark");
-            popup(seat, "Éliminé", "damage", 2000, true);
+            popup(seat, t.eliminated, "damage", 2000, true);
             if (seat === me) sfx.lose();
             else sfx.thud();
             await wait(400);

@@ -9,22 +9,66 @@ import { leaderboardPath } from "@/components/Leaderboard";
 import { TransitionOverlay } from "@/components/Loading";
 import { ApiError, createRoom, fetchMe, fetchRoom, joinRoom } from "@/lib/api";
 import { HUB_PATH, tablePath, type GameMeta } from "@/lib/games";
+import { dict, tr, useT } from "@/lib/i18n";
 import { currentProfile, forgetTable, lastTable, type StoredProfile } from "@/lib/identity";
-import { preloadCards } from "@/lib/preloadCards";
+import { COMMON } from "@/lib/texts";
 import { NO_STATS } from "@/lib/types";
 import { useOpenRooms } from "@/lib/useOpenRooms";
+
+const T = dict({
+  fr: {
+    unreachable: "Le serveur est injoignable.",
+    opening: "Ouverture de ta table…",
+    joining: (code: string) => `On te fait une place à la table ${code}…`,
+    resuming: (code: string) => `Retour à la table ${code}…`,
+    record: (played: number, won: number, lost: number) =>
+      `${played} parties · ${won} gagnées · ${lost} perdues`,
+    resume: (code: string) => `Reprendre la table ${code}`,
+    create: "Créer une table",
+    codePlaceholder: "Code de la table",
+    join: "Rejoindre",
+    openTables: "Tables ouvertes",
+    noTables: "Aucune table pour l’instant. Crée la tienne et partage son code.",
+    lookingTables: "On regarde qui joue…",
+  },
+  en: {
+    unreachable: "Can't reach the server.",
+    opening: "Setting up your table…",
+    joining: (code: string) => `Pulling up a chair at table ${code}…`,
+    resuming: (code: string) => `Back to table ${code}…`,
+    record: (played: number, won: number, lost: number) =>
+      `${played} played · ${won} won · ${lost} lost`,
+    resume: (code: string) => `Back to table ${code}`,
+    create: "New table",
+    codePlaceholder: "Table code",
+    join: "Join",
+    openTables: "Open tables",
+    noTables: "No tables right now. Start yours and share the code.",
+    lookingTables: "Checking who's playing…",
+  },
+});
 
 /* L'accueil d'un jeu, commun à tous : créer une table, rejoindre par code, reprendre
    la dernière, tables ouvertes en direct. Le jeu fournit son en-tête (logo). */
 
-export default function GameHome({ game, header }: { game: GameMeta; header: React.ReactNode }) {
+export default function GameHome({
+  game,
+  header,
+  preload,
+}: {
+  game: GameMeta;
+  header: React.ReactNode;
+  /* Les ressources de la table, téléchargées dès l'accueil (voir TableFrame). */
+  preload: () => Promise<unknown>;
+}) {
   const router = useRouter();
   const [profile, setProfile] = useState<StoredProfile | null>(null);
+  const common = useT(COMMON);
 
   useEffect(() => {
-    // Les cartes se chargent dès l'accueil : la table démarre avec tout en cache.
-    preloadCards();
-  }, []);
+    // Les ressources se chargent dès l'accueil : la table démarre avec tout en cache.
+    void preload();
+  }, [preload]);
 
   useEffect(() => {
     const current = currentProfile();
@@ -44,13 +88,13 @@ export default function GameHome({ game, header }: { game: GameMeta; header: Rea
           href={HUB_PATH}
           className="rounded-xl py-2 pr-3 text-sm font-semibold text-ivory-dim/75 hover:text-ivory"
         >
-          ‹ Tous les jeux
+          ‹ {common.allGames}
         </Link>
         <Link
           href={leaderboardPath(game.slug)}
           className="rounded-xl py-2 pl-3 text-sm font-semibold text-gold/90 hover:text-gold"
         >
-          Classement ›
+          {common.leaderboard} ›
         </Link>
       </div>
       {header}
@@ -67,6 +111,7 @@ function Tables({ game, profile }: { game: GameMeta; profile: StoredProfile }) {
   // Le voile de transition : posé dès le tap, retiré seulement en cas d'erreur
   // (en cas de succès on quitte l'écran, le voile reste jusqu'au changement de page).
   const [leaving, setLeaving] = useState<string | null>(null);
+  const t = useT(T);
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setResumeCode(lastTable(game.slug));
@@ -105,13 +150,13 @@ function Tables({ game, profile }: { game: GameMeta; profile: StoredProfile }) {
   const goToTable = ({ code }: { code: string }) => router.push(tablePath(game.slug, code));
   const fail = (e: unknown) => {
     setLeaving(null);
-    setError(e instanceof ApiError ? e.message : "Le serveur est injoignable.");
+    setError(e instanceof ApiError ? e.message : tr(T).unreachable);
   };
   const create = useMutation({
     mutationFn: () => createRoom(profile.token, game.slug),
     onMutate: () => {
       setError(null);
-      setLeaving("Ouverture de ta table…");
+      setLeaving(tr(T).opening);
     },
     onSuccess: goToTable,
     onError: fail,
@@ -120,14 +165,14 @@ function Tables({ game, profile }: { game: GameMeta; profile: StoredProfile }) {
     mutationFn: (code: string) => joinRoom(profile.token, code),
     onMutate: (code) => {
       setError(null);
-      setLeaving(`On te fait une place à la table ${code}…`);
+      setLeaving(tr(T).joining(code));
     },
     onSuccess: goToTable,
     onError: fail,
   });
   const resume = useMutation({
     mutationFn: (code: string) => joinRoom(profile.token, code),
-    onMutate: (code) => setLeaving(`Retour à la table ${code}…`),
+    onMutate: (code) => setLeaving(tr(T).resuming(code)),
     onSuccess: goToTable,
     onError: (e) => {
       setLeaving(null);
@@ -137,7 +182,7 @@ function Tables({ game, profile }: { game: GameMeta; profile: StoredProfile }) {
         setResumeCode(null);
       } else {
         // Réseau ou serveur muet : la table existe peut-être encore, on la garde.
-        setError("Le serveur est injoignable.");
+        setError(tr(T).unreachable);
       }
     },
   });
@@ -152,7 +197,7 @@ function Tables({ game, profile }: { game: GameMeta; profile: StoredProfile }) {
           <p className="text-lg font-bold">{profile.pseudo}</p>
           {me.data && (
             <p className="text-sm text-ivory-dim/80">
-              {stats.played} parties · {stats.won} gagnées · {stats.lost} perdues
+              {t.record(stats.played, stats.won, stats.lost)}
             </p>
           )}
         </div>
@@ -165,7 +210,7 @@ function Tables({ game, profile }: { game: GameMeta; profile: StoredProfile }) {
           disabled={busy}
           className="flex items-center justify-between rounded-2xl bg-felt-600 px-5 py-4 ring-1 ring-gold/50 enabled:active:translate-y-0.5"
         >
-          <span className="font-extrabold">Reprendre la table {resumeCode}</span>
+          <span className="font-extrabold">{t.resume(resumeCode)}</span>
           <span className="text-gold">→</span>
         </button>
       )}
@@ -176,7 +221,7 @@ function Tables({ game, profile }: { game: GameMeta; profile: StoredProfile }) {
         disabled={busy}
         className="rounded-2xl bg-gold py-5 text-xl font-extrabold text-ink shadow-card enabled:active:translate-y-0.5 disabled:opacity-40"
       >
-        Créer une table
+        {t.create}
       </button>
 
       <form
@@ -190,7 +235,7 @@ function Tables({ game, profile }: { game: GameMeta; profile: StoredProfile }) {
           value={joinCode}
           onChange={(e) => setJoinCode(e.target.value.replace(/\D/g, "").slice(0, 4))}
           inputMode="numeric"
-          placeholder="Code de la table"
+          placeholder={t.codePlaceholder}
           className="grow rounded-xl bg-black/30 px-4 py-3 text-center text-lg font-bold tracking-[0.4em] text-ivory placeholder:font-normal placeholder:tracking-normal placeholder:text-ivory-dim/50 ring-1 ring-white/15 focus:outline-2 focus:outline-gold"
         />
         <button
@@ -198,14 +243,14 @@ function Tables({ game, profile }: { game: GameMeta; profile: StoredProfile }) {
           disabled={joinCode.length !== 4 || busy}
           className="rounded-xl bg-felt-600 px-5 font-bold ring-1 ring-white/15 enabled:active:translate-y-0.5 disabled:opacity-40"
         >
-          Rejoindre
+          {t.join}
         </button>
       </form>
 
       {error && <p className="text-sm text-card-red">{error}</p>}
 
       <div className="flex flex-col gap-2">
-        <h2 className="font-bold">Tables ouvertes</h2>
+        <h2 className="font-bold">{t.openTables}</h2>
         {rooms.rooms.length ? (
           rooms.rooms.map((room) => (
             <button
@@ -228,11 +273,11 @@ function Tables({ game, profile }: { game: GameMeta; profile: StoredProfile }) {
           ))
         ) : rooms.ready ? (
           <p className="rounded-2xl border border-dashed border-ivory-dim/30 p-4 text-sm text-ivory-dim/70">
-            Aucune table pour l&rsquo;instant. Crée la tienne et partage son code.
+            {t.noTables}
           </p>
         ) : (
           <p className="rounded-2xl border border-dashed border-ivory-dim/20 p-4 text-sm text-ivory-dim/50">
-            On regarde qui joue…
+            {t.lookingTables}
           </p>
         )}
       </div>

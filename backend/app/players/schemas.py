@@ -9,6 +9,13 @@ PSEUDO_PATTERN = r"^[A-Za-z0-9À-ÖØ-öø-ÿ_\- ]{2,20}$"
 AVATAR_PATTERN = r"^[a-z0-9\-]{1,40}$"
 
 
+def _normalize_pseudo(value: str) -> str:
+    value = " ".join(value.split())  # espaces superflus
+    if not re.fullmatch(PSEUDO_PATTERN, value):
+        raise ValueError("Pseudo invalide : lettres, chiffres, espaces, - et _ uniquement.")
+    return value
+
+
 class EnterRequest(BaseModel):
     pseudo: str = Field(min_length=2, max_length=20)
     avatar: str = Field(pattern=AVATAR_PATTERN)
@@ -16,10 +23,19 @@ class EnterRequest(BaseModel):
     @field_validator("pseudo")
     @classmethod
     def normalize_pseudo(cls, value: str) -> str:
-        value = " ".join(value.split())  # espaces superflus
-        if not re.fullmatch(PSEUDO_PATTERN, value):
-            raise ValueError("Pseudo invalide : lettres, chiffres, espaces, - et _ uniquement.")
-        return value
+        return _normalize_pseudo(value)
+
+
+class UpdateMeRequest(BaseModel):
+    """Modification du profil connecté : pseudo et/ou avatar, les stats suivent."""
+
+    pseudo: str | None = Field(default=None, min_length=2, max_length=20)
+    avatar: str | None = Field(default=None, pattern=AVATAR_PATTERN)
+
+    @field_validator("pseudo")
+    @classmethod
+    def normalize_pseudo(cls, value: str | None) -> str | None:
+        return None if value is None else _normalize_pseudo(value)
 
 
 class GameStatsOut(BaseModel):

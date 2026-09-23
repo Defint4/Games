@@ -15,10 +15,12 @@ Décisions d'arbitrage sur les zones floues des règles officielles
   aucune contrainte « inférieur ».
 - Après un ramassage (joueur bloqué), le joueur dont le coup a bloqué rejoue.
   Cela vaut aussi pour une carte cachée retournée injouable.
-- « Bonne pioche » (chase_*) : après avoir posé, tant que personne n'a agi,
-  on peut enchaîner d'autres cartes de la même valeur — fraîchement piochées,
-  ou une carte cachée retournée vite (ratée : elle reste en main). Les cartes
-  visibles complètent aussi un coup qui vide la main, sans limite de temps.
+- « Bonne pioche » (chase_*) : après avoir posé, tant que personne n'a agi, si la
+  pioche du coup a fourni une carte de la même valeur, on peut enchaîner toutes ses
+  copies de cette valeur, celles gardées en main comprises (arbitrage de Matthieu,
+  23 sept 2026) ; ou, main vide, retourner vite une carte cachée (ratée : elle reste en
+  main), jusqu'à ce qu'un autre joueur agisse. Les cartes visibles complètent aussi un
+  coup qui vide la main, sans limite de temps.
 """
 
 from __future__ import annotations
@@ -227,6 +229,7 @@ def play_cards(
     draw_before = len(state.draw_pile)
     events.extend(_finish_move(state, player_index, replay=cut))
     _arm_chase(state, player, value, before_draw, draw_before)
+    state.blind_chase_open = True
     return events
 
 
@@ -263,6 +266,7 @@ def flip_face_down(state: GameState, player_index: int, face_down_index: int) ->
     card = player.face_down.pop(face_down_index)
     player.hand.append(card)
     state.chase_armed = False  # quelqu'un a agi : la fenêtre d'enchaînement se ferme
+    state.blind_chase_open = False
     events: list[Event] = [{"type": "card_flipped", "player": player_index, "card": card.to_dict()}]
     if not can_play_value(state, card.value):
         events.extend(_pickup(state, player_index))
@@ -275,7 +279,8 @@ def chase_value(state: GameState, player_index: int) -> int | None:
     « Bonne pioche » : le dernier poseur peut immédiatement rajouter la carte
     qu'il vient de piocher si elle a la même valeur, ou retourner vite une carte
     cachée quand il n'a plus rien d'autre — tant que personne n'a agi depuis.
-    Une carte identique déjà en main avant le coup ne compte pas.
+    C'est la pioche d'une carte identique qui ouvre la fenêtre ; une fois ouverte, toutes
+    les copies de la valeur s'enchaînent, celles gardées en main comprises.
     """
     if state.status is not GameStatus.PLAYING:
         return None
@@ -289,7 +294,7 @@ def chase_value(state: GameState, player_index: int) -> int | None:
         return value if state.chase_armed else None
     if player.face_up:
         return None  # les visibles se posent avec le coup, pas après
-    return value if player.face_down else None
+    return value if player.face_down and state.blind_chase_open else None
 
 
 def chase_play(state: GameState, player_index: int, count: int = 1) -> list[Event]:
@@ -332,6 +337,7 @@ def chase_play(state: GameState, player_index: int, count: int = 1) -> list[Even
     draw_before = len(state.draw_pile)
     events.extend(_finish_chase(state, player_index))
     _arm_chase(state, player, value, before_draw, draw_before)
+    state.blind_chase_open = True
     return events
 
 

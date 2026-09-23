@@ -17,8 +17,10 @@ Règles (docs/goulag/README.md) et arbitrages retenus :
   nouveau total, elle reste seule ; sinon on garde la plus forte et on cherche la
   carte exacte du complément (défausse d'abord, puis pioche) ; si le nouveau total
   est inférieur ou égal à la plus forte, une seule carte de la valeur exacte. À défaut
-  de carte exacte, deux cartes qui font la somme ; à défaut encore, la plus petite
-  carte au-dessus (le blessé y gagne, événement lives_rounded_up).
+  de carte exacte, deux cartes qui font tout le total (jamais trois cartes de vie) ; à
+  défaut encore, une carte « hors jeu » de la valeur exacte, créée pour l'occasion, qui
+  disparaît quand elle quitte les vies (événement ghost_card ; arbitrages de Matthieu,
+  23 sept 2026).
 - La pioche ne se régénère qu'au moment où sa dernière carte est tirée : la défausse
   est alors mélangée pour former la nouvelle pioche.
 - Mort : les vies partent à la défausse, le mort choisit une couleur, on retourne le
@@ -33,7 +35,7 @@ Règles (docs/goulag/README.md) et arbitrages retenus :
 
 from __future__ import annotations
 
-from .cards import Card, Suit, shuffled_deck
+from .cards import MAX_VALUE, MIN_VALUE, Card, Suit, shuffled_deck
 from .errors import IllegalMove, InvalidAction, NotYourTurn
 from .state import Action, GameState, GameStatus, Phase, PlayerState
 
@@ -114,10 +116,11 @@ def _start(state: GameState) -> list[Event]:
 
 
 def peek(state: GameState, player_index: int) -> Card | None:
-    """La carte du dessus, pour l'« œil de faucon » au trait (sinon None)."""
+    """La carte du dessus, pour l'« œil de faucon » au trait (sinon None). Il la garde
+    sous les yeux pendant qu'il choisit sa cible : elle n'est piochée qu'ensuite."""
     if (
         state.status is not GameStatus.PLAYING
-        or state.phase is not Phase.ACTION
+        or state.phase not in (Phase.ACTION, Phase.TARGET)
         or state.turn_index != player_index
         or not state.players[player_index].hawk_eye
     ):
@@ -243,17 +246,9 @@ def _set_lives(state: GameState, player_index: int, total: int) -> list[Event]:
     player = state.players[player_index]
     old = list(player.lives)
     events: list[Event] = []
-    exact = next((c for c in old if c.value == total), None)
-    if exact is not None:
-        new = [exact]
-    else:
-        strongest = max(old, key=lambda c: c.value)
-        if total > strongest.value:
-            new = [strongest, *_find_cards(state, total - strongest.value, events)]
-        else:
-            new = _find_cards(state, total, events)
+    new = _recompose(state, player_index, old, total, events)
     for card in old:
-        if card not in new:
+        if card not in new and not card.ghost:
             state.discard.append(card)
     player.lives = sorted(new, key=lambda c: -c.value)
     return events + [
@@ -268,29 +263,64 @@ def _set_lives(state: GameState, player_index: int, total: int) -> list[Event]:
     ]
 
 
-def _find_cards(state: GameState, total: int, events: list[Event]) -> list[Card]:
-    """Une carte de la valeur exacte (défausse d'abord, puis pioche), sinon deux cartes
-    qui font la somme."""
-    card = _take_value(state, total, events)
-    if card is not None:
-        return [card]
-    for high in range(min(total - 1, 13), 0, -1):
-        first = _take_value(state, high, events)
+def _recompose(
+    state: GameState, player_index: int, old: list[Card], total: int, events: list[Event]
+) -> list[Card]:
+    """Les cartes de vie qui font exactement `total`, deux au plus."""
+    exact = next((c for c in old if c.value == total), None)
+    if exact is not None:
+        return [exact]
+    strongest = max(old, key=lambda c: c.value)
+    # La plus forte reste, complétée par la carte exacte (défausse d'abord, puis pioche) ;
+    # sous la plus forte, une seule carte de la valeur exacte.
+    if total > strongest.value:
+        complement = _take_value(state, total - strongest.value, events)
+        if complement is not None:
+            return [strongest, complement]
+    else:
+        single = _take_value(state, total, events)
+        if single is not None:
+            return [single]
+    # Pas de carte exacte : deux cartes qui font tout le total (arbitrage de Matthieu).
+    pair = _find_pair(state, old, total, events)
+    if pair is not None:
+        return pair
+    # Aucune combinaison possible avec le paquet : une carte hors jeu de la valeur exacte
+    # manquante, à côté de la plus forte (ou seule sous la plus forte).
+    keep = total > strongest.value
+    ghost = Card(total - strongest.value if keep else total, Suit.HEARTS, ghost=True)
+    events.append({"type": "ghost_card", "player": player_index, "card": ghost.to_dict()})
+    return [strongest, ghost] if keep else [ghost]
+
+
+def _find_pair(
+    state: GameState, old: list[Card], total: int, events: list[Event]
+) -> list[Card] | None:
+    """Deux cartes dont la somme fait `total` : les anciennes vies d'abord, puis la défausse
+    et la pioche. Une carte prise pour rien retourne d'où elle vient."""
+    for high in range(min(total - 1, MAX_VALUE), (total - 1) // 2, -1):
+        low = total - high
+        if not MIN_VALUE <= low <= MAX_VALUE:
+            continue
+        spare = list(old)
+        first = _grab(state, spare, high, events)
         if first is None:
             continue
-        second = _take_value(state, total - high, events)
+        second = _grab(state, spare, low, events)
         if second is not None:
             return [first, second]
-        state.discard.append(first)
-    # Aucune combinaison exacte disponible (par exemple les quatre As déjà en jeu alors
-    # qu'il faut 1) : la plus petite carte au-dessus, au bénéfice du blessé. Les piles
-    # ne peuvent pas être vides toutes les deux (30 cartes en jeu au maximum).
-    for value in range(total + 1, 14):
-        card = _take_value(state, value, events)
-        if card is not None:
-            events.append({"type": "lives_rounded_up", "wanted": total, "got": value})
-            return [card]
-    return []
+        if first not in old:
+            state.discard.append(first)
+    return None
+
+
+def _grab(state: GameState, spare: list[Card], value: int, events: list[Event]) -> Card | None:
+    """Une carte de cette valeur, prise parmi `spare` (anciennes vies) sinon dans les piles."""
+    for card in spare:
+        if card.value == value and not card.ghost:
+            spare.remove(card)
+            return card
+    return _take_value(state, value, events)
 
 
 def _take_value(state: GameState, value: int, events: list[Event]) -> Card | None:
@@ -311,7 +341,7 @@ def _take_value(state: GameState, value: int, events: list[Event]) -> Card | Non
 
 def _die(state: GameState, player_index: int) -> list[Event]:
     player = state.players[player_index]
-    state.discard.extend(player.lives)
+    state.discard.extend(c for c in player.lives if not c.ghost)
     player.lives = []
     state.phase = Phase.REVIVAL
     state.reviving = player_index

@@ -2,6 +2,8 @@
 
 import { AnimatePresence, motion } from "motion/react";
 import PlayingCard from "@/components/PlayingCard";
+import { useT } from "@/lib/i18n";
+import { COMMON } from "@/lib/texts";
 
 /* Les écrans d'attente de la plateforme. Un seul motif partout — deux cartes qui se
    battent — pour que passer d'un écran à l'autre ne casse jamais le mouvement :
@@ -30,12 +32,14 @@ export function ShufflingCards({ size = "sm" }: { size?: "sm" | "md" }) {
   );
 }
 
-/* Écran d'attente plein cadre (connexion à une table, chargement des cartes). */
-export function LoadingScreen({ label }: { label: string }) {
+/* Écran d'attente plein cadre (connexion à une table, chargement des cartes).
+   Sans libellé : « Un instant… ». */
+export function LoadingScreen({ label }: { label?: string }) {
+  const common = useT(COMMON);
   return (
     <div className="flex h-full flex-col items-center justify-center gap-4 px-6 text-center text-ivory-dim">
       <ShufflingCards />
-      <p>{label}</p>
+      <p>{label ?? common.wait}</p>
     </div>
   );
 }

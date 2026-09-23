@@ -1,17 +1,20 @@
 /* Types communs à la plateforme : identité, tables, messages WebSocket.
    Chaque jeu étend BaseRoomView / BasePlayerView dans src/games/<slug>/types.ts. */
 
+import { dict } from "./i18n";
+
 export type Suit = "hearts" | "diamonds" | "clubs" | "spades";
 
-export type CardT = { value: number; suit: Suit };
+/* `ghost` : carte « hors jeu » du Goulag, créée quand le paquet ne permet pas de
+   recomposer des vies exactes (elle disparaît quand elle est cassée). */
+export type CardT = { value: number; suit: Suit; ghost?: boolean };
 
 export type BotDifficulty = "easy" | "normal" | "hard";
 
-export const BOT_LABELS: Record<BotDifficulty, string> = {
-  easy: "Facile",
-  normal: "Normal",
-  hard: "Difficile",
-};
+export const BOT_LABELS = dict<Record<BotDifficulty, string>>({
+  fr: { easy: "Facile", normal: "Normal", hard: "Difficile" },
+  en: { easy: "Easy", normal: "Normal", hard: "Hard" },
+});
 
 /* Fiche d'un siège, telle que la plateforme la décrit (le jeu y ajoute ses champs). */
 export type BasePlayerView = {

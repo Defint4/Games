@@ -26,13 +26,20 @@ MAX_VALUE = 13  # Roi
 class Card:
     value: int  # 1..13
     suit: Suit
+    # Carte « hors jeu » : créée quand aucune carte du paquet ne permet de recomposer
+    # des vies exactes ; elle n'entre jamais dans la pioche ni la défausse et disparaît
+    # quand elle quitte les vies.
+    ghost: bool = False
 
     def to_dict(self) -> dict:
-        return {"value": self.value, "suit": self.suit.value}
+        data: dict = {"value": self.value, "suit": self.suit.value}
+        if self.ghost:
+            data["ghost"] = True
+        return data
 
     @classmethod
     def from_dict(cls, data: dict) -> Card:
-        return cls(value=data["value"], suit=Suit(data["suit"]))
+        return cls(value=data["value"], suit=Suit(data["suit"]), ghost=data.get("ghost", False))
 
 
 def new_deck() -> list[Card]:

@@ -49,4 +49,6 @@ def playing_state(
         last_play_index=last_play,
         constraint=constraint,
         chase_armed=chase_armed,
+        # Un dernier poseur désigné = son coup vient d'avoir lieu, personne n'a agi depuis.
+        blind_chase_open=last_play is not None,
     )

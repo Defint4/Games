@@ -3,39 +3,36 @@
 import Lobby, { type BotChoice } from "@/components/Lobby";
 import PlayingCard, { CardBackLabel } from "@/components/PlayingCard";
 import TableFrame from "@/components/TableFrame";
+import { useLang, useT } from "@/lib/i18n";
 import Table from "./Table";
+import { preloadAssets } from "./assets";
+import { T } from "./i18n";
 import { GAME, MAX_SEATS } from "./meta";
 import { useGoulagSocket, type GoulagSocket } from "./socket";
 import type { RoomView } from "./types";
 
-const BOT_CHOICES: BotChoice[] = [
-  { id: "easy", hint: "Attaque, défend et charge au hasard. Pour apprendre." },
-  {
-    id: "normal",
-    hint: "Répare sa défense, charge un peu, puis vise qui il peut tuer.",
-  },
-];
-
 export default function TablePage() {
+  const t = useT(T).lobby;
+  const botChoices: BotChoice[] = [
+    { id: "easy", hint: t.botEasy },
+    { id: "normal", hint: t.botNormal },
+  ];
   return (
     <CardBackLabel.Provider value="G">
       <TableFrame<RoomView, GoulagSocket>
         game={GAME}
         useSocket={useGoulagSocket}
         rules={<Rules />}
+        preload={preloadAssets}
         lobby={(socket, view) => (
           <Lobby
             socket={socket}
             view={view}
             maxSeats={MAX_SEATS}
-            botChoices={BOT_CHOICES}
+            botChoices={botChoices}
             onReady={(ready) => socket.setReady(ready)}
           >
-            <p className="text-sm text-ivory-dim/80">
-              Trois cartes chacun à l&rsquo;ouverture : les deux plus fortes
-              sont tes vies, la plus faible ta défense. Le dernier survivant
-              gagne.
-            </p>
+            <p className="text-sm text-ivory-dim/80">{t.intro}</p>
           </Lobby>
         )}
         table={(socket, view) => <Table socket={socket} view={view} />}
@@ -45,6 +42,10 @@ export default function TablePage() {
 }
 
 function Rules() {
+  return useLang() === "en" ? <RulesEn /> : <RulesFr />;
+}
+
+function RulesFr() {
   return (
     <>
       <h2 className="mb-3 text-center text-lg font-extrabold">
@@ -84,6 +85,51 @@ function Rules() {
           <span>
             Un seul As de vie : œil de faucon, tu vois la carte avant
             d&rsquo;annoncer.
+          </span>
+        </li>
+      </ul>
+    </>
+  );
+}
+
+function RulesEn() {
+  return (
+    <>
+      <h2 className="mb-3 text-center text-lg font-extrabold">
+        The rules, quickly
+      </h2>
+      <p className="mb-3 text-sm text-ivory-dim/85">
+        Two life cards (add them up), one defense card in front. On your turn,
+        call it before you draw: Defense, Charge or Attack. An attack gets
+        through if it beats the target&rsquo;s defense, and the difference comes
+        off their life. At zero, you pick a suit: right card, you&rsquo;re back;
+        if not, one last shot from the middle of the deck.
+      </p>
+      <ul className="flex flex-col gap-2 text-sm">
+        <li className="flex items-center gap-3 rounded-2xl bg-black/25 p-2">
+          <PlayingCard card={{ value: 12, suit: "hearts" }} size="sm" />
+          <span>
+            Defense: the card replaces a shield, yours or someone else&rsquo;s.
+          </span>
+        </li>
+        <li className="flex items-center gap-3 rounded-2xl bg-black/25 p-2">
+          <PlayingCard faceDown size="sm" />
+          <span>
+            Charge: laid face down, it adds to your next attack. Two max.
+          </span>
+        </li>
+        <li className="flex items-center gap-3 rounded-2xl bg-black/25 p-2">
+          <PlayingCard card={{ value: 10, suit: "spades" }} size="sm" />
+          <span>
+            Attack: card + charges against a defense. Get hit and you lose your
+            charges.
+          </span>
+        </li>
+        <li className="flex items-center gap-3 rounded-2xl bg-black/25 p-2">
+          <PlayingCard card={{ value: 14, suit: "diamonds" }} size="sm" />
+          <span>
+            Exactly one Ace in your life: Hawk Eye, you see the card before you
+            call it.
           </span>
         </li>
       </ul>

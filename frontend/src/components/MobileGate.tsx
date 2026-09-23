@@ -1,7 +1,36 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Brand from "@/components/Brand";
 import { APP_NAME } from "@/lib/games";
+import { dict, useT } from "@/lib/i18n";
+
+const T = dict({
+  fr: {
+    intro:
+      "On joue dans l’application, pas dans le navigateur. Installe-la sur ton écran d’accueil, c’est fait en dix secondes.",
+    installed: (app: string) => `C’est installé ! Ouvre ${app} depuis ton écran d’accueil.`,
+    iosMenu: "Touche le menu",
+    iosShare: "Puis Partager",
+    iosAdd: "Choisis « Sur l’écran d’accueil »",
+    iosLaunch: "Lance l’app depuis la nouvelle icône",
+    install: "Installer l’application",
+    otherBrowser:
+      "Dans le menu du navigateur (⋮), choisis « Ajouter à l’écran d’accueil », puis lance l’app depuis la nouvelle icône.",
+  },
+  en: {
+    intro:
+      "We play in the app, not in the browser. Add it to your home screen, it takes ten seconds.",
+    installed: (app: string) => `Installed! Open ${app} from your home screen.`,
+    iosMenu: "Tap the menu",
+    iosShare: "Then Share",
+    iosAdd: "Pick “Add to Home Screen”",
+    iosLaunch: "Open the app from the new icon",
+    install: "Install the app",
+    otherBrowser:
+      "In the browser menu (⋮), pick “Add to Home screen”, then open the app from the new icon.",
+  },
+});
 
 /* Sur téléphone, on joue dans l'app installée (PWA), pas dans le navigateur.
    Ce composant bloque le navigateur mobile et guide l'installation.
@@ -19,6 +48,7 @@ export default function MobileGate({ children }: { children: React.ReactNode }) 
   const [ios, setIos] = useState(false);
   const [installEvent, setInstallEvent] = useState<BeforeInstallPromptEvent | null>(null);
   const [installed, setInstalled] = useState(false);
+  const t = useT(T);
 
   useEffect(() => {
     if (process.env.NODE_ENV === "production" && "serviceWorker" in navigator) {
@@ -55,35 +85,32 @@ export default function MobileGate({ children }: { children: React.ReactNode }) 
 
   return (
     <main className="mx-auto flex h-full w-full max-w-md flex-col items-center justify-center gap-6 overflow-y-auto px-6 text-center">
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src="/icon-192.png" alt="" className="size-24 rounded-3xl shadow-card" />
       <div>
-        <h1 className="text-3xl font-extrabold">{APP_NAME}</h1>
-        <p className="mt-2 text-ivory-dim/90">
-          On joue dans l&rsquo;application, pas dans le navigateur. Installe-la sur ton écran
-          d&rsquo;accueil, c&rsquo;est fait en dix secondes.
-        </p>
+        <h1>
+          <Brand size="lg" />
+        </h1>
+        <p className="mt-4 text-ivory-dim/90">{t.intro}</p>
       </div>
 
       {installed ? (
         <p className="rounded-2xl bg-gold/15 px-4 py-3 font-bold text-gold ring-1 ring-gold/40">
-          C&rsquo;est installé ! Ouvre {APP_NAME} depuis ton écran d&rsquo;accueil.
+          {t.installed(APP_NAME)}
         </p>
       ) : ios ? (
         <ol className="flex flex-col gap-3 text-left">
           <li className="flex items-center gap-3 rounded-2xl bg-black/25 p-3 ring-1 ring-white/10">
-            <span className="text-2xl">1️⃣</span> Touche le menu
+            <span className="text-2xl">1️⃣</span> {t.iosMenu}
             <MoreIcon />
           </li>
           <li className="flex items-center gap-3 rounded-2xl bg-black/25 p-3 ring-1 ring-white/10">
-            <span className="text-2xl">2️⃣</span> Puis Partager
+            <span className="text-2xl">2️⃣</span> {t.iosShare}
             <ShareIcon />
           </li>
           <li className="flex items-center gap-3 rounded-2xl bg-black/25 p-3 ring-1 ring-white/10">
-            <span className="text-2xl">3️⃣</span> Choisis « Sur l&rsquo;écran d&rsquo;accueil »
+            <span className="text-2xl">3️⃣</span> {t.iosAdd}
           </li>
           <li className="flex items-center gap-3 rounded-2xl bg-black/25 p-3 ring-1 ring-white/10">
-            <span className="text-2xl">4️⃣</span> Lance l&rsquo;app depuis la nouvelle icône
+            <span className="text-2xl">4️⃣</span> {t.iosLaunch}
           </li>
         </ol>
       ) : installEvent ? (
@@ -92,12 +119,11 @@ export default function MobileGate({ children }: { children: React.ReactNode }) 
           onClick={() => installEvent.prompt()}
           className="rounded-2xl bg-gold px-8 py-4 text-lg font-extrabold text-ink shadow-card active:translate-y-0.5"
         >
-          Installer l&rsquo;application
+          {t.install}
         </button>
       ) : (
         <p className="rounded-2xl bg-black/25 p-4 text-left ring-1 ring-white/10">
-          Dans le menu du navigateur (⋮), choisis « Ajouter à l&rsquo;écran d&rsquo;accueil »,
-          puis lance l&rsquo;app depuis la nouvelle icône.
+          {t.otherBrowser}
         </p>
       )}
     </main>
