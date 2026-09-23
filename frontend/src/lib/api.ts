@@ -1,6 +1,6 @@
 import { dict, tr } from "./i18n";
 import { serverText } from "./serverMessages";
-import type { LeaderboardPage, OpenRoom, PlayerProfile } from "./types";
+import type { LeaderboardPage, MyProfile, OpenRoom, PlayerProfile } from "./types";
 
 const T = dict({
   fr: { unexpected: "Le serveur ne répond pas comme prévu." },
@@ -50,20 +50,37 @@ function authed(token: string): HeadersInit {
 
 export type RoomRef = { code: string; game: string };
 
-export function enter(pseudo: string, avatar: string) {
-  return request<{ player: PlayerProfile; token: string }>("/api/players/enter", {
+export type Session = { player: MyProfile; token: string };
+
+/* Connexion par pseudo + code ; si le pseudo est libre, crée le compte (avatar requis). */
+export function enter(pseudo: string, pin: string, avatar?: string) {
+  return request<Session>("/api/players/enter", {
     method: "POST",
-    body: JSON.stringify({ pseudo, avatar }),
+    body: JSON.stringify({ pseudo, pin, avatar }),
   });
 }
 
 export function fetchMe(token: string) {
-  return request<PlayerProfile>("/api/players/me", { headers: authed(token) });
+  return request<MyProfile>("/api/players/me", { headers: authed(token) });
+}
+
+/* Jeton neuf pour 30 jours : la session court tant que le joueur revient. */
+export function refreshSession(token: string) {
+  return request<Session>("/api/players/me/refresh", { method: "POST", headers: authed(token) });
+}
+
+/* Nouveau code : le serveur renvoie un nouveau jeton, les autres appareils sont déconnectés. */
+export function changePin(token: string, currentPin: string, newPin: string) {
+  return request<Session>("/api/players/me/pin", {
+    method: "PUT",
+    headers: authed(token),
+    body: JSON.stringify({ current_pin: currentPin, new_pin: newPin }),
+  });
 }
 
 /* Renommer et/ou changer d'avatar : même joueur, mêmes stats, même jeton. */
 export function updateMe(token: string, changes: { pseudo?: string; avatar?: string }) {
-  return request<PlayerProfile>("/api/players/me", {
+  return request<MyProfile>("/api/players/me", {
     method: "PATCH",
     headers: authed(token),
     body: JSON.stringify(changes),

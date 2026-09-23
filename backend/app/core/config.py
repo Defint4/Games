@@ -12,9 +12,9 @@ class Settings(BaseSettings):
 
     jwt_secret: str
     jwt_algorithm: str = "HS256"
-    # Pas de compte ni mot de passe : le jeton identifie un pseudo sur un appareil,
-    # il vit longtemps pour que les habitués rentrent en un tap.
-    player_token_days: int = 365
+    # Session d'un appareil : le jeton est renouvelé à chaque ouverture de l'app
+    # (POST /api/players/me/refresh). Après ce délai sans venir, le code PIN est redemandé.
+    player_token_days: int = 30
 
     # Une partie sans aucun joueur connecté pendant ce délai est supprimée.
     empty_room_ttl_minutes: int = 15

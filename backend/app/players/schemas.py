@@ -7,6 +7,7 @@ from app.players.models import Player
 
 PSEUDO_PATTERN = r"^[A-Za-z0-9À-ÖØ-öø-ÿ_\- ]{2,20}$"
 AVATAR_PATTERN = r"^[a-z0-9\-]{1,40}$"
+PIN_PATTERN = r"^[0-9]{4}$"
 
 
 def _normalize_pseudo(value: str) -> str:
@@ -17,8 +18,11 @@ def _normalize_pseudo(value: str) -> str:
 
 
 class EnterRequest(BaseModel):
+    """Connexion (pseudo existant) ou création (pseudo libre, avatar alors obligatoire)."""
+
     pseudo: str = Field(min_length=2, max_length=20)
-    avatar: str = Field(pattern=AVATAR_PATTERN)
+    pin: str = Field(pattern=PIN_PATTERN)
+    avatar: str | None = Field(default=None, pattern=AVATAR_PATTERN)
 
     @field_validator("pseudo")
     @classmethod
@@ -36,6 +40,11 @@ class UpdateMeRequest(BaseModel):
     @classmethod
     def normalize_pseudo(cls, value: str | None) -> str | None:
         return None if value is None else _normalize_pseudo(value)
+
+
+class ChangePinRequest(BaseModel):
+    current_pin: str = Field(pattern=PIN_PATTERN)
+    new_pin: str = Field(pattern=PIN_PATTERN)
 
 
 class GameStatsOut(BaseModel):
@@ -63,8 +72,22 @@ class PlayerOut(BaseModel):
         )
 
 
+class MeOut(PlayerOut):
+    """Le profil vu par son propriétaire. `default_pin` ne sort jamais dans le profil
+    public : ce serait désigner les comptes qu'on ouvre avec 0000."""
+
+    default_pin: bool
+
+    @classmethod
+    def from_player(cls, player: Player) -> "MeOut":
+        return cls(
+            **PlayerOut.from_player(player).model_dump(),
+            default_pin=player.pin_hash is None,
+        )
+
+
 class EnterResponse(BaseModel):
-    player: PlayerOut
+    player: MeOut
     token: str
 
 
