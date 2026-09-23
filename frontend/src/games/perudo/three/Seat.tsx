@@ -83,12 +83,16 @@ type CupPose = {
   fall: number;
 };
 const REST: CupPose = { lift: 0, tilt: 0, wobbleX: 0, wobbleZ: 0, dx: 0, dz: 0, away: 0, fall: 0 };
-const PEEK: Partial<CupPose> = { tilt: 1.0, lift: 0.25 };
+/* Bord avant soulevé pour regarder ses dés. Le gobelet recule un peu et bascule assez
+   pour que sa lèvre passe au-dessus des dés du fond : moins incliné, elle les coupait. */
+const PEEK: Partial<CupPose> = { tilt: 1.2, lift: 0.3, dz: -0.8 };
 /* Gobelet levé : reposé à côté des dés, comme à la main. Ta place le pose à droite
-   (il ne cache rien depuis ta vue), celles d'en face derrière leurs dés. */
+   (il ne cache rien depuis ta vue), celles d'en face derrière leurs dés. Les dés
+   s'étalent jusqu'à ~3,3 du centre (pentagone de 2, demi-dé, décalage) et le gobelet a
+   3,6 de rayon : en deçà de ~7,3, il mordait sur le dé le plus proche de lui. */
 const ASIDE = {
-  right: { lift: 0, dx: 6.3, away: 0, tilt: 0 },
-  back: { lift: 0, dx: 0, away: 6.5, tilt: 0 },
+  right: { lift: 0, dx: 7.6, away: 0, tilt: 0 },
+  back: { lift: 0, dx: 0, away: 7.8, tilt: 0 },
 } satisfies Record<string, Partial<CupPose>>;
 const OUT: Partial<CupPose> = { lift: 1.9, fall: Math.PI / 2 };
 
@@ -191,7 +195,7 @@ const Seat = forwardRef<
       await to(0.12, { lift: 0 }, ease.in);
     },
     async peek(open) {
-      await to(open ? 0.5 : 0.35, open ? PEEK : { tilt: 0, lift: 0 }, open ? ease.out : ease.inOut);
+      await to(open ? 0.5 : 0.35, open ? PEEK : { tilt: 0, lift: 0, dz: 0 }, open ? ease.out : ease.inOut);
     },
     async reveal(values, face, wild) {
       // Les vrais dés prennent la place des dés quelconques, gobelet encore fermé.

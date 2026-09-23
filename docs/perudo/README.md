@@ -49,7 +49,7 @@ les versions les plus répandues ont été retenues (validées par Matthieu le 2
   qu'un dé peuvent changer de face (plus de dés, ou autant sur une face plus haute ; le 1
   est la face la plus basse puisqu'il n'est plus joker).
 - Six joueurs maximum.
-- Après un Dudo ou un Calza, la table reste gobelets levés 7 secondes (phase `reveal`, pas
+- Après un Dudo ou un Calza, la table reste gobelets levés 12 secondes (phase `reveal`, pas
   de timer de tour), puis la manche suivante part d'elle-même. L'animation de révélation
   dure environ 5 s côté client : la marge laisse lire le récapitulatif.
 - Temps de tour écoulé : la plus petite surenchère sur sa face la plus fréquente, Dudo si
