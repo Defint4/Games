@@ -49,6 +49,7 @@ REMATCH_SEAT_GRACE_SECONDS = 45
 # d'affilée.
 ABSENT_STRIKES = 3
 REPLACEMENT_BOT = "normal"
+MAINTENANCE = "Mise à jour imminente : les nouvelles parties reviennent dans quelques minutes."
 
 
 # ---------------------------------------------------------------------------
@@ -73,6 +74,8 @@ async def create_room(
     spec = get_game(payload.game)
     if spec is None:
         raise HTTPException(status_code=404, detail="Jeu inconnu.")
+    if manager.maintenance:
+        raise HTTPException(status_code=503, detail=MAINTENANCE)
     try:
         room = manager.create(spec, _seat(player, spec), payload.options)
     except GameError as exc:
@@ -445,6 +448,9 @@ async def _handle_rematch(room: Room, websocket: WebSocket) -> None:
         return
     if room.rematch_code and manager.get(room.rematch_code):
         await _broadcast(room, {"type": "rematch", "code": room.rematch_code})
+        return
+    if manager.maintenance:
+        await _send_error(websocket, MAINTENANCE)
         return
     if room.spec.rematch_consent:
         # Revanche d'un commun accord : on attend que chaque humain l'ait demandée.

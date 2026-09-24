@@ -24,6 +24,7 @@ const EN: Record<string, string> = {
   "Cette partie est déjà terminée.": "This game is already over.",
   "Cette partie n'est pas gagnée.": "This game isn't won.",
   "Cette partie n'est pas terminée.": "This game isn't over.",
+  "Ce compte est suspendu.": "This account is suspended.",
   "Choisis un avatar.": "Pick an avatar.",
   "Cible invalide.": "Invalid target.",
   "Code PIN actuel incorrect.": "Your current PIN is wrong.",
@@ -60,6 +61,8 @@ const EN: Record<string, string> = {
   "Les échanges ne sont possibles qu'avant le début de la partie.":
     "Swaps are only allowed before the game starts.",
   "Message mal formé.": "Malformed message.",
+  "Mise à jour imminente : les nouvelles parties reviennent dans quelques minutes.":
+    "An update is on its way: new games will be back in a few minutes.",
   "On n'ouvre pas sur les Pacos.": "You can't open on Pacos.",
   "On ne s'attaque pas soi-même.": "You can't attack yourself.",
   "Partie introuvable.": "Table not found.",

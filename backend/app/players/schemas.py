@@ -76,15 +76,18 @@ class PlayerOut(BaseModel):
 
 class MeOut(PlayerOut):
     """Le profil vu par son propriétaire. `default_pin` ne sort jamais dans le profil
-    public : ce serait désigner les comptes qu'on ouvre avec 0000."""
+    public : ce serait désigner les comptes qu'on ouvre avec 0000. `admin` ne fait
+    qu'afficher l'entrée du panneau : chaque appel admin est vérifié par le serveur."""
 
     default_pin: bool
+    admin: bool = False
 
     @classmethod
-    def from_player(cls, player: Player) -> "MeOut":
+    def from_player(cls, player: Player, admin: bool = False) -> "MeOut":
         return cls(
             **PlayerOut.from_player(player).model_dump(),
             default_pin=player.pin_hash is None,
+            admin=admin,
         )
 
 

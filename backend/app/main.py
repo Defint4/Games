@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
+from app.admin.router import router as admin_router
 from app.core.config import settings
 from app.core.rate_limit import limiter
 from app.games.chess.router import router as chess_router
@@ -46,6 +47,7 @@ app.include_router(players_router)
 app.include_router(rooms_router)
 app.include_router(solitaire_router)
 app.include_router(chess_router)
+app.include_router(admin_router)
 
 
 @app.get("/api/health")

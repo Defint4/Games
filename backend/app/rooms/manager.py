@@ -55,6 +55,7 @@ class Room:
     seats: list[Seat] = field(default_factory=list)
     data: Any = None  # propriété du jeu (voir GameSpec.new_room_data)
     chat: list[dict] = field(default_factory=list)
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     last_activity: datetime = field(default_factory=lambda: datetime.now(UTC))
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     stats_recorded: bool = False
@@ -112,6 +113,10 @@ class Room:
 class RoomManager:
     def __init__(self) -> None:
         self.rooms: dict[str, Room] = {}
+        # Maintenance (panneau admin) : plus de nouvelle table, revanches comprises, le
+        # temps que les parties en cours se terminent avant un redémarrage. En mémoire :
+        # le redémarrage la lève de lui-même.
+        self.maintenance = False
 
     def create(self, spec: GameSpec, creator: Seat, options: dict | None = None) -> Room:
         """Nouvelle table, le créateur assis. GameError si les options sont invalides."""

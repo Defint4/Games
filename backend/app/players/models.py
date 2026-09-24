@@ -26,6 +26,11 @@ class Player(IdMixin, TimestampMixin, Base):
     # Incrémentée à chaque changement de code : les jetons d'une version antérieure
     # (les autres appareils) ne sont plus acceptés.
     token_version: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    # Dernière ouverture de l'app (connexion ou renouvellement de session, au plus une
+    # fois par heure et par appareil) : vide pour un compte qui n'est pas revenu depuis.
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+    # Suspendu par l'administration : plus de connexion possible jusqu'à réactivation.
+    suspended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
 
     # Chargées avec le profil : le hub et les fiches joueur les affichent toujours.
     stats: Mapped[list["PlayerGameStats"]] = relationship(

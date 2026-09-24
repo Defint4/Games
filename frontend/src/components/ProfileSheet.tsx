@@ -2,6 +2,7 @@
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "motion/react";
+import Link from "next/link";
 import { useState } from "react";
 import Avatar from "@/components/Avatar";
 import LangSwitch from "@/components/LangSwitch";
@@ -50,6 +51,9 @@ const T = dict({
     signOut: "Se déconnecter",
     signOutConfirm: "Tu devras entrer ton code PIN pour revenir sur ce compte.",
     cancel: "Annuler",
+    admin: "Administration",
+    adminDesk: "Le bureau",
+    adminHint: "Joueurs, tables, maintenance",
   },
   en: {
     title: "My account",
@@ -84,6 +88,9 @@ const T = dict({
     signOut: "Sign out",
     signOutConfirm: "You'll need your PIN to get back into this account.",
     cancel: "Cancel",
+    admin: "Administration",
+    adminDesk: "The office",
+    adminHint: "Players, tables, maintenance",
   },
 });
 
@@ -224,6 +231,25 @@ function Menu({
           )}
         </Row>
       </Group>
+
+      {/* Le compte admin seulement ; le panneau revérifie tout côté serveur. */}
+      {me?.admin && (
+        <Group label={t.admin}>
+          <Link
+            href="/admin"
+            className="flex w-full items-center gap-3 px-4 py-3.5 transition-colors active:bg-white/5"
+          >
+            <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-gold text-ink">
+              <KeyIcon />
+            </span>
+            <span className="min-w-0 grow">
+              <span className="block font-bold">{t.adminDesk}</span>
+              <span className="block text-sm text-ivory-dim/65">{t.adminHint}</span>
+            </span>
+            <ChevronIcon />
+          </Link>
+        </Group>
+      )}
 
       <Group label={t.preferences} plain>
         <LangSwitch />
@@ -602,6 +628,21 @@ function PinView({
         </button>
       )}
     </div>
+  );
+}
+
+function KeyIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      aria-hidden
+      className="size-5 fill-none stroke-current stroke-2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <circle cx="8" cy="15" r="4.5" />
+      <path d="m11.2 11.8 8.3-8.3M16.5 6.5l2.5 2.5M14 9l2 2" />
+    </svg>
   );
 }
 
