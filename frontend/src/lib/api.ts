@@ -26,8 +26,13 @@ export class ApiError extends Error {
   }
 }
 
+/* Sur mobile, une connexion bloquée n'échoue pas : elle attend. Passé ce délai, la
+   requête échoue et l'écran affiche une erreur plutôt qu'un chargement sans fin. */
+const TIMEOUT_MS = 15000;
+
 export async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_URL}${path}`, {
+    signal: AbortSignal.timeout(TIMEOUT_MS),
     ...init,
     headers: { "Content-Type": "application/json", ...init?.headers },
   });

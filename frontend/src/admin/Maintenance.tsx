@@ -20,8 +20,9 @@ import {
 } from "./ui";
 
 /* Avant un déploiement : fermer l'arrivée de nouvelles parties, regarder les parties en
-   cours se terminer, redémarrer quand il n'en reste plus. Un redémarrage vide la mémoire
-   du serveur, donc toutes les tables. */
+   cours se terminer ; à la dernière, l'app se ferme d'elle-même aux joueurs (écran de
+   maintenance) et le serveur peut redémarrer. Un redémarrage vide la mémoire du serveur,
+   donc toutes les tables, et rouvre l'app. */
 export default function Maintenance() {
   return (
     <div className="flex flex-col gap-8 pt-3">
@@ -55,6 +56,7 @@ function Switch() {
   // Tant que la requête part, l'interrupteur montre déjà le nouvel état.
   const on = toggle.isPending ? toggle.variables : overview.data.maintenance;
   const playing = overview.data.rooms.filter((r) => r.status === "playing");
+  const locked = overview.data.maintenance_phase === "locked";
   const waiting = overview.data.rooms.filter((r) => r.status === "lobby").length;
 
   return (
@@ -71,12 +73,12 @@ function Switch() {
       >
         <span className="min-w-0 grow">
           <span className="block text-xl font-extrabold leading-tight">
-            {on ? "Nouvelles parties fermées" : "Nouvelles parties ouvertes"}
+            {on ? "Maintenance lancée" : "App ouverte"}
           </span>
           <span className="mt-1 block text-sm leading-snug text-ivory-dim/75">
             {on
-              ? "Personne ne peut créer de table ni lancer de revanche. Les parties en cours continuent."
-              : "Avant un déploiement, ferme-les ici : les parties en cours pourront se finir."}
+              ? "Plus personne ne peut lancer de partie. Dès la dernière partie en cours terminée, l’app se ferme aux joueurs. Rouvre-la ici, ou le redémarrage du déploiement le fera."
+              : "Avant un déploiement : plus de nouvelle partie, puis l’app se ferme aux joueurs quand celles en cours sont finies."}
           </span>
         </span>
         <span
@@ -100,7 +102,14 @@ function Switch() {
             exit={{ opacity: 0, height: 0 }}
             className="-m-1 overflow-hidden p-1"
           >
-            {playing.length === 0 ? (
+            {playing.length === 0 && !locked ? (
+              <div className="flex items-center gap-4 rounded-3xl bg-black/25 p-5 ring-1 ring-white/10">
+                <Spinner className="size-7 shrink-0 text-ivory-dim/70" />
+                <span className="text-sm text-ivory-dim/80">
+                  Dernière partie terminée : l’app se ferme aux joueurs dans quelques secondes.
+                </span>
+              </div>
+            ) : playing.length === 0 ? (
               <div className="flex items-center gap-4 rounded-3xl bg-[#5fd49a]/10 p-5 ring-1 ring-[#5fd49a]/35">
                 <span className="flex size-12 shrink-0 items-center justify-center rounded-full bg-[#5fd49a] text-ink">
                   <Icon.check className="size-7" />
@@ -110,7 +119,7 @@ function Switch() {
                     Tu peux déployer
                   </span>
                   <span className="block text-sm text-ivory-dim/75">
-                    Plus aucune partie en cours.
+                    Plus aucune partie en cours, les joueurs voient l’écran de maintenance.
                     {waiting > 0 &&
                       ` ${plural(waiting, "table en attente sera fermée", "tables en attente seront fermées")} par le redémarrage.`}
                   </span>
@@ -122,7 +131,8 @@ function Switch() {
                   {plural(playing.length, "partie encore en cours", "parties encore en cours")}
                 </p>
                 <p className="mt-1 text-sm text-ivory-dim/70">
-                  Attends qu’elles se terminent : cet écran se met à jour tout seul.
+                  Attends qu’elles se terminent : l’app se fermera aux joueurs à la dernière. Cet
+                  écran se met à jour tout seul.
                 </p>
                 <ul className="mt-4 flex flex-col gap-2">
                   {playing.map((r) => (
@@ -180,9 +190,9 @@ function describe(e: AdminEvent): { text: string; alert?: boolean } {
     case "close_room":
       return { text: `Table ${who} fermée (${gameName(String(detail.game ?? ""))})` };
     case "maintenance_on":
-      return { text: "Nouvelles parties fermées" };
+      return { text: "Maintenance lancée" };
     case "maintenance_off":
-      return { text: "Nouvelles parties rouvertes" };
+      return { text: "App rouverte" };
     default:
       return { text: e.action };
   }

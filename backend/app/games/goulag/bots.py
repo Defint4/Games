@@ -19,7 +19,6 @@ import uuid
 from app.games.base import AfterMove
 from app.games.goulag.engine import (
     Action,
-    GameError,
     GameStatus,
     Phase,
     Suit,
@@ -250,7 +249,7 @@ async def _run(room: Room, token: int, plan: tuple[str, int, float], after_move:
             return
         try:
             events = _act(room, kind, seat)
-        except GameError:
+        except Exception:
             logger.exception("Coup de bot impossible sur la table %s (%s)", room.code, kind)
             return
         await after_move(room, events)

@@ -12,7 +12,7 @@ let book: Promise<OpeningBook> | null = null;
 /* Les ouvertures (public/chess/openings.json, 60 Ko compressés) : chargées une fois,
    seulement pour le bilan. */
 function loadBook(): Promise<OpeningBook> {
-  book ??= fetch("/chess/openings.json")
+  book ??= fetch("/chess/openings.json", { signal: AbortSignal.timeout(20000) })
     .then((res) => res.json() as Promise<OpeningBook>)
     .catch(() => {
       book = null;

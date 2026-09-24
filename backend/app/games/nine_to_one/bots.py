@@ -26,7 +26,6 @@ from app.games.base import AfterMove
 from app.games.nine_to_one import botbrain
 from app.games.nine_to_one.engine import (
     Comparator,
-    GameError,
     GameStatus,
     add_player,
     chase_flip,
@@ -310,7 +309,7 @@ async def _run(room: Room, token: int, plan: tuple[str, int, float], after_move:
             return
         try:
             events = await _act(room, kind, seat)
-        except GameError:
+        except Exception:
             logger.exception("Coup de bot impossible sur la table %s (%s)", room.code, kind)
             return
         await after_move(room, events)

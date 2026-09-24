@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Sheet } from "@/components/Sheet";
 import { useT } from "@/lib/i18n";
 import type { StoredProfile } from "@/lib/identity";
+import { maintenanceBlocks } from "@/lib/maintenance";
 import { sfx, vibrate } from "@/lib/sound";
 import ActionButton from "./ActionButton";
 import { saveBotGame } from "./api";
@@ -221,6 +222,7 @@ export default function BotTable({
   }
 
   function restart() {
+    if (maintenanceBlocks()) return;
     const next = newBotGame(game.elo, game.colorChoice, game.timeControl);
     engine().newGame();
     wasOver.current = false;

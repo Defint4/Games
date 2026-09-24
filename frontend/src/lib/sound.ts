@@ -1,6 +1,8 @@
 /* Sons des jeux : vrais bruits de cartes, de coups et de dés (packs de Kenney, CC0,
    /public/sounds, mono 22 kHz), plus de petits carillons synthétisés (ton tour, gagné…).
-   Chaque jeu ne télécharge que ses packs (voir preloadSounds). */
+   Chaque jeu ne télécharge que ses packs (voir preloadSounds).
+   Chaque son existe en FLAC (sans perte, identique au WAV, deux fois plus léger) et en
+   WAV, le repli des navigateurs qui ne décoderaient pas le FLAC (voir soundFormat). */
 
 const KEY = "games:muted";
 let ctx: AudioContext | null = null;
@@ -65,10 +67,37 @@ export function setMuted(muted: boolean) {
    promesse se résout quand tout est là ; un échec ne bloque pas : ce son restera muet. */
 const loading = new Map<string, Promise<void>>();
 
+/* Chrome décode le FLAC à l'identique du WAV (vérifié), mais pour Safari iOS le support
+   n'est documenté que pour la balise <audio> : on le vérifie une fois sur le plus petit
+   son, décodé hors ligne (sans geste ni son joué). Décodage refusé : WAV partout. Sonde
+   perdue sur le réseau : WAV cette fois, et on resondera au prochain son. */
+let format: Promise<"flac" | "wav"> | null = null;
+
+function soundFormat(): Promise<"flac" | "wav"> {
+  format ??= fetch("/sounds/chip-lay-1.flac", { signal: AbortSignal.timeout(15000) })
+    .then((res) => {
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return res.arrayBuffer();
+    })
+    .then(
+      (buf) =>
+        new OfflineAudioContext(1, 1, 22050).decodeAudioData(buf).then(
+          () => "flac" as const,
+          () => "wav" as const,
+        ),
+      () => {
+        format = null;
+        return "wav" as const;
+      },
+    );
+  return format;
+}
+
 function load(name: string): Promise<void> {
   let pending = loading.get(name);
   if (!pending) {
-    pending = fetch(`/sounds/${name}.wav`)
+    pending = soundFormat()
+      .then((ext) => fetch(`/sounds/${name}.${ext}`, { signal: AbortSignal.timeout(15000) }))
       .then((res) => res.arrayBuffer())
       .then((buf) => {
         raw.set(name, buf);
@@ -150,6 +179,18 @@ function tone(freq: number, at: number, dur: number, volume: number) {
   osc.stop(t + dur + 0.05);
 }
 
+/* Bruit blanc de 30 ms, la matière du clic des boutons (voir tap). */
+let noise: AudioBuffer | null = null;
+
+function noiseBuffer(ac: AudioContext): AudioBuffer {
+  if (!noise) {
+    noise = ac.createBuffer(1, Math.round(ac.sampleRate * 0.03), ac.sampleRate);
+    const data = noise.getChannelData(0);
+    for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+  }
+  return noise;
+}
+
 export const sfx = {
   play: () => sample(["place-1", "place-2", "place-3"], 0.8),
   /* Goulag : un coup qui passe, un coup bloqué par le bouclier, la cloche d'une
@@ -220,7 +261,40 @@ export const sfx = {
   pop: () => tone(980, 0, 0.07, 0.07),
   /* Touche du pavé du code PIN : un clic à peine audible. */
   key: () => tone(1320, 0, 0.035, 0.035),
+  /* Bouton ou lien touché : un souffle de bruit filtré dans les aigus, 25 ms, le
+     « tic » sec d'un interrupteur plutôt qu'une note. */
+  tap: () => {
+    const ac = audio();
+    if (!ac) return;
+    const src = ac.createBufferSource();
+    src.buffer = noiseBuffer(ac);
+    const filter = ac.createBiquadFilter();
+    filter.type = "bandpass";
+    filter.frequency.value = 3200;
+    filter.Q.value = 1.2;
+    const gain = ac.createGain();
+    const t = ac.currentTime;
+    gain.gain.setValueAtTime(0.1, t);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.025);
+    src.connect(filter).connect(gain).connect(ac.destination);
+    src.start(t);
+    src.stop(t + 0.03);
+  },
 };
+
+/* Le clic de toute l'interface, posé une fois pour tout le site (Providers) plutôt que
+   bouton par bouton. Ce qui a déjà son propre son (touches du code PIN, cartes jouées,
+   pioche du Solitaire) porte data-silent : pas de double bruit. */
+const CLICKABLE = 'button, a[href], [role="button"], [role="tab"], summary';
+
+export function installClickSound(): () => void {
+  const onClick = (e: MouseEvent) => {
+    const el = (e.target as Element).closest(CLICKABLE);
+    if (el && !el.closest("[data-silent]")) sfx.tap();
+  };
+  document.addEventListener("click", onClick, { capture: true });
+  return () => document.removeEventListener("click", onClick, { capture: true });
+}
 
 export function vibrate(pattern: number | number[]) {
   try {

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { listRooms, liveRoomsUrl } from "./api";
+import { setPhase } from "./maintenance";
 import type { OpenRoom } from "./types";
 
 /* Les tables ouvertes d'un jeu, en direct : un WebSocket pousse la liste à chaque
@@ -17,6 +18,7 @@ export function useOpenRooms(game: string): { rooms: OpenRoom[]; ready: boolean 
     let socket: WebSocket | null = null;
     let retry = 0;
     let timer: ReturnType<typeof setTimeout>;
+    let openTimer: ReturnType<typeof setTimeout>;
 
     listRooms(game)
       .then((list) => {
@@ -30,13 +32,23 @@ export function useOpenRooms(game: string): { rooms: OpenRoom[]; ready: boolean 
       });
 
     function connect() {
-      socket = new WebSocket(liveRoomsUrl(game));
+      const current = new WebSocket(liveRoomsUrl(game));
+      socket = current;
+      // Connexion qui ne s'ouvre jamais (réseau mobile bloqué) : on l'abandonne, onclose
+      // relance.
+      clearTimeout(openTimer);
+      openTimer = setTimeout(() => {
+        if (current.readyState === WebSocket.CONNECTING) current.close();
+      }, 10000);
+      socket.onopen = () => clearTimeout(openTimer);
       socket.onmessage = (raw) => {
-        const msg = JSON.parse(raw.data) as { type: string; rooms?: OpenRoom[] };
+        const msg = JSON.parse(raw.data) as { type: string; rooms?: OpenRoom[]; phase?: string };
         if (msg.type === "rooms" && msg.rooms) {
           retry = 0;
           setRooms(msg.rooms);
           setReady(true);
+        } else if (msg.type === "maintenance") {
+          setPhase(msg.phase);
         }
       };
       socket.onclose = () => {
@@ -61,6 +73,7 @@ export function useOpenRooms(game: string): { rooms: OpenRoom[]; ready: boolean 
     return () => {
       disposed = true;
       clearTimeout(timer);
+      clearTimeout(openTimer);
       document.removeEventListener("visibilitychange", onVisible);
       socket?.close();
     };

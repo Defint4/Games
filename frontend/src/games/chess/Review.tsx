@@ -12,6 +12,7 @@ import { Sheet } from "@/components/Sheet";
 import { useT } from "@/lib/i18n";
 import { currentProfile, type StoredProfile } from "@/lib/identity";
 import { applyFelt } from "@/lib/prefs";
+import { settle } from "@/lib/settle";
 import { COMMON } from "@/lib/texts";
 import { CLASSIFICATIONS, type Classification, type GameReview } from "./analysis";
 import { fetchGame } from "./api";
@@ -53,7 +54,8 @@ export default function Review() {
   useEffect(() => {
     document.documentElement.dataset.felt = "chess";
     let cancelled = false;
-    preloadAssets().then(() => {
+    // Une ressource bloquée ne retient pas l'écran plus de 20 s.
+    settle(preloadAssets(), 20000).then(() => {
       if (!cancelled) setAssetsReady(true);
     });
     return () => {

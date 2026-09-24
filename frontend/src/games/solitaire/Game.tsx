@@ -15,6 +15,7 @@ import { ApiError } from "@/lib/api";
 import { formatDuration } from "@/lib/duration";
 import { tr, useLang, useT } from "@/lib/i18n";
 import type { StoredProfile } from "@/lib/identity";
+import { isMaintenanceError, maintenanceBlocks, showMaintenanceNotice } from "@/lib/maintenance";
 import { sfx, vibrate } from "@/lib/sound";
 import { COMMON } from "@/lib/texts";
 import {
@@ -95,13 +96,7 @@ export default function Game({
 
   // Le chrono part de l'heure du serveur, recalée sur l'horloge de l'appareil.
   const startedAt = deal.receivedAt - deal.elapsed_ms;
-  const [now, setNow] = useState(() => Date.now());
   const [stoppedAt, setStoppedAt] = useState<number | null>(null);
-  useEffect(() => {
-    if (stoppedAt !== null) return;
-    const timer = setInterval(() => setNow(Date.now()), 250);
-    return () => clearInterval(timer);
-  }, [stoppedAt]);
 
   useEffect(() => {
     saveMoves(deal.id, played.moves);
@@ -185,7 +180,14 @@ export default function Game({
 
   const fail = (e: unknown) => {
     setLeaving(null);
-    setError(e instanceof ApiError ? e.message : tr(T).home.unreachable);
+    if (isMaintenanceError(e)) showMaintenanceNotice();
+    else setError(e instanceof ApiError ? e.message : tr(T).home.unreachable);
+  };
+  // Nouvelle donne = nouvelle partie : refusée pendant une maintenance (la donne en
+  // cours, elle, reste jouable).
+  const dealAgain = () => {
+    if (maintenanceBlocks()) setSheet(null);
+    else redeal.mutate();
   };
 
   const redeal = useMutation({
@@ -220,15 +222,13 @@ export default function Game({
 
   const newGame = () => {
     // Partie gagnée : rien à perdre, on redonne directement.
-    if (phase === "won" || phase === "auto") redeal.mutate();
-    else setSheet("deal");
+    if (phase === "won" || phase === "auto") dealAgain();
+    else if (!maintenanceBlocks()) setSheet("deal");
   };
 
   const onDealt = useCallback(() => setDealing(false), []);
   const onGeometry = useCallback((g: Geometry, board: DOMRect) => setGeo({ g, board }), []);
 
-  const elapsed = (stoppedAt ?? now) - startedAt;
-  const shownTime = finish.data ? finish.data.duration_ms : elapsed;
   const busy = leaving !== null;
 
   return (
@@ -243,7 +243,12 @@ export default function Game({
         </Link>
         <div className="text-center">
           <p className="text-2xl font-extrabold leading-none tabular-nums tracking-tight">
-            {formatDuration(shownTime, finish.isSuccess)}
+            <Timer
+              startedAt={startedAt}
+              stoppedAt={stoppedAt}
+              finalMs={finish.data?.duration_ms ?? null}
+              tenths={finish.isSuccess}
+            />
           </p>
           <p className="mt-1 text-xs text-ivory-dim/60 tabular-nums">
             {t.play.moves(played.moves.length)}
@@ -303,7 +308,7 @@ export default function Game({
             failed={finish.isError ? errorText(finish.error) : null}
             moves={played.moves.length}
             onRetry={() => finish.mutate(played.moves)}
-            onAgain={() => redeal.mutate()}
+            onAgain={dealAgain}
             busy={busy}
           />
         )}
@@ -347,7 +352,7 @@ export default function Game({
           body={t.confirm.dealBody}
           action={t.confirm.deal}
           keep={t.confirm.keep}
-          onConfirm={() => redeal.mutate()}
+          onConfirm={dealAgain}
           onClose={() => setSheet(null)}
         />
       )}
@@ -558,4 +563,27 @@ function DealIcon() {
       <rect x="10" y="4" width="10" height="14" rx="1.5" transform="rotate(8 15 11)" />
     </svg>
   );
+}
+
+/* Le chrono, qui se redessine seul 4 fois par seconde : à l'intérieur de Game, il
+   redessinait toute la table (et le glisser-déposer en cours) à chaque tic. */
+function Timer({
+  startedAt,
+  stoppedAt,
+  finalMs,
+  tenths,
+}: {
+  startedAt: number;
+  stoppedAt: number | null;
+  /* Le temps retenu par le serveur, une fois la victoire validée. */
+  finalMs: number | null;
+  tenths: boolean;
+}) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (stoppedAt !== null) return;
+    const timer = setInterval(() => setNow(Date.now()), 250);
+    return () => clearInterval(timer);
+  }, [stoppedAt]);
+  return <>{formatDuration(finalMs ?? (stoppedAt ?? now) - startedAt, tenths)}</>;
 }

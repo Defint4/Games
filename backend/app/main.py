@@ -1,19 +1,21 @@
 import asyncio
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from slowapi import _rate_limit_exceeded_handler
+from fastapi.responses import JSONResponse
 from slowapi.errors import RateLimitExceeded
 
 from app.admin.router import router as admin_router
 from app.core.config import settings
+from app.core.database import engine
 from app.core.rate_limit import limiter
 from app.games.chess.router import router as chess_router
 from app.games.solitaire.router import router as solitaire_router
 from app.players.router import router as players_router
 from app.rooms import lobby
 from app.rooms.manager import manager
+from app.rooms.router import announce_maintenance
 from app.rooms.router import router as rooms_router
 
 if len(settings.jwt_secret) < 32:
@@ -23,17 +25,33 @@ if len(settings.jwt_secret) < 32:
     )
 
 
+async def on_rooms_deleted(game: str) -> None:
+    await lobby.notify(game)
+    # Une partie abandonnée qui retenait la maintenance vient peut-être de disparaître.
+    await announce_maintenance()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    cleanup_task = asyncio.create_task(manager.cleanup_loop(on_delete=lobby.notify))
+    cleanup_task = asyncio.create_task(manager.cleanup_loop(on_delete=on_rooms_deleted))
     yield
     cleanup_task.cancel()
+    await engine.dispose()
 
 
 app = FastAPI(title="Games API", docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
 
 app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+
+@app.exception_handler(RateLimitExceeded)
+async def rate_limited(request: Request, exc: RateLimitExceeded) -> JSONResponse:
+    # Même forme que les autres erreurs ({"detail": ...}) : le client affiche le message
+    # au lieu de son « réponse inattendue ».
+    return JSONResponse(
+        {"detail": "Trop de tentatives : réessaie dans quelques minutes."}, status_code=429
+    )
+
 
 app.add_middleware(
     CORSMiddleware,
@@ -53,3 +71,11 @@ app.include_router(admin_router)
 @app.get("/api/health")
 async def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/api/status")
+async def status(response: Response) -> dict[str, str]:
+    """L'état de maintenance (off / draining / locked), lu par l'app sur toutes ses pages.
+    Jamais en cache : ni navigateur ni Cloudflare ne doivent servir un état périmé."""
+    response.headers["Cache-Control"] = "no-store"
+    return {"maintenance": manager.maintenance_phase()}

@@ -11,6 +11,7 @@ import { ApiError, createRoom, fetchMe, fetchRoom, joinRoom } from "@/lib/api";
 import { HUB_PATH, tablePath, type GameMeta } from "@/lib/games";
 import { dict, tr, useT } from "@/lib/i18n";
 import { currentProfile, forgetTable, lastTable, type StoredProfile } from "@/lib/identity";
+import { isMaintenanceError, maintenanceBlocks, showMaintenanceNotice } from "@/lib/maintenance";
 import { COMMON } from "@/lib/texts";
 import { NO_STATS } from "@/lib/types";
 import { useOpenRooms } from "@/lib/useOpenRooms";
@@ -150,7 +151,8 @@ function Tables({ game, profile }: { game: GameMeta; profile: StoredProfile }) {
   const goToTable = ({ code }: { code: string }) => router.push(tablePath(game.slug, code));
   const fail = (e: unknown) => {
     setLeaving(null);
-    setError(e instanceof ApiError ? e.message : tr(T).unreachable);
+    if (isMaintenanceError(e)) showMaintenanceNotice();
+    else setError(e instanceof ApiError ? e.message : tr(T).unreachable);
   };
   const create = useMutation({
     mutationFn: () => createRoom(profile.token, game.slug),
@@ -176,7 +178,10 @@ function Tables({ game, profile }: { game: GameMeta; profile: StoredProfile }) {
     onSuccess: goToTable,
     onError: (e) => {
       setLeaving(null);
-      if (e instanceof ApiError) {
+      if (isMaintenanceError(e)) {
+        // Table en attente où l'on n'était plus assis : elle rouvrira après.
+        showMaintenanceNotice();
+      } else if (e instanceof ApiError && e.status < 500) {
         // La partie n'existe plus, ou n'est plus rejoignable : on oublie sans bruit.
         forgetTable(game.slug);
         setResumeCode(null);
@@ -217,7 +222,9 @@ function Tables({ game, profile }: { game: GameMeta; profile: StoredProfile }) {
 
       <button
         type="button"
-        onClick={() => create.mutate()}
+        onClick={() => {
+          if (!maintenanceBlocks()) create.mutate();
+        }}
         disabled={busy}
         className="rounded-2xl bg-gold py-5 text-xl font-extrabold text-ink shadow-card enabled:active:translate-y-0.5 disabled:opacity-40"
       >
@@ -228,7 +235,7 @@ function Tables({ game, profile }: { game: GameMeta; profile: StoredProfile }) {
         className="flex gap-2"
         onSubmit={(e) => {
           e.preventDefault();
-          if (joinCode.length === 4) join.mutate(joinCode);
+          if (joinCode.length === 4 && !maintenanceBlocks()) join.mutate(joinCode);
         }}
       >
         <input
@@ -257,7 +264,9 @@ function Tables({ game, profile }: { game: GameMeta; profile: StoredProfile }) {
               key={room.code}
               type="button"
               disabled={busy}
-              onClick={() => join.mutate(room.code)}
+              onClick={() => {
+                if (!maintenanceBlocks()) join.mutate(room.code);
+              }}
               className="flex items-center gap-2 rounded-2xl bg-black/25 p-3 text-left ring-1 ring-white/10 active:translate-y-0.5"
             >
               <span className="text-lg font-extrabold tracking-widest">{room.code}</span>

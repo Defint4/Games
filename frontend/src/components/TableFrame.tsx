@@ -7,7 +7,7 @@ import FlightLayer from "@/components/FlightLayer";
 import FxLayer from "@/components/FxLayer";
 import { LoadingScreen } from "@/components/Loading";
 import SettingsSheet from "@/components/SettingsSheet";
-import { joinRoom } from "@/lib/api";
+import { ApiError, joinRoom } from "@/lib/api";
 import type { GameMeta } from "@/lib/games";
 import { dict, tr, useT } from "@/lib/i18n";
 import { tablePath } from "@/lib/games";
@@ -17,14 +17,16 @@ import {
   rememberTable,
   type StoredProfile,
 } from "@/lib/identity";
+import { isMaintenanceError } from "@/lib/maintenance";
 import { applyFelt } from "@/lib/prefs";
+import { settle } from "@/lib/settle";
 import type { BaseRoomView } from "@/lib/types";
 import { COMMON } from "@/lib/texts";
 import type { RoomSocket } from "@/lib/useRoomSocket";
 
 const T = dict({
-  fr: { loadingCards: "On sort les cartes…", back: "Retour à l’accueil" },
-  en: { loadingCards: "Getting the cards out…", back: "Back to the game screen" },
+  fr: { loadingCards: "On sort les cartes…", back: "Retour à l’accueil", retry: "Réessayer" },
+  en: { loadingCards: "Getting the cards out…", back: "Back to the game screen", retry: "Try again" },
 });
 
 /* Le cadre d'une page de table, commun à tous les jeux : identité, prise de place,
@@ -62,7 +64,7 @@ export default function TableFrame<
   const { code } = useParams<{ code: string }>();
   const router = useRouter();
   const [profile, setProfile] = useState<StoredProfile | null>(null);
-  const [joinError, setJoinError] = useState<string | null>(null);
+  const [joinError, setJoinError] = useState<{ message: string; network: boolean } | null>(null);
   const [joined, setJoined] = useState(false);
   // Cartes et sons chargés avant d'afficher quoi que ce soit : sur un réseau lent,
   // mieux vaut attendre un peu que voir des cartes blanches en pleine partie.
@@ -85,10 +87,17 @@ export default function TableFrame<
         setJoined(true);
       })
       .catch((e) => {
-        forgetTable(game.slug);
-        setJoinError(
-          e instanceof Error ? e.message : tr(COMMON).cantJoin,
-        );
+        // Refus du serveur (table disparue, pleine) : plus rien à reprendre. Une coupure
+        // réseau ou un serveur qui redémarre (5xx), eux, laissent la table proposée à
+        // l'accueil ; la maintenance aussi (la table en attente rouvrira après).
+        if (isMaintenanceError(e)) {
+          setJoinError({ message: (e as Error).message, network: false });
+        } else if (e instanceof ApiError && e.status < 500) {
+          forgetTable(game.slug);
+          setJoinError({ message: e.message, network: false });
+        } else {
+          setJoinError({ message: tr(COMMON).unreachable, network: true });
+        }
       });
   }, [code, router, game.slug]);
 
@@ -96,7 +105,8 @@ export default function TableFrame<
     if (felt) document.documentElement.dataset.felt = felt;
     else applyFelt();
     let cancelled = false;
-    preload().then(() => {
+    // Une ressource bloquée ne retient pas la table plus de 20 s.
+    settle(preload(), 20000).then(() => {
       if (!cancelled) setAssetsReady(true);
     });
     return () => {
@@ -126,7 +136,8 @@ export default function TableFrame<
     };
   }, []);
 
-  if (joinError) return <Blocked game={game} message={joinError} />;
+  if (joinError)
+    return <Blocked game={game} message={joinError.message} retry={joinError.network} />;
   if (!profile || !joined)
     return <LoadingScreen label={common.connecting} />;
   if (!assetsReady) return <LoadingScreen label={loadingLabel ?? t.loadingCards} />;
@@ -235,17 +246,33 @@ export function GearIcon() {
 export function Blocked({
   game,
   message,
+  retry = false,
 }: {
   game: GameMeta;
   message: string;
+  /* Échec réseau : on propose de recharger la page plutôt que de repartir. */
+  retry?: boolean;
 }) {
   const t = useT(T);
   return (
     <div className="flex h-full flex-col items-center justify-center overflow-y-auto px-6 text-center text-ivory-dim">
       <p className="font-bold text-ivory">{message}</p>
+      {retry && (
+        <button
+          type="button"
+          onClick={() => window.location.reload()}
+          className="mt-4 rounded-2xl bg-gold px-6 py-3 font-extrabold text-ink"
+        >
+          {t.retry}
+        </button>
+      )}
       <Link
         href={game.path}
-        className="mt-4 rounded-2xl bg-gold px-6 py-3 font-extrabold text-ink"
+        className={
+          retry
+            ? "mt-3 rounded-2xl px-6 py-3 font-bold text-ivory-dim ring-1 ring-white/15"
+            : "mt-4 rounded-2xl bg-gold px-6 py-3 font-extrabold text-ink"
+        }
       >
         {t.back}
       </Link>

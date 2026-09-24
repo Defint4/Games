@@ -33,7 +33,8 @@ export default function AdminApp() {
   useEffect(() => {
     const current = currentProfile();
     if (!current) {
-      router.replace("/");
+      // L'entrée ramène ici après la connexion, même app fermée pour maintenance.
+      router.replace("/?admin");
       return;
     }
     // eslint-disable-next-line react-hooks/set-state-in-effect

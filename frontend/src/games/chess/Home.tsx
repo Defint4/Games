@@ -12,6 +12,7 @@ import { ApiError, createRoom, fetchMe, fetchRoom, joinRoom } from "@/lib/api";
 import { HUB_PATH, tablePath } from "@/lib/games";
 import { tr, useLang, useT } from "@/lib/i18n";
 import { currentProfile, forgetTable, lastTable, type StoredProfile } from "@/lib/identity";
+import { isMaintenanceError, maintenanceBlocks, showMaintenanceNotice } from "@/lib/maintenance";
 import { applyFelt } from "@/lib/prefs";
 import { COMMON } from "@/lib/texts";
 import { NO_STATS, type OpenRoom } from "@/lib/types";
@@ -155,7 +156,8 @@ function Lobby({ profile }: { profile: StoredProfile }) {
   const goToTable = ({ code }: { code: string }) => router.push(tablePath(GAME.slug, code));
   const fail = (e: unknown) => {
     setLeaving(null);
-    setError(e instanceof ApiError ? e.message : tr(T).home.unreachable);
+    if (isMaintenanceError(e)) showMaintenanceNotice();
+    else setError(e instanceof ApiError ? e.message : tr(T).home.unreachable);
   };
   const create = useMutation({
     mutationFn: () => createRoom(profile.token, GAME.slug, { time_control: tcId }),
@@ -246,7 +248,9 @@ function Lobby({ profile }: { profile: StoredProfile }) {
 
       <button
         type="button"
-        onClick={() => create.mutate()}
+        onClick={() => {
+          if (!maintenanceBlocks()) create.mutate();
+        }}
         disabled={busy}
         className={`flex items-center justify-center gap-2 py-5 text-xl ${PRIMARY}`}
       >
@@ -260,7 +264,14 @@ function Lobby({ profile }: { profile: StoredProfile }) {
         <h2 className="font-bold">{t.seeks}</h2>
         {seeks.length ? (
           seeks.map((room) => (
-            <SeekRow key={room.code} room={room} disabled={busy} onJoin={() => join.mutate(room)} />
+            <SeekRow
+              key={room.code}
+              room={room}
+              disabled={busy}
+              onJoin={() => {
+                if (!maintenanceBlocks()) join.mutate(room);
+              }}
+            />
           ))
         ) : (
           <p className="rounded-2xl border border-dashed border-ivory-dim/25 p-4 text-sm text-ivory-dim/65">
@@ -361,6 +372,8 @@ function BotCorner({
   }
 
   function start() {
+    // Partie jouée sur l'appareil : seule l'app peut la refuser pendant la maintenance.
+    if (maintenanceBlocks()) return;
     onStart();
     storeBotGame(newBotGame(settings.elo, settings.color, tcId));
     router.push(BOT_PATH);

@@ -209,6 +209,7 @@ function Wrapper({
       type="button"
       onClick={onClick}
       disabled={disabled || !interactive}
+      data-silent
       className="focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold disabled:cursor-default"
     >
       {children}

@@ -50,6 +50,10 @@ REMATCH_SEAT_GRACE_SECONDS = 45
 ABSENT_STRIKES = 3
 REPLACEMENT_BOT = "normal"
 MAINTENANCE = "Mise à jour imminente : les nouvelles parties reviennent dans quelques minutes."
+# Ce qu'on peut encore faire à une table en attente pendant la maintenance.
+LOBBY_ACTIONS_IN_MAINTENANCE = {"sync", "leave", "chat", "emote"}
+# Délai maximum d'un envoi WebSocket (voir send_bounded).
+SEND_TIMEOUT = 5.0
 
 
 # ---------------------------------------------------------------------------
@@ -97,6 +101,10 @@ async def join_room(
             return RoomOut(code=room.code, game=room.game)  # déjà assis : reconnexion
         if room.status is not GameStatus.LOBBY:
             raise HTTPException(status_code=403, detail="La partie a déjà commencé.")
+        if manager.maintenance:
+            # S'asseoir à une table en attente, c'est entrer dans une nouvelle partie
+            # (aux échecs, la partie démarre même dès le deuxième joueur).
+            raise HTTPException(status_code=503, detail=MAINTENANCE)
         try:
             room.spec.add_player(room.state, player.pseudo)
         except GameError as exc:
@@ -246,10 +254,11 @@ async def _free_seat(room: Room, seat_index: int) -> None:
         await lobby.notify(room.game)
         return
     room.humans_first()
-    # Le partant était peut-être le seul pas prêt : la partie démarre sans lui. Et les
+    # Le partant était peut-être le seul pas prêt : la partie démarre sans lui (sauf en
+    # maintenance : elle démarrera à la réouverture, voir set_maintenance). Et les
     # coups de bots programmés visaient d'anciens indices de sièges : on replanifie
     # (_after_move diffuse, met à jour la liste des tables et relance les bots).
-    events = room.spec.lobby_changed(room.state)
+    events = [] if manager.maintenance else room.spec.lobby_changed(room.state)
     await _after_move(room, [{"type": "player_left", "seat": seat_index}, *events])
 
 
@@ -262,6 +271,15 @@ async def _handle_message(
     async with room.lock:
         seat_index = room.seat_of(player_id)
         if seat_index is None:
+            return
+        if (
+            manager.maintenance
+            and room.status is GameStatus.LOBBY
+            and action not in LOBBY_ACTIONS_IN_MAINTENANCE
+        ):
+            # Se déclarer prêt, régler la table, ajouter un bot : tout ce qui prépare une
+            # partie qui ne pourra pas démarrer.
+            await _send_error(websocket, MAINTENANCE)
             return
         try:
             if action == "sync":
@@ -350,16 +368,26 @@ async def _after_move(room: Room, events: list[dict]) -> None:
     """Après tout changement d'état de jeu : compteurs, stats, timer, diffusion, bots."""
     room.touch()
     room.spec.on_events(room, events)
-    if room.status is GameStatus.FINISHED and not room.stats_recorded:
+    finished = room.status is GameStatus.FINISHED and not room.stats_recorded
+    if finished:
         room.stats_recorded = True
+        # Le délai de grâce de la maintenance couvre l'enregistrement des stats, puis
+        # repart de sa fin : un redémarrage ne doit pas les couper en pleine écriture.
+        manager.last_game_end = time.monotonic()
         await _record_stats(room)
+        manager.last_game_end = time.monotonic()
         room.spec.on_game_over(room)
     _schedule_turn_timer(room)
     await _broadcast_state(room, events)
     # La liste des tables ouvertes bouge tant qu'on est en lobby, et au démarrage.
     if room.status is GameStatus.LOBBY or any(e["type"] == "game_started" for e in events):
         await lobby.notify(room.game)
-    room.spec.schedule_bots(room, _after_move)
+    # En maintenance, les bots d'une table en attente ne se déclarent plus prêts.
+    if not (manager.maintenance and room.status is GameStatus.LOBBY):
+        room.spec.schedule_bots(room, _after_move)
+    if finished and manager.maintenance:
+        # Peut-être la dernière partie en cours : la fermeture approche.
+        await announce_maintenance()
 
 
 def _schedule_turn_timer(room: Room) -> None:
@@ -399,7 +427,7 @@ async def _absence_timeout(room: Room, token: int, seat_index: int) -> None:
             return
         try:
             events = room.spec.auto_play(room, seat_index)
-        except GameError:
+        except Exception:
             logger.exception("Coup d'office impossible sur la table %s", room.code)
             return
         events = [{"type": "auto_played", "player": seat_index}, *events]
@@ -434,7 +462,7 @@ async def _turn_timeout(room: Room, token: int, delay: float) -> None:
             return
         try:
             events = room.spec.auto_play(room, seat)
-        except GameError:
+        except Exception:
             logger.exception("Coup automatique impossible sur la table %s", room.code)
             return
         events = [{"type": "auto_played", "player": seat}, *events]
@@ -503,7 +531,9 @@ async def _handle_rematch(room: Room, websocket: WebSocket) -> None:
     room.touch()
     await _broadcast(room, {"type": "rematch", "code": new_room.code})
     await lobby.notify(room.game)
-    room.spec.schedule_bots(new_room, _after_move)
+    # Maintenance lancée pendant les envois ci-dessus : ses bots attendront la réouverture.
+    if not manager.maintenance:
+        room.spec.schedule_bots(new_room, _after_move)
 
 
 async def _record_stats(room: Room) -> None:
@@ -533,42 +563,109 @@ async def _record_stats(room: Room) -> None:
         logger.exception("Échec de l'enregistrement des stats de la partie %s", room.code)
 
 
+# ---------------------------------------------------------------------------
+# Maintenance
+# ---------------------------------------------------------------------------
+
+
+async def set_maintenance(enabled: bool) -> None:
+    """Interrupteur du panneau admin : ferme (ou rouvre) l'arrivée de nouvelles parties."""
+    manager.maintenance = enabled
+    if enabled:
+        # Un bot allait se déclarer prêt et lancer la partie : son coup est annulé, pour
+        # toutes les tables d'un coup, avant de céder la main (le jeton est relu sous le
+        # verrou au moment d'agir).
+        for room in manager.rooms.values():
+            if room.status is GameStatus.LOBBY:
+                room.bot_token += 1
+    else:
+        for room in list(manager.rooms.values()):
+            if room.status is not GameStatus.LOBBY:
+                continue
+            async with room.lock:
+                if manager.get(room.code) is not room or room.status is not GameStatus.LOBBY:
+                    continue
+                # Réouverture : une table dont tout le monde était prêt démarre enfin, et
+                # ses bots reprennent (_after_move replanifie).
+                await _after_move(room, room.spec.lobby_changed(room.state))
+    await announce_maintenance()
+
+
+async def announce_maintenance() -> None:
+    """Prévient à l'instant tous les écrans reliés au serveur (tables, accueils de jeu)
+    quand l'état de maintenance change ; les autres pages le lisent sur /api/status."""
+    phase = manager.maintenance_phase()
+    if phase != manager.announced_phase:
+        manager.announced_phase = phase
+        message = {"type": "maintenance", "phase": phase}
+        await asyncio.gather(
+            *(
+                send_bounded(seat.socket, message)
+                for room in list(manager.rooms.values())
+                for seat in list(room.seats)
+                if seat.socket is not None
+            ),
+            lobby.broadcast_all(message),
+        )
+    if phase == "draining" and manager.grace_left() > 0:
+        # Plus de partie en cours, seul le délai de grâce retient la fermeture : on
+        # annoncera « locked » à son terme.
+        asyncio.get_running_loop().create_task(_announce_later(manager.grace_left() + 0.2))
+
+
+async def _announce_later(delay: float) -> None:
+    await asyncio.sleep(delay)
+    await announce_maintenance()
+
+
+async def send_bounded(socket: WebSocket, message: dict) -> None:
+    """Envoi qui ne peut pas figer la table : l'envoi attend que le client ait vidé son
+    tampon, et un téléphone sur un réseau qui cale le retiendrait sous room.lock. Au-delà
+    de SEND_TIMEOUT, rien n'est parti (uvicorn attend avant d'écrire) : on coupe ce
+    client, qui se reconnecte et reçoit à nouveau sa vue et le chat."""
+    try:
+        await asyncio.wait_for(socket.send_json(message), SEND_TIMEOUT)
+    except TimeoutError:
+        asyncio.get_running_loop().create_task(drop_socket(socket))
+    except Exception:
+        pass
+
+
+async def drop_socket(socket: WebSocket) -> None:
+    """Ferme un client qui ne suit plus (1013 : « réessaie plus tard », le client se
+    reconnecte). Hors du verrou de la table : la fermeture peut elle aussi attendre."""
+    try:
+        await asyncio.wait_for(socket.close(code=1013), 2)
+    except Exception:
+        pass
+
+
 async def _send_view(room: Room, seat_index: int) -> None:
     socket = room.seats[seat_index].socket
     if socket is None:
         return
-    try:
-        await socket.send_json(
-            {"type": "state", "events": [], "view": room_view(room, seat_index), "chat": room.chat}
-        )
-    except Exception:
-        pass
+    view = room_view(room, seat_index)
+    await send_bounded(socket, {"type": "state", "events": [], "view": view, "chat": room.chat})
 
 
 async def _broadcast_state(room: Room, events: list[dict]) -> None:
-    for i, seat in enumerate(list(room.seats)):
-        if seat.socket is None:
-            continue
-        try:
-            await seat.socket.send_json(
-                {"type": "state", "events": events, "view": room_view(room, i)}
+    # Tous les sièges en même temps : un client lent ne retarde pas les autres.
+    await asyncio.gather(
+        *(
+            send_bounded(
+                seat.socket, {"type": "state", "events": events, "view": room_view(room, i)}
             )
-        except Exception:
-            pass
+            for i, seat in enumerate(list(room.seats))
+            if seat.socket is not None
+        )
+    )
 
 
 async def _broadcast(room: Room, message: dict) -> None:
-    for seat in list(room.seats):
-        if seat.socket is None:
-            continue
-        try:
-            await seat.socket.send_json(message)
-        except Exception:
-            pass
+    await asyncio.gather(
+        *(send_bounded(s.socket, message) for s in list(room.seats) if s.socket is not None)
+    )
 
 
 async def _send_error(websocket: WebSocket, detail: str) -> None:
-    try:
-        await websocket.send_json({"type": "error", "detail": detail})
-    except Exception:
-        pass
+    await send_bounded(websocket, {"type": "error", "detail": detail})

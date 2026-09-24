@@ -92,7 +92,9 @@ export default function BotPage() {
       </div>
     );
   }
-  if (!profile || !game || !ready) return <LoadingScreen label={t.waking} />;
+  // Le moteur d'échecs pèse 1,8 Mo : sur réseau lent, le recharger ne ferait que
+  // reprendre son téléchargement à zéro.
+  if (!profile || !game || !ready) return <LoadingScreen label={t.waking} patient />;
 
   return (
     <main className="relative mx-auto flex h-full w-full max-w-md flex-col overflow-hidden">

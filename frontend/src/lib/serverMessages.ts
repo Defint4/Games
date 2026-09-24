@@ -83,6 +83,8 @@ const EN: Record<string, string> = {
   "Seul le créateur de la table règle le temps.": "Only the table's creator sets the timer.",
   "Trop d'essais : ce compte est bloqué quelques minutes.":
     "Too many tries: this account is locked for a few minutes.",
+  "Trop de tentatives : réessaie dans quelques minutes.":
+    "Too many tries: try again in a few minutes.",
   "Trop tard : le coup ne peut plus être enchaîné.": "Too late: that move can't be chained anymore.",
   "Trop tard pour annuler : abandonne plutôt.": "Too late to abort: resign instead.",
   "Tu as déjà proposé nulle.": "You've already offered a draw.",

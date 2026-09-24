@@ -46,7 +46,8 @@ class PlayerGameStats(Base):
     player_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("players.id", ondelete="CASCADE"), primary_key=True
     )
-    game: Mapped[str] = mapped_column(String(40), primary_key=True)  # GameSpec.slug
+    # Indexé à part (migration 0006) : le classement d'un jeu filtre sur lui seul.
+    game: Mapped[str] = mapped_column(String(40), primary_key=True, index=True)  # GameSpec.slug
     played: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     won: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     lost: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
