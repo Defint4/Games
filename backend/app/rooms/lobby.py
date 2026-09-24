@@ -40,6 +40,11 @@ async def watch(websocket: WebSocket, game: str) -> None:
         _watchers[game].discard(websocket)
 
 
+def watcher_count() -> int:
+    """Écrans d'accueil de jeu ouverts en ce moment (panneau admin)."""
+    return sum(len(sockets) for sockets in _watchers.values())
+
+
 async def notify(game: str) -> None:
     """À appeler après tout changement d'une table en lobby de ce jeu."""
     sockets = _watchers.get(game)

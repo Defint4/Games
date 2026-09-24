@@ -32,6 +32,10 @@ class AvatarRequired(Exception):
     pass
 
 
+class Suspended(Exception):
+    pass
+
+
 async def _check_pin(db: AsyncSession, player: Player, pin: str) -> None:
     """Vérifie le code du joueur, dont la ligne est verrouillée (FOR UPDATE) par l'appelant :
     les essais sur un même compte passent un par un, le compteur d'échecs ne peut pas être
@@ -70,6 +74,10 @@ async def enter(db: AsyncSession, pseudo: str, pin: str, avatar: str | None) -> 
         db.add(player)
     else:
         await _check_pin(db, player, pin)
+        # Après le code : la suspension ne se révèle qu'à qui connaît le code.
+        if player.suspended_at is not None:
+            raise Suspended
+    player.last_seen_at = datetime.now(UTC)
     try:
         await db.commit()
     except IntegrityError:
@@ -115,6 +123,12 @@ async def update_profile(
         raise PseudoTaken from None
     await db.refresh(player)
     return player
+
+
+async def touch(db: AsyncSession, player: Player) -> None:
+    """Le joueur vient d'ouvrir l'app (renouvellement de session)."""
+    player.last_seen_at = datetime.now(UTC)
+    await db.commit()
 
 
 async def get_player(db: AsyncSession, player_id: uuid.UUID) -> Player | None:

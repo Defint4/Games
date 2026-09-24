@@ -15,6 +15,9 @@ class Settings(BaseSettings):
     # Session d'un appareil : le jeton est renouvelé à chaque ouverture de l'app
     # (POST /api/players/me/refresh). Après ce délai sans venir, le code PIN est redemandé.
     player_token_days: int = 30
+    # Session du panneau d'administration : renouvelée à chaque ouverture du panneau,
+    # le mot de passe admin n'est redemandé qu'après ce délai sans y venir.
+    admin_session_days: int = 30
 
     # Une partie sans aucun joueur connecté pendant ce délai est supprimée.
     empty_room_ttl_minutes: int = 15

@@ -227,6 +227,25 @@ cd /var/www/games
 `git pull` → `uv sync` + migrations → `pnpm install` + build → restart des deux services.
 Ajouter un jeu en production, c'est exactement cette commande.
 
+Le redémarrage vide les tables en mémoire : avant de déployer, ouvrir le bureau
+(onglet Maintenance), fermer les nouvelles parties et attendre « Tu peux déployer ».
+
+### 9. Panneau d'administration (une seule fois)
+
+Le bureau (`/admin`) n'est accessible qu'au compte désigné ici, avec son code PIN **et** un
+mot de passe propre au panneau. Le compte doit déjà exister dans l'app.
+
+```bash
+cd /var/www/games/backend
+.venv/bin/python -m app.admin set-password Matthieu   # saisie masquée, 12 caractères minimum
+```
+
+Le mot de passe est stocké haché en base : les déploiements suivants n'y touchent pas.
+Il est redemandé après 30 jours sans ouvrir le bureau. Relancer la commande change le mot
+de passe et referme les sessions admin ouvertes ; `.venv/bin/python -m app.admin remove`
+retire l'administrateur. Le compte reste admin s'il est renommé, un autre ne le devient
+pas en reprenant son pseudo.
+
 ### Commandes utiles
 
 ```bash

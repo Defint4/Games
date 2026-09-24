@@ -13,6 +13,7 @@ from app.players.models import Player
 _bearer = HTTPBearer(auto_error=False)
 
 SESSION_REVOKED = "Session fermée : le code PIN de ce compte a changé."
+SUSPENDED = "Ce compte est suspendu."
 
 
 def get_player_claims(
@@ -36,4 +37,6 @@ async def get_current_player(
         raise HTTPException(status_code=401, detail="Profil introuvable.")
     if version != player.token_version:
         raise HTTPException(status_code=401, detail=SESSION_REVOKED)
+    if player.suspended_at is not None:
+        raise HTTPException(status_code=403, detail=SUSPENDED)
     return player
