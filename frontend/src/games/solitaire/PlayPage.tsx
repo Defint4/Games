@@ -9,6 +9,7 @@ import { ApiError } from "@/lib/api";
 import { useT } from "@/lib/i18n";
 import { currentProfile, signOut, type StoredProfile } from "@/lib/identity";
 import { applyFelt } from "@/lib/prefs";
+import { settle } from "@/lib/settle";
 import { currentKey, fetchCurrent, savedMoves } from "./api";
 import { preloadAssets } from "./assets";
 import Game from "./Game";
@@ -37,7 +38,8 @@ export default function PlayPage() {
   useEffect(() => {
     applyFelt();
     let cancelled = false;
-    preloadAssets().then(() => {
+    // Une ressource bloquée ne retient pas l'écran plus de 20 s.
+    settle(preloadAssets(), 20000).then(() => {
       if (!cancelled) setAssetsReady(true);
     });
     return () => {

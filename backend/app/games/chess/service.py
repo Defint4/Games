@@ -3,6 +3,7 @@ from datetime import UTC, datetime
 
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import defer
 
 from app.games.base import GameError
 from app.games.chess import SLUG
@@ -130,15 +131,20 @@ async def record_bot_game(
     return game
 
 
-async def recent_games(db: AsyncSession, player_id: uuid.UUID) -> list[ChessGame]:
-    return list(
-        await db.scalars(
-            select(ChessGame)
-            .where(or_(ChessGame.white_id == player_id, ChessGame.black_id == player_id))
-            .order_by(ChessGame.ended_at.desc())
-            .limit(RECENT_GAMES)
-        )
+async def recent_games(
+    db: AsyncSession, player_id: uuid.UUID
+) -> list[tuple[ChessGame, dict | None]]:
+    """Les dernières parties et la précision de leur bilan. Le bilan complet (une
+    évaluation par demi-coup, plusieurs Ko par partie) reste en base : la liste n'en
+    affiche que la précision."""
+    rows = await db.execute(
+        select(ChessGame, ChessGame.analysis["accuracy"])
+        .options(defer(ChessGame.analysis))
+        .where(or_(ChessGame.white_id == player_id, ChessGame.black_id == player_id))
+        .order_by(ChessGame.ended_at.desc())
+        .limit(RECENT_GAMES)
     )
+    return [(game, accuracy) for game, accuracy in rows.all()]
 
 
 async def get_game(db: AsyncSession, game_id: uuid.UUID) -> ChessGame | None:

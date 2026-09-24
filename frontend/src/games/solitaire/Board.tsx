@@ -371,6 +371,7 @@ export default function Board({
             type="button"
             aria-label={t.recycle}
             disabled={!interactive || !canRecycle}
+            data-silent
             onPointerDown={() => {
               if (interactive && canRecycle) onMove("d");
             }}

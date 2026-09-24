@@ -23,8 +23,17 @@ export default function Overview({ onOpen }: { onOpen: (tab: Tab) => void }) {
         >
           <Icon.pause className="size-6 shrink-0 text-gold" />
           <span className="text-sm leading-snug">
-            <span className="font-extrabold text-gold">Maintenance en cours.</span> Plus personne ne
-            peut lancer de partie.
+            {data.maintenance_phase === "locked" ? (
+              <>
+                <span className="font-extrabold text-gold">App fermée aux joueurs.</span> Tu peux
+                déployer.
+              </>
+            ) : (
+              <>
+                <span className="font-extrabold text-gold">Maintenance en cours.</span> Plus
+                personne ne peut lancer de partie.
+              </>
+            )}
           </span>
         </button>
       )}

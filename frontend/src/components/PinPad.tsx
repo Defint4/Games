@@ -173,6 +173,7 @@ function Key({
       type="button"
       onClick={onPress}
       disabled={disabled}
+      data-silent
       className="flex size-[4.5rem] items-center justify-center rounded-full bg-black/25 text-3xl font-bold text-ivory ring-1 ring-white/10 transition-[transform,background-color,color] duration-100 select-none active:scale-90 active:bg-gold active:text-ink disabled:opacity-60"
     >
       {children}

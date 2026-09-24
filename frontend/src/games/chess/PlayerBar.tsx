@@ -130,13 +130,9 @@ export function Clock({
 
   useEffect(() => {
     if (!running) return;
-    let frame = 0;
-    const loop = () => {
-      setNow(performance.now());
-      frame = requestAnimationFrame(loop);
-    };
-    frame = requestAnimationFrame(loop);
-    return () => cancelAnimationFrame(frame);
+    // Au dixième, la finesse de l'affichage : pas besoin d'un rendu par image (60/s).
+    const timer = setInterval(() => setNow(performance.now()), 100);
+    return () => clearInterval(timer);
   }, [running]);
 
   const left = running ? seconds - (now - start) / 1000 : seconds;

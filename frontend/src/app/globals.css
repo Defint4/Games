@@ -180,6 +180,55 @@ html[data-felt="chess"] {
   animation: table-shake 0.35s ease-in-out;
 }
 
+/* Les deux cartes qu'on bat sur les écrans d'attente. En CSS et pas en JS : elles
+   bougent dès le HTML reçu, avant même que la page ait démarré. */
+@keyframes shuffle-left {
+  0%,
+  100% {
+    transform: translateY(0) rotate(-14deg);
+  }
+  50% {
+    transform: translateY(-6px) rotate(10deg);
+  }
+}
+
+@keyframes shuffle-right {
+  0%,
+  100% {
+    transform: translateY(0) rotate(12deg);
+  }
+  50% {
+    transform: translateY(-10px) rotate(-8deg);
+  }
+}
+
+.animate-shuffle-left {
+  animation: shuffle-left 1.1s ease-in-out infinite;
+}
+
+.animate-shuffle-right {
+  animation: shuffle-right 1.1s ease-in-out 0.15s infinite backwards;
+}
+
+/* Écran d'attente qui s'éternise : l'invitation à recharger apparaît d'elle-même,
+   sans JS, pour marcher même si la page n'a jamais démarré. */
+@keyframes stuck-in {
+  from {
+    opacity: 0;
+    visibility: hidden;
+  }
+  to {
+    opacity: 1;
+    visibility: visible;
+  }
+}
+
+.stuck-hint {
+  opacity: 0;
+  visibility: hidden;
+  animation: stuck-in 0.4s ease 8s forwards;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

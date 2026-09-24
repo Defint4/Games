@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import random
+import time
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
@@ -25,6 +26,10 @@ from app.core.config import settings
 from app.games.base import GameSpec, GameStatus
 
 logger = logging.getLogger(__name__)
+
+# Maintenance : après la fin de la dernière partie, le temps pour sa table de voir qui a
+# gagné avant que l'écran de maintenance ne recouvre tout.
+MAINTENANCE_GRACE_SECONDS = 10
 
 CHAT_HISTORY_SIZE = 100
 
@@ -113,10 +118,14 @@ class Room:
 class RoomManager:
     def __init__(self) -> None:
         self.rooms: dict[str, Room] = {}
-        # Maintenance (panneau admin) : plus de nouvelle table, revanches comprises, le
-        # temps que les parties en cours se terminent avant un redémarrage. En mémoire :
-        # le redémarrage la lève de lui-même.
+        # Maintenance (panneau admin) : plus de nouvelle partie le temps que celles en
+        # cours se terminent, puis l'app fermée aux joueurs (voir maintenance_phase). En
+        # mémoire : le redémarrage du déploiement la lève de lui-même.
         self.maintenance = False
+        # Fin de la dernière partie (horloge monotone), pour le délai de grâce.
+        self.last_game_end = 0.0
+        # Dernier état annoncé aux clients (router.announce_maintenance).
+        self.announced_phase = "off"
 
     def create(self, spec: GameSpec, creator: Seat, options: dict | None = None) -> Room:
         """Nouvelle table, le créateur assis. GameError si les options sont invalides."""
@@ -141,6 +150,24 @@ class RoomManager:
     def delete(self, code: str) -> None:
         self.rooms.pop(code, None)
 
+    def grace_left(self) -> float:
+        """Secondes restantes du délai de grâce qui suit la dernière partie terminée."""
+        return max(0.0, MAINTENANCE_GRACE_SECONDS - (time.monotonic() - self.last_game_end))
+
+    def maintenance_phase(self) -> str:
+        """« off » : l'app est ouverte. « draining » : plus de nouvelle partie, celles en
+        cours se terminent. « locked » : plus aucune partie en cours, l'app est fermée aux
+        joueurs (écran de maintenance) et le serveur peut redémarrer.
+
+        Seules les parties multijoueurs en cours retiennent la fermeture : une table en
+        attente disparaît au redémarrage, et les parties solo (Solitaire, échecs contre
+        l'ordinateur) se reprennent après."""
+        if not self.maintenance:
+            return "off"
+        if any(r.status is GameStatus.PLAYING for r in self.rooms.values()):
+            return "draining"
+        return "draining" if self.grace_left() > 0 else "locked"
+
     def open_rooms(self, game: str | None = None) -> list[Room]:
         """Tables encore en lobby, rejoignables (filtrées par jeu si demandé)."""
         return [
@@ -163,15 +190,20 @@ class RoomManager:
         ttl = timedelta(minutes=settings.empty_room_ttl_minutes)
         while True:
             await asyncio.sleep(60)
-            now = datetime.now(UTC)
-            touched: set[str] = set()
-            for code, room in list(self.rooms.items()):
-                if room.connected_count() == 0 and now - room.last_activity > ttl:
-                    self.delete(code)
-                    touched.add(room.game)
-            if on_delete is not None:
-                for game in touched:
-                    await on_delete(game)
+            # Une erreur ne doit pas arrêter la boucle pour de bon : plus aucune table ne
+            # serait jamais nettoyée.
+            try:
+                now = datetime.now(UTC)
+                touched: set[str] = set()
+                for code, room in list(self.rooms.items()):
+                    if room.connected_count() == 0 and now - room.last_activity > ttl:
+                        self.delete(code)
+                        touched.add(room.game)
+                if on_delete is not None:
+                    for game in touched:
+                        await on_delete(game)
+            except Exception:
+                logger.exception("Échec du nettoyage des tables")
 
 
 manager = RoomManager()

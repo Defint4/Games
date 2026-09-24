@@ -1,0 +1,117 @@
+<!doctype html>
+<!-- Servie par nginx pendant les quelques secondes où l'app redémarre (déploiement) :
+     voir deploy/nginx-games.conf. Autonome : ni le serveur de l'app ni ses fichiers ne
+     répondent à ce moment-là. Elle se recharge seule jusqu'au retour de l'app. -->
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0c2c22">
+<title>Maintenance</title>
+<style>
+  html, body { height: 100%; margin: 0; }
+  body {
+    display: flex; align-items: center; justify-content: center;
+    padding: 2.5rem 1.5rem max(2rem, env(safe-area-inset-bottom));
+    box-sizing: border-box; text-align: center;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    color: #faf7ee;
+    background: radial-gradient(120vmax 90vmax at 50% 30%, #1a4d3d 0%, #123b2f 55%, #0c2c22 100%) #0c2c22;
+  }
+  main { max-width: 26rem; display: flex; flex-direction: column; align-items: center; gap: 1.5rem; }
+  .logo { width: 132px; height: 132px; filter: drop-shadow(0 8px 18px rgba(0,0,0,.35)); }
+  .logo svg { width: 100%; height: 100%; }
+  h1 { margin: 0; font-size: 1.6rem; font-weight: 800; }
+  p { margin: 0; color: rgba(232,226,210,.85); line-height: 1.5; }
+  .auto { display: flex; align-items: center; gap: .5rem; font-size: .875rem; color: rgba(232,226,210,.65); }
+  .dot { width: .5rem; height: .5rem; border-radius: 50%; background: #e5b54a; animation: pulse 1.4s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: .25; transform: scale(.7); } }
+</style>
+</head>
+<body>
+<main>
+  <div class="logo" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="4 4 92 92"><defs>
+    <radialGradient id="bg" cx="50%" cy="28%" r="85%"><stop offset="0" stop-color="#21634f"/><stop offset=".55" stop-color="#123b2f"/><stop offset="1" stop-color="#0a261d"/></radialGradient>
+    <linearGradient id="rim" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f6d98a"/><stop offset=".45" stop-color="#d9a748"/><stop offset="1" stop-color="#8e6222"/></linearGradient>
+    <radialGradient id="felt" cx="50%" cy="42%" r="60%"><stop offset="0" stop-color="#34876c"/><stop offset=".7" stop-color="#22664f"/><stop offset="1" stop-color="#174a3a"/></radialGradient>
+    <radialGradient id="shadow" cx="50%" cy="50%" r="50%"><stop offset=".6" stop-color="#000" stop-opacity=".5"/><stop offset="1" stop-color="#000" stop-opacity="0"/></radialGradient>
+    <linearGradient id="chI" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fffdf6"/><stop offset="1" stop-color="#d9d0b9"/></linearGradient>
+    <linearGradient id="back" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#d24c3a"/><stop offset="1" stop-color="#9f2f22"/></linearGradient>
+  </defs>
+    <ellipse cx="50" cy="53" rx="35" ry="34" fill="url(#shadow)"/>
+    <g transform="rotate(-150 50 50)">
+    <g transform="translate(0 1.6)" fill="#000" opacity=".32">
+      <rect x="41.5" y="80" width="17" height="8.5" rx="3"/><rect x="39.5" y="87" width="21" height="5.5" rx="2.6"/>
+    </g>
+    <rect x="41.5" y="80" width="17" height="8.5" rx="3" fill="url(#chI)"/>
+    <rect x="39.5" y="87" width="21" height="5.5" rx="2.6" fill="url(#chI)"/>
+    <rect x="40.5" y="87.4" width="19" height="1.1" rx=".5" fill="#fff" opacity=".45"/>
+  </g><g transform="rotate(-90 50 50)">
+    <g transform="translate(0 1.6)" fill="#000" opacity=".32">
+      <rect x="41.5" y="80" width="17" height="8.5" rx="3"/><rect x="39.5" y="87" width="21" height="5.5" rx="2.6"/>
+    </g>
+    <rect x="41.5" y="80" width="17" height="8.5" rx="3" fill="url(#chI)"/>
+    <rect x="39.5" y="87" width="21" height="5.5" rx="2.6" fill="url(#chI)"/>
+    <rect x="40.5" y="87.4" width="19" height="1.1" rx=".5" fill="#fff" opacity=".45"/>
+  </g><g transform="rotate(-30 50 50)">
+    <g transform="translate(0 1.6)" fill="#000" opacity=".32">
+      <rect x="41.5" y="80" width="17" height="8.5" rx="3"/><rect x="39.5" y="87" width="21" height="5.5" rx="2.6"/>
+    </g>
+    <rect x="41.5" y="80" width="17" height="8.5" rx="3" fill="url(#chI)"/>
+    <rect x="39.5" y="87" width="21" height="5.5" rx="2.6" fill="url(#chI)"/>
+    <rect x="40.5" y="87.4" width="19" height="1.1" rx=".5" fill="#fff" opacity=".45"/>
+  </g><g transform="rotate(30 50 50)">
+    <g transform="translate(0 1.6)" fill="#000" opacity=".32">
+      <rect x="41.5" y="80" width="17" height="8.5" rx="3"/><rect x="39.5" y="87" width="21" height="5.5" rx="2.6"/>
+    </g>
+    <rect x="41.5" y="80" width="17" height="8.5" rx="3" fill="url(#chI)"/>
+    <rect x="39.5" y="87" width="21" height="5.5" rx="2.6" fill="url(#chI)"/>
+    <rect x="40.5" y="87.4" width="19" height="1.1" rx=".5" fill="#fff" opacity=".45"/>
+  </g><g transform="rotate(90 50 50)">
+    <g transform="translate(0 1.6)" fill="#000" opacity=".32">
+      <rect x="41.5" y="80" width="17" height="8.5" rx="3"/><rect x="39.5" y="87" width="21" height="5.5" rx="2.6"/>
+    </g>
+    <rect x="41.5" y="80" width="17" height="8.5" rx="3" fill="url(#chI)"/>
+    <rect x="39.5" y="87" width="21" height="5.5" rx="2.6" fill="url(#chI)"/>
+    <rect x="40.5" y="87.4" width="19" height="1.1" rx=".5" fill="#fff" opacity=".45"/>
+  </g><g transform="rotate(150 50 50)">
+    <g transform="translate(0 1.6)" fill="#000" opacity=".32">
+      <rect x="41.5" y="80" width="17" height="8.5" rx="3"/><rect x="39.5" y="87" width="21" height="5.5" rx="2.6"/>
+    </g>
+    <rect x="41.5" y="80" width="17" height="8.5" rx="3" fill="url(#chI)"/>
+    <rect x="39.5" y="87" width="21" height="5.5" rx="2.6" fill="url(#chI)"/>
+    <rect x="40.5" y="87.4" width="19" height="1.1" rx=".5" fill="#fff" opacity=".45"/>
+  </g>
+    <circle cx="50" cy="50" r="28.5" fill="url(#rim)"/>
+    <path d="M26.4 42a24.6 24.6 0 0 1 47.2 0" fill="none" stroke="#fff" stroke-opacity=".5" stroke-width=".9" stroke-linecap="round"/>
+    <circle cx="50" cy="50" r="23.6" fill="url(#felt)"/>
+    <circle cx="50" cy="50" r="23.6" fill="none" stroke="#000" stroke-opacity=".35" stroke-width="1.2"/>
+    <circle cx="50" cy="50" r="16.5" fill="none" stroke="#faf7ee" stroke-opacity=".17" stroke-width=".7"/>
+    <g transform="rotate(-16 44 48)">
+      <rect x="38.6" y="41.4" width="11" height="15.4" rx="1.8" fill="#000" opacity=".3" transform="translate(.6 1)"/>
+      <rect x="38.6" y="41.4" width="11" height="15.4" rx="1.8" fill="#faf7ee"/>
+      <rect x="39.9" y="42.7" width="8.4" height="12.8" rx="1" fill="url(#back)"/>
+      <path d="M44.1 45.6l2.1 3.5-2.1 3.5-2.1-3.5z" fill="#faf7ee" opacity=".55"/>
+    </g>
+    <g transform="rotate(14 57 53)">
+      <rect x="52.6" y="49.2" width="9" height="9" rx="2.2" fill="#000" opacity=".3" transform="translate(.6 1)"/>
+      <rect x="52.6" y="49.6" width="9" height="9" rx="2.2" fill="#d9d0b9"/>
+      <rect x="52.6" y="48.6" width="9" height="9" rx="2.2" fill="#faf7ee"/>
+      <circle cx="54.9" cy="50.9" r="1" fill="#20241f"/><circle cx="57.1" cy="53.1" r="1" fill="#20241f"/><circle cx="59.3" cy="55.3" r="1" fill="#20241f"/>
+    </g></svg></div>
+  <h1 id="title">Maintenance en cours</h1>
+  <p id="body">On améliore l’app. Elle revient dans quelques instants.</p>
+  <p class="auto"><span class="dot"></span><span id="auto">Cette page se rouvrira toute seule.</span></p>
+</main>
+<script>
+  if (!/^fr/i.test(navigator.language || "")) {
+    document.documentElement.lang = "en";
+    document.getElementById("title").textContent = "Under maintenance";
+    document.getElementById("body").textContent = "We’re improving the app. It’ll be back in a moment.";
+    document.getElementById("auto").textContent = "This page will reopen by itself.";
+  }
+  // L'app redémarre en quelques secondes : on retente jusqu'à son retour.
+  setTimeout(function () { location.reload(); }, 5000);
+</script>
+</body>
+</html>

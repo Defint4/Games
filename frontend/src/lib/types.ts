@@ -49,7 +49,8 @@ export type ServerMessage<V extends BaseRoomView = BaseRoomView> =
   | ChatEntry
   | { type: "emote"; seat: number; emote: string; target: number | null }
   | { type: "rematch"; code: string }
-  | { type: "error"; detail: string };
+  | { type: "error"; detail: string }
+  | { type: "maintenance"; phase: string };
 
 /* `best_ms` : jeux chronométrés (Solitaire), victoire la plus rapide ; affiché, hors
    classement. */

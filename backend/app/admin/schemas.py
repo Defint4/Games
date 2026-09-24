@@ -93,6 +93,8 @@ class OverviewOut(BaseModel):
     watchers: int
     rooms: list[RoomOut]
     maintenance: bool
+    # off / draining / locked (RoomManager.maintenance_phase).
+    maintenance_phase: str
     server: ServerOut
 
 

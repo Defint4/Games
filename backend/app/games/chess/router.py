@@ -73,7 +73,12 @@ def _sides(game: ChessGame) -> dict:
     }
 
 
-def _summary(game: ChessGame) -> dict:
+def _accuracy(game: ChessGame) -> dict | None:
+    return (game.analysis or {}).get("accuracy")
+
+
+def _summary(game: ChessGame, accuracy: dict | None) -> dict:
+    """`accuracy` à part : la liste des parties ne charge pas le bilan complet."""
     moves = game.moves.split()
     return {
         "id": game.id,
@@ -84,7 +89,7 @@ def _summary(game: ChessGame) -> dict:
         "termination": game.termination,
         "plies": len(moves),
         "ended_at": game.ended_at,
-        "accuracy": (game.analysis or {}).get("accuracy"),
+        "accuracy": accuracy,
     }
 
 
@@ -92,7 +97,7 @@ def _summary(game: ChessGame) -> dict:
 async def recent_games(
     player: Player = Depends(get_current_player), db: AsyncSession = Depends(get_db)
 ) -> list[dict]:
-    return [_summary(g) for g in await service.recent_games(db, player.id)]
+    return [_summary(g, accuracy) for g, accuracy in await service.recent_games(db, player.id)]
 
 
 @router.get("/games/{game_id}", response_model=GameOut)
@@ -105,7 +110,7 @@ async def game(
     if found is None:
         raise HTTPException(status_code=404, detail="Partie introuvable.")
     return {
-        **_summary(found),
+        **_summary(found, _accuracy(found)),
         "moves": found.moves.split(),
         "clocks": found.clocks,
         "analysis": found.analysis,
@@ -146,7 +151,7 @@ async def save_bot_game(
         )
     except GameError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from None
-    return _summary(game)
+    return _summary(game, _accuracy(game))
 
 
 Classification = Literal[
@@ -206,7 +211,7 @@ async def save_analysis(
     except GameError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from None
     return {
-        **_summary(found),
+        **_summary(found, _accuracy(found)),
         "moves": found.moves.split(),
         "clocks": found.clocks,
         "analysis": found.analysis,

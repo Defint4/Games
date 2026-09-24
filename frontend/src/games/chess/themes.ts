@@ -1,4 +1,5 @@
 import type { Color, PieceSymbol } from "chess.js";
+import { settle } from "@/lib/settle";
 import type { BoardTheme, PieceSet } from "./prefs";
 
 /* Les échiquiers : couleurs des cases, texture éventuelle (grain du bois, veines du
@@ -59,7 +60,7 @@ export function preloadPieces(set: PieceSet): Promise<void> {
         });
       }),
     );
-    pending = Promise.all(loads).then(() => undefined);
+    pending = settle(Promise.all(loads), 15000);
     loading.set(set, pending);
   }
   return pending;

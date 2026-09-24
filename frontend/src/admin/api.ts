@@ -62,6 +62,9 @@ export type Overview = {
   watchers: number;
   rooms: Room[];
   maintenance: boolean;
+  /* « draining » : les parties en cours se finissent ; « locked » : l'app est fermée aux
+     joueurs (écran de maintenance), le serveur peut redémarrer. */
+  maintenance_phase: "off" | "draining" | "locked";
   server: { version: string | null; uptime_s: number; memory_mb: number | null };
 };
 

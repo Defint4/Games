@@ -50,6 +50,7 @@ from app.core.rate_limit import limiter
 from app.players import service as players_service
 from app.players.models import Player
 from app.rooms.manager import manager
+from app.rooms.router import announce_maintenance, set_maintenance
 
 router = APIRouter(prefix="/api/admin", tags=["admin"], dependencies=[Depends(no_store)])
 
@@ -128,7 +129,11 @@ async def maintenance(
 ) -> None:
     if manager.maintenance == payload.enabled:
         return
-    manager.maintenance = payload.enabled
+    # La vérification de l'admin a ouvert une transaction : on la clôt avant la bascule,
+    # qui peut prendre du temps (tables une à une) au-delà du délai d'une transaction
+    # inactive (idle_in_transaction_session_timeout).
+    await db.commit()
+    await set_maintenance(payload.enabled)
     action = "maintenance_on" if payload.enabled else "maintenance_off"
     await service.record(db, action, client_ip(request))
 
@@ -155,6 +160,8 @@ async def close_room(
     found = _room(code)
     players = [seat.pseudo for seat in found.seats if seat.bot is None]
     await service.close_room(found)
+    # C'était peut-être la dernière partie qui retenait la fermeture.
+    await announce_maintenance()
     await service.record(
         db,
         "close_room",

@@ -20,6 +20,8 @@ from app.games.solitaire.engine import MAX_MOVES
 from app.games.solitaire.models import SolitaireGame
 from app.players.dependencies import get_current_player
 from app.players.models import Player
+from app.rooms.manager import manager
+from app.rooms.router import MAINTENANCE
 
 router = APIRouter(prefix="/api/solitaire", tags=["solitaire"])
 
@@ -64,6 +66,9 @@ async def deal(
     player: Player = Depends(get_current_player),
     db: AsyncSession = Depends(get_db),
 ) -> DealOut:
+    if manager.maintenance:
+        # Une donne neuve est une nouvelle partie ; la donne en cours, elle, se reprend.
+        raise HTTPException(status_code=503, detail=MAINTENANCE)
     return _deal_out(await service.deal(db, player.id))
 
 

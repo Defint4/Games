@@ -13,6 +13,7 @@ import { formatDuration } from "@/lib/duration";
 import { HUB_PATH } from "@/lib/games";
 import { tr, useT } from "@/lib/i18n";
 import { currentProfile, type StoredProfile } from "@/lib/identity";
+import { isMaintenanceError, maintenanceBlocks, showMaintenanceNotice } from "@/lib/maintenance";
 import { COMMON } from "@/lib/texts";
 import { NO_STATS } from "@/lib/types";
 import { currentKey, fetchCurrent, forgetMoves, newDeal, type Deal } from "./api";
@@ -102,7 +103,8 @@ function Desk({ profile }: { profile: StoredProfile }) {
     },
     onError: (e) => {
       setLeaving(null);
-      setError(e instanceof ApiError ? e.message : tr(T).home.unreachable);
+      if (isMaintenanceError(e)) showMaintenanceNotice();
+      else setError(e instanceof ApiError ? e.message : tr(T).home.unreachable);
     },
   });
   const busy = leaving !== null;
@@ -147,7 +149,11 @@ function Desk({ profile }: { profile: StoredProfile }) {
 
       <button
         type="button"
-        onClick={() => (open ? setSheet("confirm") : deal.mutate())}
+        onClick={() => {
+          if (maintenanceBlocks()) return;
+          if (open) setSheet("confirm");
+          else deal.mutate();
+        }}
         disabled={busy || !current.isFetchedAfterMount}
         className="rounded-2xl bg-gold py-5 text-xl font-extrabold text-ink shadow-card enabled:active:translate-y-0.5 disabled:opacity-40"
       >
@@ -178,7 +184,10 @@ function Desk({ profile }: { profile: StoredProfile }) {
           <div className="mt-5 flex flex-col gap-3">
             <button
               type="button"
-              onClick={() => deal.mutate()}
+              onClick={() => {
+                if (maintenanceBlocks()) setSheet(null);
+                else deal.mutate();
+              }}
               className="rounded-2xl bg-gold p-4 font-extrabold text-ink active:translate-y-0.5"
             >
               {confirm.deal}

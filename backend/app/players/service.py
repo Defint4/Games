@@ -4,7 +4,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -236,21 +236,29 @@ def _ranking(game: str | None, rated: bool):
     if rated:
         order = (totals.c.rating.desc(), *order)
     rank = func.row_number().over(order_by=order)
-    return select(totals, rank.label("rank")).subquery("ranking")
+    # Le nombre de classés, calculé avec le rang : une seule requête sert la page.
+    total = func.count().over()
+    return select(totals, rank.label("rank"), total.label("total")).subquery("ranking")
 
 
 async def leaderboard(
     db: AsyncSession, game: str | None, rated: bool, offset: int, limit: int, me: str | None
 ) -> LeaderboardPage:
     ranking = _ranking(game, rated)
-    total = await db.scalar(select(func.count()).select_from(ranking))
-    rows = await db.execute(select(ranking).order_by(ranking.c.rank).offset(offset).limit(limit))
-    mine = None
+    # La page et la ligne du joueur demandé, en une requête (le classement n'est
+    # calculé qu'une fois).
+    wanted = ranking.c.rank.between(offset + 1, offset + limit)
     if me is not None:
-        row = (await db.execute(select(ranking).where(ranking.c.pseudo_key == me.lower()))).first()
-        if row is not None:
-            mine = _entry(row)
-    return LeaderboardPage(total=total or 0, entries=[_entry(r) for r in rows], me=mine)
+        wanted = or_(wanted, ranking.c.pseudo_key == me.lower())
+    rows = (await db.execute(select(ranking).where(wanted).order_by(ranking.c.rank))).all()
+    entries = [_entry(r) for r in rows if offset < r.rank <= offset + limit]
+    mine = next((_entry(r) for r in rows if me is not None and r.pseudo_key == me.lower()), None)
+    if rows:
+        total = rows[0].total
+    else:
+        # Page au-delà de la fin et joueur non classé : le compte à part.
+        total = await db.scalar(select(func.count()).select_from(ranking))
+    return LeaderboardPage(total=total or 0, entries=entries, me=mine)
 
 
 def _entry(row) -> LeaderboardEntry:

@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import Avatar from "@/components/Avatar";
 import Brand from "@/components/Brand";
-import { ShufflingCards } from "@/components/Loading";
+import { ShufflingCards, StuckHint } from "@/components/Loading";
 import PinPad from "@/components/PinPad";
 import { ApiError, enter, fetchPlayerByPseudo } from "@/lib/api";
 import { GALLERY } from "@/lib/avatars";
@@ -25,6 +25,12 @@ import {
    déjà ouverts sur l'appareil sont proposés en raccourci, code toujours demandé. */
 
 const AFTER_ENTER = HUB_PATH;
+
+/* Venu du panneau admin (« /?admin ») : on y retourne une fois entré. L'écran de
+   maintenance laisse passer cette adresse, pour que l'admin puisse rouvrir l'app. */
+function afterEnter(): string {
+  return new URLSearchParams(window.location.search).has("admin") ? "/admin" : AFTER_ENTER;
+}
 
 /* Même règle que le serveur (backend/app/players/schemas.py). */
 const PSEUDO_RE = /^[A-Za-z0-9À-ÖØ-öø-ÿ_\- ]{2,20}$/;
@@ -94,8 +100,12 @@ export default function Page() {
     // La sélection des jeux est la page suivante dans tous les cas : on la précharge.
     router.prefetch(AFTER_ENTER);
     if (currentProfile()) {
-      router.replace(AFTER_ENTER);
-      return;
+      router.replace(afterEnter());
+      // La navigation du routeur n'a pas de délai maximum : au réveil de la PWA sur un
+      // réseau qui cale, elle peut ne jamais aboutir. Toujours là au bout de 8 s : on
+      // charge la page en entier.
+      const fallback = setTimeout(() => window.location.replace(afterEnter()), 8000);
+      return () => clearTimeout(fallback);
     }
     const accounts = listProfiles();
     // Session expirée : le hub renvoie ici avec le pseudo, on passe droit au code.
@@ -116,7 +126,7 @@ export default function Page() {
     const accounts = listProfiles();
     setScreen(accounts.length ? { name: "choose", accounts } : { name: "pseudo" });
   };
-  const done = () => router.replace(AFTER_ENTER);
+  const done = () => router.replace(afterEnter());
   const compact = screen.name === "login" || screen.name === "create";
 
   return (
@@ -139,6 +149,7 @@ export default function Page() {
             <div className="flex flex-col items-center gap-4 pt-6 text-ivory-dim">
               <ShufflingCards />
               <p className="text-sm">{common.wait}</p>
+              <StuckHint />
             </div>
           )}
           {screen.name === "choose" && (

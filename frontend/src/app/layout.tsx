@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Bricolage_Grotesque, Yellowtail } from "next/font/google";
 import "./globals.css";
+import MaintenanceGate from "@/components/MaintenanceGate";
 import MobileGate from "@/components/MobileGate";
 import { APP_NAME, APP_SHORT_NAME } from "@/lib/games";
 import Providers from "./providers";
@@ -49,7 +50,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="fr" className={`${bricolage.variable} ${yellowtail.variable} h-full antialiased`}>
       <body className="min-h-full flex flex-col font-sans">
         <Providers>
-          <MobileGate>{children}</MobileGate>
+          <MobileGate>
+            <MaintenanceGate>{children}</MaintenanceGate>
+          </MobileGate>
         </Providers>
       </body>
     </html>

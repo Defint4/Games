@@ -1,6 +1,26 @@
+import { readFileSync } from "node:fs";
 import type { NextConfig } from "next";
 
+const distDir = process.env.NEXT_DIST_DIR || ".next";
+
+/* L'identifiant de la version en ligne (le commit) : une app restée ouverte sur une
+   version précédente se recharge au lieu de planter. deploy.sh le passe au build et
+   l'écrit aussi dans le dossier du build, car `next start` relit cette config : sans
+   lui au lancement, les pages rendues à la demande (tables) partent sans identifiant. */
+function deploymentId(): string | undefined {
+  if (process.env.NEXT_DEPLOYMENT_ID) return process.env.NEXT_DEPLOYMENT_ID;
+  try {
+    return readFileSync(`${distDir}/DEPLOYMENT_ID`, "utf8").trim() || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 const nextConfig: NextConfig = {
+  // deploy.sh construit dans un dossier à part (NEXT_DIST_DIR) puis le met à la place de
+  // .next d'un coup : le site en ligne ne sert jamais une version à moitié construite.
+  distDir,
+  deploymentId: deploymentId(),
   // Le badge dev de Next recouvre la barre du bas du jeu sur mobile et
   // intercepte les taps (dev uniquement) : on le coupe.
   devIndicators: false,

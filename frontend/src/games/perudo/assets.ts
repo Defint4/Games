@@ -6,10 +6,15 @@ import { preloadSounds } from "@/lib/sound";
 let warm: Promise<unknown> | null = null;
 
 export function preloadAssets(): Promise<unknown> {
+  // Un échec (réseau, fichier disparu après un déploiement) n'est pas gardé : la
+  // prochaine entrée à table retente.
   warm ??= Promise.all([
     preloadSounds("dice"),
     import("./three/TableScene"),
     import("./three/warmup").then((m) => m.warmup()),
-  ]);
+  ]).catch((e) => {
+    warm = null;
+    throw e;
+  });
   return warm;
 }

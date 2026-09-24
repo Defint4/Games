@@ -1,7 +1,9 @@
 /* Préchargement des 52 faces : références retenues (pas de GC) + décodage anticipé,
    pour qu'aucune carte n'apparaisse blanche en pleine partie, même sur réseau lent.
    La promesse renvoyée se résout quand tout est chargé (une image en échec ne bloque
-   pas : elle s'affichera en texte). */
+   pas : elle s'affichera en texte), ou au bout de 15 s sur une connexion bloquée. */
+
+import { settle } from "./settle";
 
 const retained: HTMLImageElement[] = [];
 let pending: Promise<void> | null = null;
@@ -25,6 +27,6 @@ export function preloadCards(): Promise<void> {
       retained.push(img);
     }
   }
-  pending = Promise.all(loads).then(() => undefined);
+  pending = settle(Promise.all(loads), 15000);
   return pending;
 }

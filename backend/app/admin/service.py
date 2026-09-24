@@ -187,6 +187,7 @@ async def overview(db: AsyncSession) -> dict:
         "watchers": lobby.watcher_count(),
         "rooms": [room_summary(r) for r in rooms],
         "maintenance": manager.maintenance,
+        "maintenance_phase": manager.maintenance_phase(),
         "server": {
             "version": VERSION,
             "uptime_s": int(time.monotonic() - _STARTED),

@@ -1,10 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { joinRoom, wsUrl } from "./api";
+import { ApiError, joinRoom, wsUrl } from "./api";
 import { dict, tr } from "./i18n";
+import {
+  isMaintenanceError,
+  MAINTENANCE_DETAIL,
+  setPhase,
+  showMaintenanceNotice,
+} from "./maintenance";
 import { serverText } from "./serverMessages";
-import { COMMON } from "./texts";
 import { sfx } from "./sound";
 import type { BaseRoomView, BotDifficulty, ChatEntry, GameEvent, ServerMessage } from "./types";
 
@@ -72,10 +77,25 @@ export function useRoomSocket<V extends BaseRoomView>(
     let disposed = false;
     let retryTimer: ReturnType<typeof setTimeout>;
     let probeTimer: ReturnType<typeof setTimeout>;
+    let openTimer: ReturnType<typeof setTimeout>;
+
+    // Coupure réseau ou serveur : on retente avec un léger backoff.
+    function retryLater() {
+      const delay = Math.min(500 * 2 ** retryRef.current, 8000);
+      retryRef.current += 1;
+      retryTimer = setTimeout(connect, delay);
+    }
 
     function connect() {
       const socket = new WebSocket(wsUrl(code, token!));
       socketRef.current = socket;
+      // Réseau mobile bloqué : le socket peut rester des minutes « en connexion » sans
+      // échouer. On l'abandonne (onclose relance) plutôt que de laisser l'écran attendre.
+      clearTimeout(openTimer);
+      openTimer = setTimeout(() => {
+        if (socket.readyState === WebSocket.CONNECTING) socket.close();
+      }, 10000);
+      socket.onopen = () => clearTimeout(openTimer);
 
       socket.onmessage = (raw) => {
         clearTimeout(probeTimer);
@@ -104,8 +124,14 @@ export function useRoomSocket<V extends BaseRoomView>(
         } else if (msg.type === "rematch") {
           setRematchCode(msg.code);
         } else if (msg.type === "error") {
-          setError(serverText(msg.detail));
-          setTimeout(() => setError(null), 3500);
+          // Revanche ou table en attente refusées pendant la maintenance : le popup.
+          if (msg.detail === MAINTENANCE_DETAIL) showMaintenanceNotice();
+          else {
+            setError(serverText(msg.detail));
+            setTimeout(() => setError(null), 3500);
+          }
+        } else if (msg.type === "maintenance") {
+          setPhase(msg.phase);
         }
       };
 
@@ -118,10 +144,21 @@ export function useRoomSocket<V extends BaseRoomView>(
           // Siège expiré (délai de grâce dépassé) : on se rassoit puis on se reconnecte.
           rejoinRef.current += 1;
           joinRoom(token!, code)
-            .then(() => connect())
-            .catch((e) =>
-              setClosedReason(e instanceof Error ? e.message : tr(COMMON).cantJoin)
-            );
+            .then(() => {
+              if (!disposed) connect();
+            })
+            .catch((e) => {
+              if (disposed) return;
+              // Refus du serveur (4xx, maintenance) : c'est fini. Réseau ou serveur qui
+              // redémarre (5xx) : on retentera.
+              if (isMaintenanceError(e) || (e instanceof ApiError && e.status < 500)) {
+                setClosedReason(e.message);
+              } else {
+                // Réseau coupé pendant la reprise : l'essai ne compte pas, on retentera.
+                rejoinRef.current -= 1;
+                retryLater();
+              }
+            });
           return;
         }
         const terminal = tr(CLOSE_REASONS)[event.code];
@@ -129,10 +166,7 @@ export function useRoomSocket<V extends BaseRoomView>(
           setClosedReason(terminal);
           return;
         }
-        // Coupure réseau ou serveur : on retente avec un léger backoff.
-        const delay = Math.min(500 * 2 ** retryRef.current, 8000);
-        retryRef.current += 1;
-        retryTimer = setTimeout(connect, delay);
+        retryLater();
       };
     }
 
@@ -167,6 +201,7 @@ export function useRoomSocket<V extends BaseRoomView>(
       disposed = true;
       clearTimeout(retryTimer);
       clearTimeout(probeTimer);
+      clearTimeout(openTimer);
       document.removeEventListener("visibilitychange", onVisible);
       socketRef.current?.close();
       socketRef.current = null;
