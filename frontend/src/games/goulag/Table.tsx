@@ -1030,7 +1030,7 @@ function SuitPicker({ onPick }: { onPick: (suit: SuitName) => void }) {
   const t = useT(T);
   const suits: SuitName[] = ["hearts", "diamonds", "clubs", "spades"];
   return (
-    <Sheet onClose={() => {}}>
+    <Sheet onClose={() => {}} closable={false}>
       <h2 className="mb-1 text-center text-lg font-extrabold">
         {t.suitPicker.title}
       </h2>
