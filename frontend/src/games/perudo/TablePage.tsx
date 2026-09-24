@@ -24,6 +24,7 @@ export default function TablePage() {
       game={GAME}
       useSocket={usePerudoSocket}
       rules={<Rules />}
+      cardBacks={false}
       preload={preloadAssets}
       loadingLabel={t.loading}
       lobby={(socket, view) => (

@@ -23,6 +23,8 @@ export type GameMeta = {
   available: boolean;
   /* Un mot pour quelqu'un, écrit à la main sur la tuile. */
   dedication?: Dict<string>;
+  /* Jeu chronométré : le meilleur temps s'affiche à côté des victoires (hors tri). */
+  timed?: boolean;
 };
 
 export const GAMES: GameMeta[] = [
@@ -73,8 +75,9 @@ export const GAMES: GameMeta[] = [
     path: "/solitaire",
     // Le lagon d'Ouvéa.
     mat: "radial-gradient(130% 110% at 85% 15%, #2fa39b 0%, #17706c 45%, #0a3a3b 100%)",
-    available: false,
+    available: true,
     dedication: { fr: "Pour Ouvéa", en: "For Ouvéa" },
+    timed: true,
   },
   {
     slug: "chess",

@@ -47,7 +47,9 @@ export type ServerMessage<V extends BaseRoomView = BaseRoomView> =
   | { type: "rematch"; code: string }
   | { type: "error"; detail: string };
 
-export type GameStats = { played: number; won: number; lost: number };
+/* `best_ms` : jeux chronométrés (Solitaire), victoire la plus rapide ; affiché, hors
+   classement. */
+export type GameStats = { played: number; won: number; lost: number; best_ms?: number | null };
 
 export type PlayerProfile = {
   id: string;

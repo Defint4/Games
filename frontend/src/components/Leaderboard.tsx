@@ -8,6 +8,7 @@ import { useEffect, useRef, useState } from "react";
 import Avatar from "@/components/Avatar";
 import { LoadingScreen, ShufflingCards } from "@/components/Loading";
 import { fetchLeaderboard } from "@/lib/api";
+import { formatDuration } from "@/lib/duration";
 import { GAMES, HUB_PATH, type GameMeta } from "@/lib/games";
 import { dict, useLang, useT } from "@/lib/i18n";
 import { currentProfile, type StoredProfile } from "@/lib/identity";
@@ -35,6 +36,7 @@ const T = dict({
     lastPlace: "Le nullos",
     winRate: (pct: number) => `${pct} % de victoires`,
     played: (n: number) => `${n} ${n > 1 ? "parties jouées" : "partie jouée"}`,
+    best: (time: string) => `record ${time}`,
   },
   en: {
     byGame: "Leaderboard by game",
@@ -56,6 +58,7 @@ const T = dict({
     lastPlace: "The loser",
     winRate: (pct: number) => `${pct}% wins`,
     played: (n: number) => `${n} ${n > 1 ? "games played" : "game played"}`,
+    best: (time: string) => `best ${time}`,
   },
 });
 
@@ -95,7 +98,7 @@ export default function Leaderboard({ game }: { game: GameMeta | null }) {
 
       <nav
         aria-label={t.byGame}
-        className="mb-6 flex rounded-full bg-black/30 p-1 ring-1 ring-white/10"
+        className="mb-6 flex overflow-x-auto rounded-full bg-black/30 p-1 ring-1 ring-white/10 [scrollbar-width:none]"
       >
         <Tab href={leaderboardPath(null)} active={game === null}>
           {t.all}
@@ -118,7 +121,7 @@ function Tab({ href, active, children }: { href: string; active: boolean; childr
       href={href}
       replace
       aria-current={active ? "page" : undefined}
-      className={`flex-1 rounded-full py-2 text-center text-sm font-bold transition-colors ${
+      className={`flex-1 whitespace-nowrap rounded-full px-1.5 py-2 text-center text-[13px] font-bold transition-colors ${
         active ? "bg-gold text-ink shadow-card" : "text-ivory-dim/75 active:text-ivory"
       }`}
     >
@@ -189,14 +192,16 @@ function Ranking({ game, profile }: { game: GameMeta | null; profile: StoredProf
   }
 
   const podium = entries.slice(0, 3);
+  // Jeu chronométré : le meilleur temps de chacun, à côté (le tri reste aux victoires).
+  const timed = game?.timed ?? false;
   const rest = entries.slice(3);
   const complete = !hasNextPage;
 
   return (
     <section className="flex flex-col gap-5">
-      <Podium entries={podium} me={me} />
+      <Podium entries={podium} me={me} timed={timed} />
 
-      <MyPlace me={me} total={total} game={game} />
+      <MyPlace me={me} total={total} game={game} timed={timed} />
 
       {rest.length > 0 && (
         <ol className="flex flex-col gap-2">
@@ -206,6 +211,7 @@ function Ranking({ game, profile }: { game: GameMeta | null; profile: StoredProf
               entry={entry}
               mine={me?.id === entry.id}
               last={complete && entry.rank === total}
+              timed={timed}
             />
           ))}
         </ol>
@@ -233,7 +239,15 @@ function Ranking({ game, profile }: { game: GameMeta | null; profile: StoredProf
 
 const MEDALS = ["#e5b54a", "#cfd3d8", "#c98552"] as const;
 
-function Podium({ entries, me }: { entries: LeaderboardEntry[]; me: LeaderboardEntry | null }) {
+function Podium({
+  entries,
+  me,
+  timed,
+}: {
+  entries: LeaderboardEntry[];
+  me: LeaderboardEntry | null;
+  timed: boolean;
+}) {
   const reduced = useReducedMotion();
   const t = useT(T);
   // Le premier au centre, plus haut ; le deuxième à sa gauche, le troisième à sa droite.
@@ -280,6 +294,11 @@ function Podium({ entries, me }: { entries: LeaderboardEntry[]; me: LeaderboardE
                   {t.wins(entry.won)}
                 </p>
                 <p className="text-xs text-ivory-dim/55">{t.games(entry.played)}</p>
+                {timed && entry.best_ms && (
+                  <p className="text-xs font-semibold tabular-nums text-gold/85">
+                    {t.best(formatDuration(entry.best_ms, true))}
+                  </p>
+                )}
               </>
             ) : (
               <>
@@ -317,10 +336,12 @@ function MyPlace({
   me,
   total,
   game,
+  timed,
 }: {
   me: LeaderboardEntry | null;
   total: number;
   game: GameMeta | null;
+  timed: boolean;
 }) {
   const t = useT(T);
   const lang = useLang();
@@ -339,7 +360,7 @@ function MyPlace({
         <p className="truncate text-sm font-bold">{t.yourPlace}</p>
         <WinBar entry={me} />
       </div>
-      <Score entry={me} />
+      <Score entry={me} timed={timed} />
     </div>
   );
 }
@@ -348,7 +369,17 @@ function MyPlace({
 /* Lignes du classement                                                    */
 /* ----------------------------------------------------------------------- */
 
-function Row({ entry, mine, last }: { entry: LeaderboardEntry; mine: boolean; last: boolean }) {
+function Row({
+  entry,
+  mine,
+  last,
+  timed,
+}: {
+  entry: LeaderboardEntry;
+  mine: boolean;
+  last: boolean;
+  timed: boolean;
+}) {
   const t = useT(T);
   return (
     <li
@@ -369,7 +400,7 @@ function Row({ entry, mine, last }: { entry: LeaderboardEntry; mine: boolean; la
         )}
         <WinBar entry={entry} />
       </div>
-      <Score entry={entry} />
+      <Score entry={entry} timed={timed} />
     </li>
   );
 }
@@ -392,7 +423,7 @@ function WinBar({ entry }: { entry: LeaderboardEntry }) {
   );
 }
 
-function Score({ entry }: { entry: LeaderboardEntry }) {
+function Score({ entry, timed }: { entry: LeaderboardEntry; timed: boolean }) {
   const t = useT(T);
   return (
     <div className="shrink-0 text-right">
@@ -405,6 +436,11 @@ function Score({ entry }: { entry: LeaderboardEntry }) {
       <p className="mt-1 text-xs text-ivory-dim/60 tabular-nums">
         {t.played(entry.played)}
       </p>
+      {timed && entry.best_ms && (
+        <p className="mt-0.5 text-xs font-semibold tabular-nums text-gold/85">
+          {t.best(formatDuration(entry.best_ms, true))}
+        </p>
+      )}
     </div>
   );
 }

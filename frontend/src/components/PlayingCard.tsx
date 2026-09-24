@@ -25,7 +25,7 @@ const SUIT_GLYPH = {
    ont un bord fondu d'un pixel (pas d'arrêt net dans le dégradé) : un dégradé à
    arrêts francs n'est pas lissé par le navigateur et crénelle, surtout en petit et
    sur une carte tournée. */
-const BACK_CSS: Record<BackStyle, React.CSSProperties> = {
+export const BACK_CSS: Record<BackStyle, React.CSSProperties> = {
   classic: {
     background:
       "repeating-linear-gradient(45deg, rgba(255,255,255,0.05) 0 2px, transparent 3.2px 7.8px, rgba(255,255,255,0.05) 9px), var(--color-felt-700)",

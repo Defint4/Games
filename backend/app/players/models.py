@@ -45,5 +45,8 @@ class PlayerGameStats(Base):
     played: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     won: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     lost: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    # Jeux chronométrés (Solitaire) : la victoire la plus rapide, en millisecondes.
+    # Affichée, jamais prise en compte dans le classement.
+    best_ms: Mapped[int | None] = mapped_column(Integer, default=None)
 
     player: Mapped[Player] = relationship(back_populates="stats")

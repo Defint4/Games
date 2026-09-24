@@ -162,6 +162,13 @@ export const sfx = {
   dieRoll: () => sample(["die-throw-1", "die-throw-2"], 0.8),
   diceGrab: () => sample(["dice-grab-1"], 0.7),
   chip: () => sample(["chip-lay-1", "chip-lay-2", "chip-lay-3"], 0.75),
+  /* Solitaire : une note par carte montée sur les fondations, plus haute à chaque rang
+     (gamme majeure de l'as au roi). */
+  chime: (step: number) => {
+    const scale = [0, 2, 4, 5, 7, 9, 11];
+    const semis = scale[step % 7] + 12 * Math.floor(step / 7);
+    tone(523 * 2 ** (semis / 12), 0, 0.22, 0.05);
+  },
   /* Petit "pop" à la réception d'un message. */
   pop: () => tone(980, 0, 0.07, 0.07),
   /* Touche du pavé du code PIN : un clic à peine audible. */

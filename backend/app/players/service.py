@@ -151,6 +151,25 @@ async def record_game_results(
     await db.commit()
 
 
+async def add_solo_result(
+    db: AsyncSession, game: str, player_id: uuid.UUID, won: bool, duration_ms: int | None = None
+) -> PlayerGameStats:
+    """Bilan d'une partie solo : jouée, gagnée ou perdue, meilleur temps si victoire
+    chronométrée. Sans commit : l'appelant valide la partie et le bilan ensemble."""
+    stats = await db.get(PlayerGameStats, (player_id, game), with_for_update=True)
+    if stats is None:
+        stats = PlayerGameStats(player_id=player_id, game=game, played=0, won=0, lost=0)
+        db.add(stats)
+    stats.played += 1
+    if won:
+        stats.won += 1
+        if duration_ms is not None and (stats.best_ms is None or duration_ms < stats.best_ms):
+            stats.best_ms = duration_ms
+    else:
+        stats.lost += 1
+    return stats
+
+
 @dataclass
 class LeaderboardEntry:
     rank: int
@@ -160,6 +179,7 @@ class LeaderboardEntry:
     played: int
     won: int
     lost: int
+    best_ms: int | None
 
 
 @dataclass
@@ -185,6 +205,8 @@ def _ranking(game: str | None):
             func.sum(PlayerGameStats.played).label("played"),
             func.sum(PlayerGameStats.won).label("won"),
             func.sum(PlayerGameStats.lost).label("lost"),
+            # Seul le Solitaire en a un : affiché sur son classement, hors du tri.
+            func.min(PlayerGameStats.best_ms).label("best_ms"),
         )
         .join(PlayerGameStats, PlayerGameStats.player_id == Player.id)
         .group_by(Player.id)
@@ -221,4 +243,5 @@ def _entry(row) -> LeaderboardEntry:
         played=row.played,
         won=row.won,
         lost=row.lost,
+        best_ms=row.best_ms,
     )
