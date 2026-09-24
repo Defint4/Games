@@ -176,14 +176,15 @@ function Face({ card, idx }: { card: CardT; idx: string }) {
         </span>
       )}
       {/* Rendu à 200 % puis réduit de moitié : le SVG est rastérisé plus grand,
-          les contours restent nets même en petit et sous rotation. */}
+          les contours restent nets même en petit et sous rotation. Pas de menu
+          d'image iOS à l'appui long (touch-callout). */}
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
         ref={ref}
         src={`/cards/${card.value}-${card.suit}.svg`}
         alt={`${valueLabel(card.value)} ${card.suit}`}
         onLoad={() => setLoaded(true)}
-        className="relative block max-w-none origin-top-left scale-50"
+        className="relative block max-w-none origin-top-left scale-50 [-webkit-touch-callout:none]"
         style={{ width: "200%", height: "200%" }}
         draggable={false}
       />

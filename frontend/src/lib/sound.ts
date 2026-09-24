@@ -90,10 +90,24 @@ function audio(): AudioContext | null {
   if (typeof window === "undefined" || isMuted()) return null;
   try {
     ctx ??= new AudioContext();
-    if (ctx.state === "suspended") void ctx.resume();
+    // iOS : "suspended" tant qu'aucun geste ne l'a lancé, "interrupted" après un appel
+    // ou un passage en arrière-plan.
+    if (ctx.state !== "running") void ctx.resume().catch(() => {});
     return ctx;
   } catch {
     return null;
+  }
+}
+
+/* iOS ne lance l'audio que pendant un geste (doigt levé, clic, touche) : les sons joués
+   depuis un timer ou le socket resteraient muets. Chaque geste le relance s'il est
+   arrêté. */
+if (typeof window !== "undefined") {
+  const unlock = () => {
+    if (ctx?.state !== "running") audio();
+  };
+  for (const type of ["pointerup", "touchend", "click", "keydown"]) {
+    window.addEventListener(type, unlock, { capture: true, passive: true });
   }
 }
 

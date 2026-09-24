@@ -50,7 +50,11 @@ export function useOpenRooms(game: string): { rooms: OpenRoom[]; ready: boolean 
     // Retour au premier plan : la connexion a pu être tuée sans événement.
     function onVisible() {
       if (document.visibilityState !== "visible" || disposed) return;
-      if (!socket || socket.readyState === WebSocket.CLOSED) connect();
+      if (!socket || socket.readyState === WebSocket.CLOSED) {
+        // Un nouvel essai attendait peut-être déjà : un seul socket.
+        clearTimeout(timer);
+        connect();
+      }
     }
     document.addEventListener("visibilitychange", onVisible);
 

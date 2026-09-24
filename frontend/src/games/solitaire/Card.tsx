@@ -124,36 +124,41 @@ export function Back({ w, flat = false }: { w: number; flat?: boolean }) {
   );
 }
 
-/* Retournement en vraie 3D, le temps du geste seulement : au repos la carte est à plat,
-   sans transformation 3D (une carte posée sous perspective floute sur téléphone). */
+/* Retournement en deux temps, en 2D : la carte se referme sur sa tranche, change de côté,
+   se rouvre. Pas de vraie 3D (rotateY, preserve-3d) : sur iOS, une carte tournée en 3D
+   traverse les cartes voisines quel que soit son z-index et passe à moitié dessous. */
 function Flip({ card, up, w, flat }: { card: string; up: boolean; w: number; flat: boolean }) {
-  const [shown, setShown] = useState(up);
-  const [flipping, setFlipping] = useState(false);
-  if (up !== shown) {
-    setShown(up);
-    setFlipping(true);
-  }
-  if (!flipping) return up ? <Face card={card} w={w} flat={flat} /> : <Back w={w} flat={flat} />;
-  return (
-    <span className="absolute inset-0 block" style={{ perspective: w * 9 }}>
-      <motion.span
-        className="absolute inset-0 block [transform-style:preserve-3d]"
-        initial={{ rotateY: up ? 180 : 0 }}
-        animate={{ rotateY: up ? 0 : 180, scale: [1, 1.1, 1] }}
-        transition={{ duration: 0.34, ease: [0.4, 0, 0.2, 1] }}
-        onAnimationComplete={() => setFlipping(false)}
-      >
-        <span className="absolute inset-0 block [backface-visibility:hidden]">
-          <Face card={card} w={w} />
-        </span>
-        <span
-          className="absolute inset-0 block [backface-visibility:hidden]"
-          style={{ transform: "rotateY(180deg)" }}
-        >
-          <Back w={w} />
-        </span>
-      </motion.span>
-    </span>
+  // Le côté dessiné : il ne change qu'à mi-retournement, carte vue par la tranche.
+  const [side, setSide] = useState(up);
+  const [phase, setPhase] = useState<null | "close" | "open">(null);
+  if (phase === null && up !== side) setPhase("close");
+  if (phase === null) return side ? <Face card={card} w={w} flat={flat} /> : <Back w={w} flat={flat} />;
+  const drawn = side ? <Face card={card} w={w} /> : <Back w={w} />;
+  return phase === "close" ? (
+    <motion.span
+      key="close"
+      className="absolute inset-0 block"
+      initial={{ scaleX: 1, scaleY: 1 }}
+      animate={{ scaleX: 0, scaleY: 1.1 }}
+      transition={{ duration: 0.17, ease: [0.4, 0, 1, 1] }}
+      onAnimationComplete={() => {
+        setSide((s) => !s);
+        setPhase("open");
+      }}
+    >
+      {drawn}
+    </motion.span>
+  ) : (
+    <motion.span
+      key="open"
+      className="absolute inset-0 block"
+      initial={{ scaleX: 0, scaleY: 1.1 }}
+      animate={{ scaleX: 1, scaleY: 1 }}
+      transition={{ duration: 0.17, ease: [0, 0, 0.2, 1] }}
+      onAnimationComplete={() => setPhase(null)}
+    >
+      {drawn}
+    </motion.span>
   );
 }
 
