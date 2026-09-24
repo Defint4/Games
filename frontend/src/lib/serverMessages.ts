@@ -7,6 +7,9 @@ import { getLang } from "@/lib/i18n";
 const EN: Record<string, string> = {
   "Action inconnue.": "Unknown action.",
   "Aucun joueur actif.": "No active player.",
+  "Aucune nulle proposée.": "No draw has been offered.",
+  "Cadence inconnue.": "Unknown time control.",
+  "Ce bilan ne correspond pas à la partie.": "This review doesn't match the game.",
   "Ce jeu n'a pas de bots.": "This game has no bots.",
   "Ce n'est pas le moment.": "Not now.",
   "Ce n'est pas ton tour.": "It's not your turn.",
@@ -20,10 +23,12 @@ const EN: Record<string, string> = {
   "Cette carte ne va pas là.": "That card doesn't go there.",
   "Cette partie est déjà terminée.": "This game is already over.",
   "Cette partie n'est pas gagnée.": "This game isn't won.",
+  "Cette partie n'est pas terminée.": "This game isn't over.",
   "Choisis un avatar.": "Pick an avatar.",
   "Cible invalide.": "Invalid target.",
   "Code PIN actuel incorrect.": "Your current PIN is wrong.",
   "Code PIN incorrect.": "Wrong PIN.",
+  "Coup illégal.": "Illegal move.",
   "Coup illisible.": "Unreadable move.",
   "Deux charges maximum.": "Two charges at most.",
   "Difficulté inconnue.": "Unknown difficulty.",
@@ -59,6 +64,7 @@ const EN: Record<string, string> = {
   "On ne s'attaque pas soi-même.": "You can't attack yourself.",
   "Partie introuvable.": "Table not found.",
   "Partie trop longue.": "That game is too long.",
+  "Partie trop courte.": "That game is too short.",
   "Pas d'enchère à contester.": "There's no bid to challenge.",
   "Personne n'a de couleur à choisir.": "Nobody has a colour to pick.",
   "Pile inconnue.": "Unknown pile.",
@@ -75,6 +81,8 @@ const EN: Record<string, string> = {
   "Trop d'essais : ce compte est bloqué quelques minutes.":
     "Too many tries: this account is locked for a few minutes.",
   "Trop tard : le coup ne peut plus être enchaîné.": "Too late: that move can't be chained anymore.",
+  "Trop tard pour annuler : abandonne plutôt.": "Too late to abort: resign instead.",
+  "Tu as déjà proposé nulle.": "You've already offered a draw.",
   "Vous n'avez pas assez de cartes de cette valeur.": "You don't have enough cards of that value.",
 };
 

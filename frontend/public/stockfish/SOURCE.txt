@@ -1,0 +1,5 @@
+Stockfish.js 19 (build « lite single-threaded »), (c) 2026 Chess.com, LLC, d'après
+Stockfish (c) T. Romstad, M. Costalba, J. Kiiski, G. Linscott et contributeurs.
+Licence GPLv3 (COPYING.txt). Fichiers repris tels quels du paquet npm stockfish@19.0.0.
+Sources : https://github.com/nmrugg/stockfish.js (tag v19.0.0)
+          https://github.com/official-stockfish/Stockfish

@@ -8,6 +8,7 @@ from slowapi.errors import RateLimitExceeded
 
 from app.core.config import settings
 from app.core.rate_limit import limiter
+from app.games.chess.router import router as chess_router
 from app.games.solitaire.router import router as solitaire_router
 from app.players.router import router as players_router
 from app.rooms import lobby
@@ -44,6 +45,7 @@ app.add_middleware(
 app.include_router(players_router)
 app.include_router(rooms_router)
 app.include_router(solitaire_router)
+app.include_router(chess_router)
 
 
 @app.get("/api/health")

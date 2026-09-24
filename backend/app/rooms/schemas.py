@@ -5,6 +5,8 @@ from app.rooms.manager import Room
 
 class CreateRoomRequest(BaseModel):
     game: str = Field(pattern=r"^[a-z0-9\-]{1,40}$")
+    # Réglages propres au jeu (cadence des échecs), vérifiés par GameSpec.configure.
+    options: dict[str, str] = Field(default_factory=dict, max_length=8)
 
 
 class RoomOut(BaseModel):
@@ -25,7 +27,10 @@ def open_room_summary(room: Room) -> dict:
     return {
         "code": room.code,
         "game": room.game,
-        "players": [{"pseudo": s.pseudo, "avatar": s.avatar} for s in room.seats],
+        "players": [
+            {"pseudo": s.pseudo, "avatar": s.avatar, "rating": s.rating} for s in room.seats
+        ],
         "seats_taken": len(room.seats),
         "seats_max": room.spec.max_players,
+        **room.spec.summary(room),
     }

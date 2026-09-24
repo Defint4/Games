@@ -19,6 +19,7 @@ def room_view(room: Room, seat_index: int) -> dict:
             "avatar": seat.avatar,
             "connected": seat.socket is not None or seat.bot is not None,
             "bot": seat.bot,
+            "rating": seat.rating,
         }
         for i, seat in enumerate(room.seats)
     ]
@@ -31,6 +32,7 @@ def room_view(room: Room, seat_index: int) -> dict:
         "turn": room.spec.current_turn(room.state) if is_playing else None,
         "players": players,
         "turn_seconds": room.turn_seconds,
+        "rematch_votes": sorted(room.rematch_votes),
         # Temps restant calculé côté serveur : insensible à l'horloge du client.
         "turn_remaining": (
             max(0.0, round(room.turn_deadline - time.monotonic(), 1))

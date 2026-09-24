@@ -23,7 +23,7 @@ from sqlalchemy import select
 from app.core.database import async_session_maker
 from app.core.rate_limit import limiter
 from app.core.security import decode_player_token
-from app.games.base import GameError, GameStatus
+from app.games.base import GameError, GameSpec, GameStatus
 from app.games.registry import get_game
 from app.players import service as players_service
 from app.players.dependencies import get_current_player
@@ -44,9 +44,9 @@ LOBBY_SEAT_GRACE_SECONDS = 10
 # Revanche : le temps d'arriver sur la nouvelle table (chargement des ressources du jeu
 # sur un réseau lent compris) avant d'être considéré comme parti.
 REMATCH_SEAT_GRACE_SECONDS = 45
-# Joueur déconnecté à son tour : coup joué d'office au bout de ABSENT_SECONDS (même sur
-# une table sans timer), et un bot prend sa place après ABSENT_STRIKES coups d'affilée.
-ABSENT_SECONDS = 120
+# Joueur déconnecté à son tour : coup joué d'office au bout de GameSpec.absent_seconds
+# (même sur une table sans timer), et un bot prend sa place après ABSENT_STRIKES coups
+# d'affilée.
 ABSENT_STRIKES = 3
 REPLACEMENT_BOT = "normal"
 
@@ -54,6 +54,15 @@ REPLACEMENT_BOT = "normal"
 # ---------------------------------------------------------------------------
 # REST : créer, rejoindre, lister
 # ---------------------------------------------------------------------------
+
+
+def _seat(player: Player, spec: GameSpec) -> Seat:
+    """Le joueur tel qu'il s'assoit, avec sa cote si le jeu est classé."""
+    rating = None
+    if spec.initial_rating is not None:
+        stats = next((s for s in player.stats if s.game == spec.slug), None)
+        rating = stats.rating if stats and stats.rating is not None else spec.initial_rating
+    return Seat(player_id=player.id, pseudo=player.pseudo, avatar=player.avatar, rating=rating)
 
 
 @router.post("", response_model=RoomOut)
@@ -64,9 +73,10 @@ async def create_room(
     spec = get_game(payload.game)
     if spec is None:
         raise HTTPException(status_code=404, detail="Jeu inconnu.")
-    room = manager.create(
-        spec, Seat(player_id=player.id, pseudo=player.pseudo, avatar=player.avatar)
-    )
+    try:
+        room = manager.create(spec, _seat(player, spec), payload.options)
+    except GameError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
     await lobby.notify(room.game)
     return RoomOut(code=room.code, game=room.game)
 
@@ -88,10 +98,16 @@ async def join_room(
             room.spec.add_player(room.state, player.pseudo)
         except GameError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from None
-        room.seats.append(Seat(player_id=player.id, pseudo=player.pseudo, avatar=player.avatar))
-        room.touch()
-        await _broadcast_state(room, [{"type": "player_joined", "pseudo": player.pseudo}])
-        await lobby.notify(room.game)
+        room.seats.append(_seat(player, room.spec))
+        joined = {"type": "player_joined", "pseudo": player.pseudo}
+        if room.status is GameStatus.PLAYING:
+            # Jeu qui démarre dès que la table est pleine (échecs) : pendules, liste des
+            # tables et diffusion passent par le chemin d'un coup joué.
+            await _after_move(room, [joined, {"type": "game_started"}])
+        else:
+            room.touch()
+            await _broadcast_state(room, [joined])
+            await lobby.notify(room.game)
     return RoomOut(code=room.code, game=room.game)
 
 
@@ -360,13 +376,13 @@ def _schedule_turn_timer(room: Room) -> None:
 
 
 def _schedule_absence(room: Room, seat_index: int) -> None:
-    """Le joueur au trait est déconnecté : son coup partira d'office dans ABSENT_SECONDS,
-    sauf s'il revient ou si le tour change (turn_token) entre-temps."""
+    """Le joueur au trait est déconnecté : son coup partira d'office au bout de
+    GameSpec.absent_seconds, sauf s'il revient ou si le tour change (turn_token)."""
     asyncio.get_running_loop().create_task(_absence_timeout(room, room.turn_token, seat_index))
 
 
 async def _absence_timeout(room: Room, token: int, seat_index: int) -> None:
-    await asyncio.sleep(ABSENT_SECONDS)
+    await asyncio.sleep(room.spec.absent_seconds)
     async with room.lock:
         if (
             manager.get(room.code) is not room
@@ -430,6 +446,15 @@ async def _handle_rematch(room: Room, websocket: WebSocket) -> None:
     if room.rematch_code and manager.get(room.rematch_code):
         await _broadcast(room, {"type": "rematch", "code": room.rematch_code})
         return
+    if room.spec.rematch_consent:
+        # Revanche d'un commun accord : on attend que chaque humain l'ait demandée.
+        seat_index = next(i for i, s in enumerate(room.seats) if s.socket is websocket)
+        room.rematch_votes.add(seat_index)
+        humans = {i for i, s in enumerate(room.seats) if s.bot is None}
+        if not humans <= room.rematch_votes:
+            room.touch()
+            await _broadcast_state(room, [{"type": "rematch_asked", "seat": seat_index}])
+            return
     # Les humains connectés d'abord (le siège 0 doit rester un humain), puis les bots.
     # Un bot qui remplaçait un absent ne suit pas : la place revient à l'absent, pas au bot.
     connected = [s for s in room.seats if s.socket is not None] + [
@@ -438,17 +463,27 @@ async def _handle_rematch(room: Room, websocket: WebSocket) -> None:
     if len(connected) < room.spec.min_players:
         await _send_error(websocket, "Il faut au moins deux joueurs connectés pour une revanche.")
         return
+    first = connected[0]
     new_room = manager.create(
         room.spec,
         Seat(
-            player_id=connected[0].player_id, pseudo=connected[0].pseudo, avatar=connected[0].avatar
+            player_id=first.player_id, pseudo=first.pseudo, avatar=first.avatar, rating=first.rating
         ),
+        {**room.options, **room.spec.rematch_options(room)},
     )
     for seat in connected[1:]:
-        room.spec.add_player(new_room.state, seat.pseudo)
+        # Les sièges d'abord : un jeu qui démarre dès que la table est pleine (échecs)
+        # doit trouver tout le monde assis.
         new_room.seats.append(
-            Seat(player_id=seat.player_id, pseudo=seat.pseudo, avatar=seat.avatar, bot=seat.bot)
+            Seat(
+                player_id=seat.player_id,
+                pseudo=seat.pseudo,
+                avatar=seat.avatar,
+                bot=seat.bot,
+                rating=seat.rating,
+            )
         )
+        room.spec.add_player(new_room.state, seat.pseudo)
     new_room.turn_seconds = room.turn_seconds
     # Un joueur qui ne rejoindra jamais la revanche (téléphone verrouillé sur l'écran de
     # fin) ne doit pas bloquer le lobby : même délai de grâce qu'une déconnexion.
@@ -466,6 +501,13 @@ async def _handle_rematch(room: Room, websocket: WebSocket) -> None:
 
 
 async def _record_stats(room: Room) -> None:
+    try:
+        async with async_session_maker() as db:
+            if await room.spec.record_results(room, db):
+                return
+    except Exception:
+        logger.exception("Échec de l'enregistrement de la partie %s", room.code)
+        return
     results = room.spec.results(room)
     humans = [seat.player_id for seat in room.seats if seat.bot is None]
     if results is None or not humans:

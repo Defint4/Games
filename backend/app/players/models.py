@@ -48,5 +48,7 @@ class PlayerGameStats(Base):
     # Jeux chronométrés (Solitaire) : la victoire la plus rapide, en millisecondes.
     # Affichée, jamais prise en compte dans le classement.
     best_ms: Mapped[int | None] = mapped_column(Integer, default=None)
+    # Jeux classés à l'Elo (échecs) : la cote actuelle ; vide avant la première partie.
+    rating: Mapped[int | None] = mapped_column(Integer, default=None)
 
     player: Mapped[Player] = relationship(back_populates="stats")

@@ -25,6 +25,9 @@ export type GameMeta = {
   dedication?: Dict<string>;
   /* Jeu chronométré : le meilleur temps s'affiche à côté des victoires (hors tri). */
   timed?: boolean;
+  /* Jeu classé à l'Elo : son classement se trie à la cote, affichée à la place des
+     victoires. */
+  rated?: boolean;
 };
 
 export const GAMES: GameMeta[] = [
@@ -89,7 +92,8 @@ export const GAMES: GameMeta[] = [
     players: { fr: "2 joueurs", en: "2 players" },
     path: "/chess",
     mat: "radial-gradient(130% 110% at 85% 15%, #8a6a45 0%, #5e4529 45%, #33251a 100%)",
-    available: false,
+    available: true,
+    rated: true,
   },
 ];
 

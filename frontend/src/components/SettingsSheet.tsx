@@ -45,6 +45,8 @@ export default function SettingsSheet({
   inLobby,
   rules,
   cardBacks = true,
+  look,
+  heading,
   onLeave,
   onClose,
 }: {
@@ -54,6 +56,10 @@ export default function SettingsSheet({
   rules: React.ReactNode;
   /* Faux pour un jeu sans cartes (Perudo) : pas de choix de dos. */
   cardBacks?: boolean;
+  /* Réglages d'apparence propres au jeu, à la place des dos et du tapis. */
+  look?: React.ReactNode;
+  /* Titre à la place de « Table 1234 » (partie sans table : échecs contre l'ordinateur). */
+  heading?: string;
   onLeave: () => void;
   onClose: () => void;
 }) {
@@ -66,13 +72,17 @@ export default function SettingsSheet({
   return (
     <Sheet onClose={onClose}>
       <h2 className="mb-4 text-center text-lg font-extrabold">
-        {t.table} <span className="tracking-widest text-gold">{code}</span>
+        {heading ?? (
+          <>
+            {t.table} <span className="tracking-widest text-gold">{code}</span>
+          </>
+        )}
       </h2>
       <div className="flex flex-col gap-3">
         <LangSwitch />
         <SoundToggle />
 
-        <LookPrefs cardBacks={cardBacks} />
+        {look ?? <LookPrefs cardBacks={cardBacks} />}
 
         <button
           type="button"

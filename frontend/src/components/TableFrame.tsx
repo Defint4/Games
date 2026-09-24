@@ -40,6 +40,12 @@ type Props<V extends BaseRoomView, S extends RoomSocket<V>> = {
   rules: React.ReactNode;
   /* Faux pour un jeu sans cartes : le menu ⚙️ ne propose pas de dos de cartes. */
   cardBacks?: boolean;
+  /* Réglages d'apparence propres au jeu, à la place des dos de cartes et du tapis
+     (échecs : pièces et échiquier). */
+  look?: React.ReactNode;
+  /* Fond imposé par le jeu (attribut data-felt, voir globals.css) au lieu du tapis
+     choisi par le joueur ; le tapis revient en quittant la table. */
+  felt?: string;
   /* Les ressources du jeu (images, sons, 3D) à avoir en cache avant d'afficher la
      table : sur un réseau lent, mieux vaut attendre un peu que voir des trous en pleine
      partie. Fonction stable (déclarée au niveau du module), chaque jeu a la sienne. */
@@ -52,7 +58,7 @@ export default function TableFrame<
   V extends BaseRoomView,
   S extends RoomSocket<V>,
 >(props: Props<V, S>) {
-  const { game, preload, loadingLabel } = props;
+  const { game, preload, loadingLabel, felt } = props;
   const { code } = useParams<{ code: string }>();
   const router = useRouter();
   const [profile, setProfile] = useState<StoredProfile | null>(null);
@@ -87,15 +93,17 @@ export default function TableFrame<
   }, [code, router, game.slug]);
 
   useEffect(() => {
-    applyFelt();
+    if (felt) document.documentElement.dataset.felt = felt;
+    else applyFelt();
     let cancelled = false;
     preload().then(() => {
       if (!cancelled) setAssetsReady(true);
     });
     return () => {
       cancelled = true;
+      if (felt) applyFelt();
     };
-  }, [preload]);
+  }, [preload, felt]);
 
   useEffect(() => {
     // L'écran ne doit pas s'éteindre en pleine partie.
@@ -132,6 +140,7 @@ function Room<V extends BaseRoomView, S extends RoomSocket<V>>({
   table,
   rules,
   cardBacks,
+  look,
   code,
   token,
 }: Props<V, S> & { code: string; token: string }) {
@@ -193,6 +202,7 @@ function Room<V extends BaseRoomView, S extends RoomSocket<V>>({
           inLobby={inLobby}
           rules={rules}
           cardBacks={cardBacks}
+          look={look}
           onLeave={() => socket.leave()}
           onClose={() => setSettingsOpen(false)}
         />

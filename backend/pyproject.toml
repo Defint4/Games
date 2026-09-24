@@ -12,6 +12,7 @@ dependencies = [
     "pyjwt>=2.10",
     "slowapi>=0.1.9",
     "numpy>=2.5.2",
+    "chess>=1.11.2",
 ]
 
 [dependency-groups]

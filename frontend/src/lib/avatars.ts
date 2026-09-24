@@ -20,6 +20,9 @@ const ANIMALS: Record<string, string> = {
   axolotl: "🦎",
 };
 
+/* Hors galerie : l'ordinateur des échecs. */
+const MACHINES: Record<string, string> = { robot: "🤖" };
+
 const COINS = ["#c3402f", "#2f6bc3", "#c4923a", "#5b3fa8", "#2a8f6d", "#b8447e"];
 
 export const AVATAR_IDS = Object.keys(ANIMALS).flatMap((animal) =>
@@ -32,7 +35,7 @@ export const GALLERY = Object.keys(ANIMALS).map((animal, i) => `${animal}-${i % 
 export function avatarParts(id: string): { emoji: string; coin: string } {
   const [animal, index] = id.split("-");
   return {
-    emoji: ANIMALS[animal] ?? "🃏",
+    emoji: ANIMALS[animal] ?? MACHINES[animal] ?? "🃏",
     coin: COINS[Number(index)] ?? COINS[0],
   };
 }

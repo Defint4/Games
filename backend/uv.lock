@@ -82,6 +82,12 @@ wheels = [
 ]
 
 [[package]]
+name = "chess"
+version = "1.11.2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/93/09/7d04d7581ae3bb8b598017941781bceb7959dd1b13e3ebf7b6a2cd843bc9/chess-1.11.2.tar.gz", hash = "sha256:a8b43e5678fdb3000695bdaa573117ad683761e5ca38e591c4826eba6d25bb39", size = 6131385, upload-time = "2025-02-25T19:10:27.328Z" }
+
+[[package]]
 name = "click"
 version = "8.5.0"
 source = { registry = "https://pypi.org/simple" }
@@ -243,6 +249,7 @@ source = { virtual = "." }
 dependencies = [
     { name = "alembic" },
     { name = "asyncpg" },
+    { name = "chess" },
     { name = "fastapi", extra = ["standard"] },
     { name = "numpy" },
     { name = "pydantic-settings" },
@@ -261,6 +268,7 @@ dev = [
 requires-dist = [
     { name = "alembic", specifier = ">=1.14" },
     { name = "asyncpg", specifier = ">=0.30" },
+    { name = "chess", specifier = ">=1.11.2" },
     { name = "fastapi", extras = ["standard"], specifier = ">=0.115" },
     { name = "numpy", specifier = ">=2.5.2" },
     { name = "pydantic-settings", specifier = ">=2.7" },
