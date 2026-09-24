@@ -541,7 +541,9 @@ function FlyIn({
         y: [d.y, 0],
         scale: [0.8, 1],
         opacity: [0, 1, 1],
-        rotateY: [flip ? 120 : 0, 0],
+        // Le retournement en 2D (sans perspective, rotateY(120°) s'affiche comme
+        // scaleX(-0.5)) : une carte en vraie 3D passe sous ses voisines sur iOS.
+        scaleX: [flip ? -0.5 : 1, 1],
       },
       { duration: 0.45, delay, ease: [0.25, 0.8, 0.3, 1] }
     );

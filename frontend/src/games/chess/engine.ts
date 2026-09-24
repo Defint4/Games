@@ -9,6 +9,21 @@ import type { Uci } from "./bot";
 
 const WORKER = "/stockfish/stockfish-19-lite-single.js";
 
+/* Le build utilise les instructions SIMD de WebAssembly. Sonde : le plus petit module
+   qui en contient une (celui de wasm-feature-detect). */
+const SIMD_PROBE = new Uint8Array([
+  0, 97, 115, 109, 1, 0, 0, 0, 1, 5, 1, 96, 0, 1, 123, 3, 2, 1, 0, 10, 10, 1, 8, 0, 65, 0,
+  253, 15, 253, 98, 11,
+]);
+
+function wasmSimd(): boolean {
+  try {
+    return typeof WebAssembly === "object" && WebAssembly.validate(SIMD_PROBE);
+  } catch {
+    return false;
+  }
+}
+
 export class Engine implements Uci {
   private worker: Worker;
   private listeners = new Set<(line: string) => void>();
@@ -20,13 +35,26 @@ export class Engine implements Uci {
     this.worker.onmessage = (e: MessageEvent<string>) => {
       for (const listener of [...this.listeners]) listener(String(e.data));
     };
-    this.ready = new Promise((resolve) => {
+    this.ready = new Promise((resolve, reject) => {
+      // Moteur qui ne démarre pas : WebAssembly absent ou sans SIMD (iOS avant 16.4, mode
+      // Isolement), wasm qui n'arrive pas. Stockfish garde ces échecs dans son worker,
+      // sans rien signaler : sans « readyok » au bout d'une minute, on abandonne.
+      const fail = () => {
+        clearTimeout(timer);
+        this.worker.terminate();
+        reject(new Error("engine"));
+      };
+      const timer = setTimeout(fail, 60_000);
+      this.worker.onerror = fail;
       const stop = this.listen((line) => {
         if (line === "readyok") {
           stop();
+          clearTimeout(timer);
+          this.worker.onerror = null;
           resolve();
         }
       });
+      if (!wasmSimd()) fail();
     });
     this.send("uci");
     this.send("isready");
@@ -57,7 +85,14 @@ export class Engine implements Uci {
 let shared: Engine | null = null;
 
 export function engine(): Engine {
-  shared ??= new Engine();
+  if (!shared) {
+    const created = new Engine();
+    shared = created;
+    // Échec au démarrage : la prochaine demande (réessayer) relance un worker neuf.
+    created.ready.catch(() => {
+      if (shared === created) shared = null;
+    });
+  }
   return shared;
 }
 

@@ -4,7 +4,9 @@ import { motion } from "motion/react";
 import PlayingCard from "@/components/PlayingCard";
 import type { CardT } from "@/lib/types";
 
-/* Une carte qui se retourne en vrai 3D : dos puis face, autour de son axe vertical.
+/* Une carte qui se retourne : le dos se referme sur sa tranche, la face s'ouvre à sa
+   place. En 2D (scaleX), pas en vraie 3D : sur iOS, une carte tournée en rotateY
+   traverse les éléments voisins quel que soit leur z-index et passe à moitié dessous.
    Utilisée dans les vols (révélation d'une carte piochée) et au centre de la table. */
 export default function FlipCard({
   card,
@@ -18,22 +20,22 @@ export default function FlipCard({
   duration?: number;
 }) {
   return (
-    <span className="block [perspective:600px]">
+    <span className="relative block">
       <motion.span
-        className="relative block [transform-style:preserve-3d]"
-        initial={{ rotateY: 180 }}
-        animate={{ rotateY: 0 }}
-        transition={{ delay, duration, ease: [0.4, 0, 0.2, 1] }}
+        className="block"
+        initial={{ scaleX: 0 }}
+        animate={{ scaleX: [0, 0, 1] }}
+        transition={{ delay, duration, times: [0, 0.5, 1], ease: ["linear", [0, 0, 0.2, 1]] }}
       >
-        <span className="block [backface-visibility:hidden]">
-          <PlayingCard card={card} size={size} />
-        </span>
-        <span
-          className="absolute inset-0 block [backface-visibility:hidden]"
-          style={{ transform: "rotateY(180deg)" }}
-        >
-          <PlayingCard faceDown size={size} />
-        </span>
+        <PlayingCard card={card} size={size} />
+      </motion.span>
+      <motion.span
+        className="absolute inset-0 block"
+        initial={{ scaleX: 1 }}
+        animate={{ scaleX: [1, 0, 0] }}
+        transition={{ delay, duration, times: [0, 0.5, 1], ease: [[0.4, 0, 1, 1], "linear"] }}
+      >
+        <PlayingCard faceDown size={size} />
       </motion.span>
     </span>
   );

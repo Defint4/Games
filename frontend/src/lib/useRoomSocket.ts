@@ -71,12 +71,14 @@ export function useRoomSocket<V extends BaseRoomView>(
     if (!token) return;
     let disposed = false;
     let retryTimer: ReturnType<typeof setTimeout>;
+    let probeTimer: ReturnType<typeof setTimeout>;
 
     function connect() {
       const socket = new WebSocket(wsUrl(code, token!));
       socketRef.current = socket;
 
       socket.onmessage = (raw) => {
+        clearTimeout(probeTimer);
         const msg = JSON.parse(raw.data) as ServerMessage<V>;
         if (msg.type === "state") {
           retryRef.current = 0;
@@ -143,7 +145,19 @@ export function useRoomSocket<V extends BaseRoomView>(
       const socket = socketRef.current;
       if (socket?.readyState === WebSocket.OPEN) {
         socket.send(JSON.stringify({ action: "sync" }));
+        // iOS laisse souvent pour ouvert un socket mort pendant la veille : le serveur
+        // répond toujours au sync, sans réponse on reconnecte.
+        clearTimeout(probeTimer);
+        probeTimer = setTimeout(() => {
+          if (disposed || socketRef.current !== socket) return;
+          socketRef.current = null;
+          socket.close();
+          connect();
+        }, 5000);
       } else if (!socket || socket.readyState === WebSocket.CLOSED) {
+        // Un nouvel essai attendait peut-être déjà : une seule connexion, sinon la
+        // seconde ferme la première (4000, « ouverte sur un autre écran »).
+        clearTimeout(retryTimer);
         connect();
       }
     }
@@ -152,6 +166,7 @@ export function useRoomSocket<V extends BaseRoomView>(
     return () => {
       disposed = true;
       clearTimeout(retryTimer);
+      clearTimeout(probeTimer);
       document.removeEventListener("visibilitychange", onVisible);
       socketRef.current?.close();
       socketRef.current = null;

@@ -159,7 +159,7 @@ function frame(now: number) {
   if (!ctx) return;
   const dt = Math.min(0.05, (now - last) / 1000);
   last = now;
-  const dpr = window.devicePixelRatio || 1;
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, canvas.width / dpr, canvas.height / dpr);
 
@@ -256,7 +256,7 @@ export default function FxLayer() {
     const el = canvas;
     const resize = () => {
       if (!el) return;
-      const dpr = window.devicePixelRatio || 1;
+      const dpr = Math.min(2, window.devicePixelRatio || 1);
       el.width = Math.round(window.innerWidth * dpr);
       el.height = Math.round(window.innerHeight * dpr);
     };

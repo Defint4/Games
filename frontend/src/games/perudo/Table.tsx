@@ -309,7 +309,9 @@ export default function Table({ socket, view: live }: { socket: PerudoSocket; vi
 
   return (
     <div className="relative h-full">
-      <div className="absolute inset-0">
+      {/* touch-none : un pincement sur la table ne zoome pas toute la page (Safari
+          ignore user-scalable=no). Les taps restent des clics pour la scène. */}
+      <div className="absolute inset-0 touch-none">
         <TableScene
           players={shown.players}
           me={me}
