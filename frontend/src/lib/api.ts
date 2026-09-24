@@ -103,11 +103,12 @@ export function fetchLeaderboard(game: string | null, offset: number, me?: strin
   return request<LeaderboardPage>(`/api/players/leaderboard?${params}`);
 }
 
-export function createRoom(token: string, game: string) {
+/* `options` : réglages propres au jeu (la cadence aux échecs). */
+export function createRoom(token: string, game: string, options?: Record<string, string>) {
   return request<RoomRef>("/api/rooms", {
     method: "POST",
     headers: authed(token),
-    body: JSON.stringify({ game }),
+    body: JSON.stringify({ game, options }),
   });
 }
 

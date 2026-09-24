@@ -1,0 +1,3 @@
+openings.json : noms et codes ECO des ouvertures, tirés de lichess-org/chess-openings
+(https://github.com/lichess-org/chess-openings), domaine public (CC0 1.0), convertis en
+positions (FEN sans les compteurs de coups).

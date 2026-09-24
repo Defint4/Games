@@ -22,3 +22,5 @@
 
 	Impact Sounds (1.1) et Casino Audio (1.1), par Kenney Vleugels (Kenney.nl), CC0 :
 	hit-*, block-*, bell, thud (Impact Sounds), shuffle (Casino Audio).
+	piece-move-*, piece-capture-*, piece-castle (Impact Sounds, impactWood_light / heavy /
+	medium, ramenés en mono 22 kHz).

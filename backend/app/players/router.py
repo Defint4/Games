@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.core.rate_limit import limiter
 from app.core.security import create_player_token
-from app.games.registry import is_game
+from app.games.registry import get_game, is_game
 from app.players import service
 from app.players.dependencies import get_current_player
 from app.players.models import Player
@@ -108,7 +108,9 @@ async def leaderboard(
     """Classement d'un jeu (slug) ou de tous les jeux cumulés, page par page."""
     if game is not None and not is_game(game):
         raise HTTPException(status_code=404, detail="Jeu inconnu.")
-    page = await service.leaderboard(db, game, offset, limit, me)
+    spec = get_game(game) if game is not None else None
+    rated = spec is not None and spec.initial_rating is not None
+    page = await service.leaderboard(db, game, rated, offset, limit, me)
     return LeaderboardOut.model_validate(page)
 
 

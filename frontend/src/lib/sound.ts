@@ -31,6 +31,16 @@ const PACKS = {
     "chip-lay-3",
     "thud",
   ],
+  /* Échecs : pièce en bois posée, prise (plus sèche), roque (pack Impact Sounds). */
+  chess: [
+    "piece-move-1",
+    "piece-move-2",
+    "piece-move-3",
+    "piece-capture-1",
+    "piece-capture-2",
+    "piece-capture-3",
+    "piece-castle",
+  ],
 } as const;
 
 export type SoundPack = keyof typeof PACKS;
@@ -169,6 +179,29 @@ export const sfx = {
     const semis = scale[step % 7] + 12 * Math.floor(step / 7);
     tone(523 * 2 ** (semis / 12), 0, 0.22, 0.05);
   },
+  /* Échecs : le coup, la prise, le roque (roi puis tour, deux claquements), l'échec
+     (le coup et une note sèche), la promotion (une note qui monte), le début de partie,
+     la nulle, et le tic de la pendule sous les dix secondes. */
+  move: () => sample(["piece-move-1", "piece-move-2", "piece-move-3"], 0.9),
+  capture: () => sample(["piece-capture-1", "piece-capture-2", "piece-capture-3"], 0.9),
+  castle: () => {
+    void sample(["piece-castle"], 0.85);
+    setTimeout(() => void sample(["piece-move-1", "piece-move-2"], 0.8), 110);
+  },
+  check: () => tone(1175, 0.03, 0.16, 0.07),
+  promote: () => {
+    tone(784, 0.05, 0.14, 0.07);
+    tone(1175, 0.15, 0.22, 0.07);
+  },
+  gameStart: () => {
+    tone(587, 0, 0.16, 0.08);
+    tone(880, 0.12, 0.28, 0.08);
+  },
+  draw: () => {
+    tone(523, 0, 0.3, 0.08);
+    tone(523, 0.22, 0.4, 0.07);
+  },
+  tick: () => tone(1760, 0, 0.05, 0.05),
   /* Petit "pop" à la réception d'un message. */
   pop: () => tone(980, 0, 0.07, 0.07),
   /* Touche du pavé du code PIN : un clic à peine audible. */

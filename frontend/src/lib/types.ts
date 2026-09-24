@@ -23,6 +23,8 @@ export type BasePlayerView = {
   avatar: string;
   connected: boolean;
   bot: BotDifficulty | null;
+  /* Cote Elo (jeux classés seulement). */
+  rating: number | null;
 };
 
 export type BaseRoomView = {
@@ -34,6 +36,8 @@ export type BaseRoomView = {
   players: BasePlayerView[];
   turn_seconds: number;
   turn_remaining: number | null;
+  /* Sièges qui ont demandé la revanche (jeux où elle se fait d'un commun accord). */
+  rematch_votes: number[];
 };
 
 export type GameEvent = { type: string; [key: string]: unknown };
@@ -49,7 +53,14 @@ export type ServerMessage<V extends BaseRoomView = BaseRoomView> =
 
 /* `best_ms` : jeux chronométrés (Solitaire), victoire la plus rapide ; affiché, hors
    classement. */
-export type GameStats = { played: number; won: number; lost: number; best_ms?: number | null };
+/* `rating` : cote Elo des jeux classés (échecs). */
+export type GameStats = {
+  played: number;
+  won: number;
+  lost: number;
+  best_ms?: number | null;
+  rating?: number | null;
+};
 
 export type PlayerProfile = {
   id: string;
@@ -81,7 +92,9 @@ export type LeaderboardPage = {
 export type OpenRoom = {
   code: string;
   game: string;
-  players: { pseudo: string; avatar: string }[];
+  players: { pseudo: string; avatar: string; rating: number | null }[];
   seats_taken: number;
   seats_max: number;
+  /* Échecs : la cadence choisie par le créateur. */
+  time_control?: string;
 };

@@ -43,6 +43,8 @@ class Seat:
     # ABSENT_STRIKES, un bot prend sa place (`replaced`) jusqu'à son retour.
     missed: int = 0
     replaced: bool = False
+    # Cote Elo du joueur à l'entrée (jeux classés seulement), mise à jour en fin de partie.
+    rating: int | None = None
 
 
 @dataclass
@@ -64,6 +66,10 @@ class Room:
     rematch_code: str | None = None
     # Jeton invalidant les actions de bots programmées dès qu'un coup survient.
     bot_token: int = 0
+    # Options choisies à la création (GameSpec.configure), reprises par la revanche.
+    options: dict = field(default_factory=dict)
+    # Sièges qui ont demandé la revanche (jeux où elle se fait d'un commun accord).
+    rematch_votes: set[int] = field(default_factory=set)
 
     @property
     def game(self) -> str:
@@ -107,14 +113,19 @@ class RoomManager:
     def __init__(self) -> None:
         self.rooms: dict[str, Room] = {}
 
-    def create(self, spec: GameSpec, creator: Seat) -> Room:
+    def create(self, spec: GameSpec, creator: Seat, options: dict | None = None) -> Room:
+        """Nouvelle table, le créateur assis. GameError si les options sont invalides."""
         code = self._unique_code()
+        options = options or {}
+        state = spec.create_state(creator.pseudo)
+        spec.configure(state, options)
         room = Room(
             code=code,
             spec=spec,
-            state=spec.create_state(creator.pseudo),
+            state=state,
             seats=[creator],
             data=spec.new_room_data(),
+            options=options,
         )
         self.rooms[code] = room
         return room

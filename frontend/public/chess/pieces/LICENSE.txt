@@ -1,0 +1,9 @@
+Jeux de pièces repris de lichess (https://github.com/lichess-org/lila/tree/master/public/piece),
+fichiers SVG non modifiés :
+
+cburnett   Colin M.L. Burnett              GPLv2+       https://www.gnu.org/licenses/gpl-2.0.txt
+merida     Armando Hernandez Marroquin     GPLv2+       https://www.gnu.org/licenses/gpl-2.0.txt
+staunty    sadsnake1                       CC BY-NC-SA 4.0  https://creativecommons.org/licenses/by-nc-sa/4.0/
+maestro    sadsnake1                       CC BY-NC-SA 4.0  https://creativecommons.org/licenses/by-nc-sa/4.0/
+
+Les deux derniers sont réservés à un usage non commercial.

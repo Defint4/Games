@@ -82,6 +82,14 @@ html[data-felt="wine"] {
   --color-felt-600: #6e2431;
 }
 
+/* Échecs : le gris anthracite de chess.com, imposé par la table (pas un choix de tapis). */
+html[data-felt="chess"] {
+  --color-felt-900: #1f1e1b;
+  --color-felt-800: #262522;
+  --color-felt-700: #312e2b;
+  --color-felt-600: #3c3a36;
+}
+
 /* Une carte posée de biais : sans ceci, Safari (et parfois Chrome) ne lisse pas le
    bord d'un élément tourné et l'escalier se voit sur chaque carte. Forcer une couche
    propre (backface-visibility) rend le bord anticrénelé ; le contour transparent

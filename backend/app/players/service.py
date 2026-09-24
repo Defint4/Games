@@ -180,6 +180,7 @@ class LeaderboardEntry:
     won: int
     lost: int
     best_ms: int | None
+    rating: int | None
 
 
 @dataclass
@@ -190,11 +191,12 @@ class LeaderboardPage:
     me: LeaderboardEntry | None
 
 
-def _ranking(game: str | None):
+def _ranking(game: str | None, rated: bool):
     """Le classement complet, numéroté : un jeu (slug) ou tous les jeux cumulés.
 
     Victoires d'abord ; à victoires égales, celui qui a eu besoin de moins de
     parties passe devant ; le pseudo départage le reste pour un ordre stable.
+    Jeu classé à l'Elo (`rated`) : la cote d'abord, puis le même ordre.
     """
     totals = (
         select(
@@ -207,6 +209,8 @@ def _ranking(game: str | None):
             func.sum(PlayerGameStats.lost).label("lost"),
             # Seul le Solitaire en a un : affiché sur son classement, hors du tri.
             func.min(PlayerGameStats.best_ms).label("best_ms"),
+            # Seuls les échecs en ont une : n'a de sens que sur le classement du jeu.
+            func.max(PlayerGameStats.rating).label("rating"),
         )
         .join(PlayerGameStats, PlayerGameStats.player_id == Player.id)
         .group_by(Player.id)
@@ -214,16 +218,17 @@ def _ranking(game: str | None):
     if game is not None:
         totals = totals.where(PlayerGameStats.game == game)
     totals = totals.subquery("totals")
-    rank = func.row_number().over(
-        order_by=(totals.c.won.desc(), totals.c.played.asc(), totals.c.pseudo_key.asc())
-    )
+    order = (totals.c.won.desc(), totals.c.played.asc(), totals.c.pseudo_key.asc())
+    if rated:
+        order = (totals.c.rating.desc(), *order)
+    rank = func.row_number().over(order_by=order)
     return select(totals, rank.label("rank")).subquery("ranking")
 
 
 async def leaderboard(
-    db: AsyncSession, game: str | None, offset: int, limit: int, me: str | None
+    db: AsyncSession, game: str | None, rated: bool, offset: int, limit: int, me: str | None
 ) -> LeaderboardPage:
-    ranking = _ranking(game)
+    ranking = _ranking(game, rated)
     total = await db.scalar(select(func.count()).select_from(ranking))
     rows = await db.execute(select(ranking).order_by(ranking.c.rank).offset(offset).limit(limit))
     mine = None
@@ -244,4 +249,5 @@ def _entry(row) -> LeaderboardEntry:
         won=row.won,
         lost=row.lost,
         best_ms=row.best_ms,
+        rating=row.rating,
     )

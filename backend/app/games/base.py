@@ -14,6 +14,8 @@ from enum import StrEnum
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
+
     from app.rooms.manager import Room, Seat
 
 Event = dict
@@ -46,6 +48,13 @@ class GameSpec(ABC):
     max_players: int
     # Difficultés de bots proposées (id → libellé) ; vide = pas de bots.
     bot_difficulties: dict[str, str] = {}
+    # Joueur déconnecté à son tour : son coup part d'office au bout de ce délai (s).
+    absent_seconds: int = 120
+    # Jeu classé à l'Elo : cote de départ d'un joueur (None = jeu non classé).
+    initial_rating: int | None = None
+    # Vrai : la revanche attend que tous les humains la demandent (échecs) ; faux : le
+    # premier qui la demande emmène toute la table.
+    rematch_consent: bool = False
 
     # --- Cycle de vie de l'état ----------------------------------------------
 
@@ -71,6 +80,19 @@ class GameSpec(ABC):
     @abstractmethod
     def current_turn(self, state: Any) -> int | None:
         """Siège dont c'est le tour, None hors partie."""
+
+    def configure(self, state: Any, options: dict) -> None:
+        """Options choisies à la création de la table (la cadence aux échecs). Lève
+        GameError si elles sont invalides. Aucune par défaut."""
+        return None
+
+    def rematch_options(self, room: Room) -> dict:
+        """Options de la table de revanche (mêmes réglages, couleurs inversées...)."""
+        return {}
+
+    def summary(self, room: Room) -> dict:
+        """Ce que la liste des tables ouvertes montre en plus des joueurs."""
+        return {}
 
     def lobby_changed(self, state: Any) -> list[Event]:
         """Un siège de lobby vient d'être libéré : si tous les joueurs restants sont
@@ -105,6 +127,11 @@ class GameSpec(ABC):
     @abstractmethod
     def results(self, room: Room) -> tuple[int, int] | None:
         """(siège gagnant, siège perdant) d'une partie terminée, None si sans objet."""
+
+    async def record_results(self, room: Room, db: AsyncSession) -> bool:
+        """Bilan de fin de partie propre au jeu (Elo, historique des parties). Faux =
+        le bilan commun (un gagnant, un perdant, selon `results`) s'applique."""
+        return False
 
     # Crochets optionnels (rien par défaut, d'où les `return None` explicites).
 

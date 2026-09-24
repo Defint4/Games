@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 from alembic import context
 from app.core.config import settings
 from app.core.database import Base
+from app.games.chess import models as _chess_models  # noqa: F401  (chess_games)
 from app.games.solitaire import models as _solitaire_models  # noqa: F401  (solitaire_games)
 from app.players import models as _players_models  # noqa: F401  (players, player_game_stats)
 
