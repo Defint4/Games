@@ -44,6 +44,7 @@ export default function SettingsSheet({
   code,
   inLobby,
   rules,
+  cardBacks = true,
   onLeave,
   onClose,
 }: {
@@ -51,14 +52,13 @@ export default function SettingsSheet({
   code: string;
   inLobby: boolean;
   rules: React.ReactNode;
+  /* Faux pour un jeu sans cartes (Perudo) : pas de choix de dos. */
+  cardBacks?: boolean;
   onLeave: () => void;
   onClose: () => void;
 }) {
   const router = useRouter();
-  const prefs = usePrefs();
   const t = useT(T);
-  const backLabels = useT(BACK_STYLES);
-  const feltLabels = useT(FELT_STYLES);
   const [showRules, setShowRules] = useState(false);
 
   if (showRules) return <Sheet onClose={() => setShowRules(false)}>{rules}</Sheet>;
@@ -72,39 +72,7 @@ export default function SettingsSheet({
         <LangSwitch />
         <SoundToggle />
 
-        <div className="rounded-2xl bg-black/25 p-4 ring-1 ring-white/10">
-          <p className="mb-2 font-bold">{t.backs}</p>
-          <div className="flex gap-3">
-            {(Object.keys(backLabels) as BackStyle[]).map((style) => (
-              <button
-                key={style}
-                type="button"
-                aria-label={backLabels[style]}
-                onClick={() => setPref("back", style)}
-                className={`rounded-lg p-1 ${prefs.back === style ? "ring-2 ring-gold" : ""}`}
-              >
-                <BackPreview style={style} />
-              </button>
-            ))}
-          </div>
-          <p className="mb-2 mt-4 font-bold">{t.felt}</p>
-          <div className="flex gap-3">
-            {(Object.keys(feltLabels) as FeltStyle[]).map((style) => (
-              <button
-                key={style}
-                type="button"
-                aria-label={feltLabels[style]}
-                onClick={() => setPref("felt", style)}
-                className={`size-10 rounded-full ring-2 ${
-                  prefs.felt === style ? "ring-gold" : "ring-white/20"
-                }`}
-                style={{
-                  background: { green: "#1b5443", navy: "#1a3354", wine: "#541a25" }[style],
-                }}
-              />
-            ))}
-          </div>
-        </div>
+        <LookPrefs cardBacks={cardBacks} />
 
         <button
           type="button"
@@ -132,6 +100,54 @@ export default function SettingsSheet({
         )}
       </div>
     </Sheet>
+  );
+}
+
+/* Dos des cartes (jeux de cartes seulement) et couleur du tapis : dans le menu de
+   chaque table. */
+export function LookPrefs({ cardBacks = true }: { cardBacks?: boolean }) {
+  const prefs = usePrefs();
+  const t = useT(T);
+  const backLabels = useT(BACK_STYLES);
+  const feltLabels = useT(FELT_STYLES);
+  return (
+    <div className="rounded-2xl bg-black/25 p-4 ring-1 ring-white/10">
+      {cardBacks && (
+        <>
+          <p className="mb-2 font-bold">{t.backs}</p>
+          <div className="mb-4 flex gap-3">
+            {(Object.keys(backLabels) as BackStyle[]).map((style) => (
+              <button
+                key={style}
+                type="button"
+                aria-label={backLabels[style]}
+                onClick={() => setPref("back", style)}
+                className={`rounded-lg p-1 ${prefs.back === style ? "ring-2 ring-gold" : ""}`}
+              >
+                <BackPreview style={style} />
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+      <p className="mb-2 font-bold">{t.felt}</p>
+      <div className="flex gap-3">
+        {(Object.keys(feltLabels) as FeltStyle[]).map((style) => (
+          <button
+            key={style}
+            type="button"
+            aria-label={feltLabels[style]}
+            onClick={() => setPref("felt", style)}
+            className={`size-10 rounded-full ring-2 ${
+              prefs.felt === style ? "ring-gold" : "ring-white/20"
+            }`}
+            style={{
+              background: { green: "#1b5443", navy: "#1a3354", wine: "#541a25" }[style],
+            }}
+          />
+        ))}
+      </div>
+    </div>
   );
 }
 

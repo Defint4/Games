@@ -51,6 +51,7 @@ class GameStatsOut(BaseModel):
     played: int
     won: int
     lost: int
+    best_ms: int | None = None
 
     model_config = {"from_attributes": True}
 
@@ -99,6 +100,7 @@ class LeaderboardEntryOut(BaseModel):
     played: int
     won: int
     lost: int
+    best_ms: int | None = None
 
     model_config = {"from_attributes": True}
 

@@ -18,6 +18,7 @@ import LangSwitch from "@/components/LangSwitch";
 import SoundToggle from "@/components/SoundToggle";
 import { GearIcon } from "@/components/TableFrame";
 import { ApiError, fetchMe } from "@/lib/api";
+import { formatDuration } from "@/lib/duration";
 import { GAMES, type GameMeta } from "@/lib/games";
 import { dict, useLang, useT } from "@/lib/i18n";
 import { currentProfile, signOut, type StoredProfile } from "@/lib/identity";
@@ -29,6 +30,7 @@ const T = dict({
     editProfile: "Modifier mon profil",
     record: (played: number, won: number) =>
       `${played} ${played > 1 ? "parties" : "partie"}, ${won} ${won > 1 ? "gagnées" : "gagnée"}`,
+    best: (time: string) => `record ${time}`,
     play: "Jouer",
     soon: "Bientôt",
   },
@@ -36,6 +38,7 @@ const T = dict({
     editProfile: "Edit my profile",
     record: (played: number, won: number) =>
       `${played} ${played > 1 ? "games" : "game"}, ${won} won`,
+    best: (time: string) => `best ${time}`,
     play: "Play",
     soon: "Coming soon",
   },
@@ -245,6 +248,7 @@ function GameTile({
           stats && stats.played > 0 ? (
             <p className="mt-2 text-xs font-semibold text-gold/90">
               {t.record(stats.played, stats.won)}
+              {game.timed && stats.best_ms ? ` · ${t.best(formatDuration(stats.best_ms, true))}` : ""}
             </p>
           ) : (
             <p className="mt-2 text-xs font-semibold text-gold/90">{t.play}</p>

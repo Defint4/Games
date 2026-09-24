@@ -38,6 +38,8 @@ type Props<V extends BaseRoomView, S extends RoomSocket<V>> = {
   lobby: (socket: S, view: V) => React.ReactNode;
   table: (socket: S, view: V) => React.ReactNode;
   rules: React.ReactNode;
+  /* Faux pour un jeu sans cartes : le menu ⚙️ ne propose pas de dos de cartes. */
+  cardBacks?: boolean;
   /* Les ressources du jeu (images, sons, 3D) à avoir en cache avant d'afficher la
      table : sur un réseau lent, mieux vaut attendre un peu que voir des trous en pleine
      partie. Fonction stable (déclarée au niveau du module), chaque jeu a la sienne. */
@@ -129,6 +131,7 @@ function Room<V extends BaseRoomView, S extends RoomSocket<V>>({
   lobby,
   table,
   rules,
+  cardBacks,
   code,
   token,
 }: Props<V, S> & { code: string; token: string }) {
@@ -189,6 +192,7 @@ function Room<V extends BaseRoomView, S extends RoomSocket<V>>({
           code={view.code}
           inLobby={inLobby}
           rules={rules}
+          cardBacks={cardBacks}
           onLeave={() => socket.leave()}
           onClose={() => setSettingsOpen(false)}
         />
