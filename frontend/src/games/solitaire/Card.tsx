@@ -1,7 +1,7 @@
 "use client";
 
 import { motion, useTransform, type MotionValue } from "motion/react";
-import { memo, useContext, useState } from "react";
+import { memo, useContext, useLayoutEffect, useRef, useState } from "react";
 import { BACK_CSS, CardBackLabel } from "@/components/PlayingCard";
 import { usePrefs } from "@/lib/prefs";
 import { isRed, rank, suit } from "./engine";
@@ -181,12 +181,27 @@ export const CardView = memo(function CardView({
   h: number;
   onPointerDown: (card: string, e: React.PointerEvent) => void;
 }) {
+  const ref = useRef<HTMLDivElement>(null);
   const scale = useTransform(mv.lift, [0, 1], [1, 1.07]);
+  // La profondeur est écrite directement, pas via le style de motion : motion ne redessine
+  // un élément qu'une fois par horodatage, et Safari arrondit l'horloge à la milliseconde.
+  // La profondeur reposée à la fin d'un vol (Board, fly) tombe souvent dans la même
+  // milliseconde que la frame qui vient de peindre la carte : motion croit le rendu fait
+  // et la carte reste à sa profondeur de vol, au-dessus de celles qui la recouvrent.
+  useLayoutEffect(() => {
+    const el = ref.current!;
+    const apply = (z: number) => {
+      el.style.zIndex = String(z);
+    };
+    apply(mv.z.get());
+    return mv.z.on("change", apply);
+  }, [mv.z]);
   return (
     <motion.div
+      ref={ref}
       data-card={card}
       className="absolute left-0 top-0 touch-none select-none"
-      style={{ x: mv.x, y: mv.y, zIndex: mv.z, rotate: mv.rot, scale, width: w, height: h }}
+      style={{ x: mv.x, y: mv.y, rotate: mv.rot, scale, width: w, height: h }}
       onPointerDown={(e) => onPointerDown(card, e)}
     >
       {/* Ombre portée d'une carte soulevée : un calque à part dont seule l'opacité
