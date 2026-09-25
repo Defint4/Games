@@ -23,6 +23,11 @@ const PHASES: Phase[] = ["off", "draining", "locked"];
 
 let phase: Phase = "off";
 let notice = false;
+/* Le commit de ce build (deploy.sh ; absent en dev). Un autre annoncé par /api/status :
+   l'app tourne sur une version dépassée, typiquement une PWA restée en arrière-plan
+   pendant un déploiement, qui reprend sans recharger. */
+const BUILD_ID = process.env.NEXT_PUBLIC_BUILD_ID;
+let online: string | null = null;
 // Compteur des annonces reçues en direct (WebSocket) : une lecture de /api/status partie
 // avant l'une d'elles ne doit pas la contredire (voir pollPhase).
 let announced = 0;
@@ -56,6 +61,35 @@ export function setPhase(next: unknown) {
 
 export function usePhase(): Phase {
   return useSyncExternalStore(subscribe, getPhase, () => "off");
+}
+
+export function useOutdated(): boolean {
+  return useSyncExternalStore(
+    subscribe,
+    () => online !== null,
+    () => false,
+  );
+}
+
+const UPDATE_RELOAD_KEY = "games:update-reload";
+const UPDATE_RELOAD_GAP_MS = 120000;
+
+/* Rechargement complet sur la version en ligne, au plus un toutes les deux minutes :
+   pendant le redémarrage des services, l'API peut annoncer le nouveau commit alors que le
+   front sert encore l'ancien. La page rechargée retombe alors sur l'ancienne version ;
+   elle réessaie plus tard au lieu de boucler. Renvoie le délai avant l'essai suivant
+   (0 : rechargée, ou stockage bloqué et rien à réessayer). */
+export function reloadForUpdate(): number {
+  try {
+    const last = Number(sessionStorage.getItem(UPDATE_RELOAD_KEY) ?? 0);
+    const wait = last + UPDATE_RELOAD_GAP_MS - Date.now();
+    if (wait > 0) return wait;
+    sessionStorage.setItem(UPDATE_RELOAD_KEY, String(Date.now()));
+  } catch {
+    return 0;
+  }
+  window.location.reload();
+  return 0;
 }
 
 export function useNoticeOpen(): boolean {
@@ -106,7 +140,15 @@ async function fetchPhase(): Promise<Phase | null> {
       signal: AbortSignal.timeout(10000),
     });
     if (!res.ok) return null;
-    const body = (await res.json()) as { maintenance?: unknown };
+    const body = (await res.json()) as { maintenance?: unknown; version?: unknown };
+    if (BUILD_ID && typeof body.version === "string") {
+      // De nouveau le même commit (l'ancienne API lue pendant le redémarrage) : à jour.
+      const next = body.version === BUILD_ID ? null : body.version;
+      if (next !== online) {
+        online = next;
+        emit();
+      }
+    }
     return PHASES.includes(body.maintenance as Phase) ? (body.maintenance as Phase) : null;
   } catch {
     return null;

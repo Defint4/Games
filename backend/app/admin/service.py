@@ -7,7 +7,6 @@ verrou, comme le routeur des tables. Tout le reste est en base.
 from __future__ import annotations
 
 import asyncio
-import subprocess
 import time
 import uuid
 from dataclasses import dataclass
@@ -20,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.admin.models import AdminCredential, AdminEvent
 from app.core.security import hash_password, verify_password
+from app.core.version import VERSION
 from app.games.base import GameStatus
 from app.players import service as players_service
 from app.players.models import Player, PlayerGameStats
@@ -115,24 +115,6 @@ async def events(db: AsyncSession, offset: int, limit: int) -> tuple[int, list[A
 # ---------------------------------------------------------------------------
 # Vue d'ensemble
 # ---------------------------------------------------------------------------
-
-
-def _version() -> str | None:
-    """Le commit en ligne : de quoi vérifier qu'un déploiement est bien passé."""
-    try:
-        out = subprocess.run(
-            ["git", "log", "-1", "--format=%h %cI"],
-            cwd=Path(__file__).resolve().parent,
-            capture_output=True,
-            text=True,
-            timeout=2,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return None
-    return out.stdout.strip() or None
-
-
-VERSION = _version()
 
 
 def _rss_mb() -> float | None:

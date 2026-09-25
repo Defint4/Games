@@ -9,7 +9,15 @@ import { ShufflingCards } from "@/components/Loading";
 import { fetchMe } from "@/lib/api";
 import { dict, useT } from "@/lib/i18n";
 import { currentProfile, type StoredProfile } from "@/lib/identity";
-import { closeNotice, getPhase, pollPhase, useNoticeOpen, usePhase } from "@/lib/maintenance";
+import {
+  closeNotice,
+  getPhase,
+  pollPhase,
+  reloadForUpdate,
+  useNoticeOpen,
+  useOutdated,
+  usePhase,
+} from "@/lib/maintenance";
 import { sfx } from "@/lib/sound";
 
 const T = dict({
@@ -42,15 +50,16 @@ const T = dict({
 const POLL_OPEN_MS = 20000;
 const POLL_MAINTENANCE_MS = 5000;
 
-/* Parties solo en cours : leur chrono (Solitaire, mesuré par le serveur) ou leur pendule
-   (échecs contre l'ordinateur) continue de tourner ; les couper les fausserait. Elles
-   se finissent, l'écran de maintenance vient en quittant la page. */
-const SOLO_GAME_PATHS = ["/solitaire/play", "/chess/bot"];
+/* Une table (partie à plusieurs) : un rechargement en pleine main ferait décrocher le
+   joueur, la nouvelle version attend qu'il change de page. */
+const isTablePath = (pathname: string) => pathname.includes("/table/");
 
 /* Le passage de l'app en maintenance, autour de toutes les pages. Fermée (« locked »),
    l'app laisse place à l'écran de maintenance, sauf pour l'admin (qui doit pouvoir la
-   rouvrir), sur le panneau lui-même et pendant une partie solo. À la réouverture — après un déploiement, le
-   serveur redémarre ouvert —, la page se recharge sur la nouvelle version. */
+   rouvrir) et sur le panneau lui-même. À la réouverture — après un déploiement, le
+   serveur redémarre ouvert —, la page se recharge sur la nouvelle version. Une app
+   passée à côté de la maintenance (restée en arrière-plan) se recharge aussi, dès
+   qu'elle voit que le commit en ligne n'est plus le sien. */
 export default function MaintenanceGate({ children }: { children: React.ReactNode }) {
   const phase = usePhase();
   const pathname = usePathname();
@@ -94,11 +103,7 @@ export default function MaintenanceGate({ children }: { children: React.ReactNod
     enabled: phase === "locked" && profile !== null,
   });
   const isAdmin = me.data?.admin === true;
-  const exempt =
-    isAdmin ||
-    pathname.startsWith("/admin") ||
-    (pathname === "/" && adminEntry) ||
-    SOLO_GAME_PATHS.includes(pathname);
+  const exempt = isAdmin || pathname.startsWith("/admin") || (pathname === "/" && adminEntry);
   const blocked = phase === "locked" && !exempt;
   // Le temps de savoir si le compte est celui de l'admin, l'écran de maintenance
   // s'affiche sans compter comme vu (pas de rechargement de l'admin à la réouverture).
@@ -110,6 +115,17 @@ export default function MaintenanceGate({ children }: { children: React.ReactNod
     // Réouverture vue depuis l'écran de maintenance : la nouvelle version, en entier.
     else if (blockedRef.current && phase === "off") window.location.reload();
   }, [blocked, deciding, exempt, phase]);
+
+  // Le Solitaire et les échecs contre l'ordinateur reprennent où ils en étaient (coups
+  // gardés sur l'appareil) : seules les tables attendent.
+  const outdated = useOutdated();
+  useEffect(() => {
+    if (!outdated || isTablePath(pathname)) return;
+    const wait = reloadForUpdate();
+    if (!wait) return;
+    const timer = setTimeout(reloadForUpdate, wait);
+    return () => clearTimeout(timer);
+  }, [outdated, pathname]);
 
   return (
     <>

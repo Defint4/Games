@@ -25,7 +25,9 @@ rm -rf .next-build
 # `next start` ne s'en sert pas.
 rm -rf .next/types
 VERSION="$(git rev-parse --short HEAD)"
-NEXT_DIST_DIR=.next-build NEXT_DEPLOYMENT_ID="$VERSION" pnpm build
+# NEXT_PUBLIC_BUILD_ID : le commit connu du front, comparé à celui qu'annonce /api/status
+# (une app restée ouverte sur l'ancienne version se recharge, voir lib/maintenance.ts).
+NEXT_DIST_DIR=.next-build NEXT_DEPLOYMENT_ID="$VERSION" NEXT_PUBLIC_BUILD_ID="$VERSION" pnpm build
 # Relu par next.config.ts au lancement de `next start` (voir deploymentId) : sans lui,
 # les pages rendues à la demande partiraient sans identifiant de version.
 echo "$VERSION" > .next-build/DEPLOYMENT_ID
