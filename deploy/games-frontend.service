@@ -6,8 +6,9 @@ After=network.target
 User=matthieu
 Group=www-data
 WorkingDirectory=/var/www/games/frontend
-# `pnpm start` = `next start --port 3003` (package.json)
-ExecStart=/usr/bin/pnpm start
+# `next start` directement, pas `pnpm start` : pnpm garderait un processus Node inutile
+# (~115 Mo) à côté du serveur. Écoute sur 127.0.0.1 seulement : nginx est le seul client.
+ExecStart=/var/www/games/frontend/node_modules/.bin/next start --port 3003 --hostname 127.0.0.1
 Restart=always
 RestartSec=5
 

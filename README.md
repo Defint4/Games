@@ -69,6 +69,8 @@ jeu sont stockées par slug, aucune migration n'est nécessaire pour un nouveau 
 
 Même VPS que `portfolio-2026`, `concreteFencing` et `invoice_Maker` (Ubuntu 24.04,
 utilisateur `matthieu`, nginx + certbot + PostgreSQL + uv + Node 22 + pnpm déjà installés).
+La préparation du serveur (SSH, swap, réglages nginx communs dont la vraie IP Cloudflare,
+sauvegardes) est décrite dans le README de `portfolio-2026`, section 0.
 
 | | |
 |---|---|
@@ -133,6 +135,7 @@ chmod +x /var/www/games/deploy.sh
 cd /var/www/games/backend
 cp .env.example .env
 nano .env
+chmod 600 .env                 # secrets : lisible par le seul compte matthieu (celui des services)
 ```
 
 À renseigner :
@@ -191,6 +194,12 @@ sudo systemctl status games-backend games-frontend
 
 ### 6. Nginx + HTTPS
 
+`deploy/nginx-games.conf` est la config complète du serveur, lignes certbot comprises :
+au tout premier déploiement (certificat pas encore créé), retirer les lignes
+« managed by Certbot » et le second bloc `server`, puis lancer certbot qui les rajoute.
+Elle inclut `/etc/nginx/snippets/cloudflare-real-ip.conf`, créé à la préparation du serveur
+(même contenu que `deploy/nginx-cloudflare-real-ip.conf`).
+
 ```bash
 sudo cp /var/www/games/deploy/nginx-games.conf /etc/nginx/sites-available/games
 sudo ln -s /etc/nginx/sites-available/games /etc/nginx/sites-enabled/
@@ -200,8 +209,14 @@ sudo systemctl reload nginx
 sudo certbot --nginx -d games.matthieuguiot.dev
 ```
 
-La config nginx garde le WebSocket de partie ouvert (`proxy_read_timeout 3600s` sur
-`/api/`) : sans cela, nginx couperait la connexion après 60 s de silence en lobby.
+Ce qu'elle fait :
+- les WebSockets (`/api/rooms/<code>/ws` et `/api/rooms/live`) restent ouverts une heure
+  sans parler, sinon nginx les couperait après 60 s de silence en lobby ; le reste de
+  l'API garde le délai normal ;
+- connexions gardées ouvertes vers l'API et Next (`upstream` + `keepalive`, 4 s, sous les
+  5 s d'uvicorn et de Node) ;
+- pendant un redémarrage de l'app, nginx sert `deploy/maintenance.html` (503, se recharge
+  seule) au lieu d'une erreur 502.
 
 ### 7. Vérifications
 
@@ -225,10 +240,21 @@ cd /var/www/games
 ```
 
 `git pull` → `uv sync` + migrations → `pnpm install` + build → restart des deux services.
-Ajouter un jeu en production, c'est exactement cette commande.
+Ajouter un jeu en production, c'est exactement cette commande. Si `deploy.sh` lui-même a
+changé, faire `git pull` à part avant de le lancer (bash lit le script pendant qu'il
+s'exécute).
+
+Le build se fait dans `frontend/.next-build`, à côté de la version en ligne, puis remplace
+`.next` d'un coup : le site ne sert jamais une version à moitié construite. Le commit sert
+d'identifiant de version (`NEXT_DEPLOYMENT_ID`, et `.next/DEPLOYMENT_ID` relu par
+`next start`) : une app restée ouverte sur l'ancienne version se recharge au lieu de
+planter, et les fichiers JS de la version précédente restent servis.
 
 Le redémarrage vide les tables en mémoire : avant de déployer, ouvrir le bureau
-(onglet Maintenance), fermer les nouvelles parties et attendre « Tu peux déployer ».
+(onglet Maintenance) et lancer la maintenance. Plus personne ne peut lancer de partie ;
+à la fin de la dernière, l'app se ferme d'elle-même aux joueurs (écran de maintenance) et
+le bureau affiche « Tu peux déployer ». Le redémarrage rouvre l'app, qui se recharge seule
+sur la nouvelle version.
 
 ### 9. Panneau d'administration (une seule fois)
 
@@ -252,28 +278,10 @@ pas en reprenant son pseudo.
 sudo journalctl -u games-backend -f
 sudo journalctl -u games-frontend -f
 sudo systemctl restart games-backend games-frontend
-sudo -u postgres pg_dump games | gzip > ~/games-$(date +%F).sql.gz   # sauvegarde
+curl https://games.matthieuguiot.dev/api/status          # état de la maintenance
+sudo -u postgres /usr/local/bin/pg-backup                 # export immédiat (sinon chaque nuit, voir portfolio-2026)
+sudo -u postgres pg_restore --clean -d games /var/backups/postgresql/games-AAAA-MM-JJ.dump
 ```
-
-### Retirer l'ancienne installation `9to1`
-
-L'ancien déploiement (`/var/www/9to1`, `9to1.matthieuguiot.dev`) n'a jamais eu de joueur :
-on le supprime au lieu de le migrer, avant l'étape 1.
-
-```bash
-sudo systemctl disable --now 9to1-backend 9to1-frontend
-sudo rm /etc/systemd/system/9to1-backend.service /etc/systemd/system/9to1-frontend.service
-sudo systemctl daemon-reload
-sudo rm /etc/nginx/sites-enabled/9to1 /etc/nginx/sites-available/9to1
-sudo nginx -t && sudo systemctl reload nginx
-sudo certbot delete --cert-name 9to1.matthieuguiot.dev
-sudo rm -rf /var/www/9to1
-sudo -u postgres psql -c "DROP DATABASE ninetoone;" -c "DROP ROLE ninetoone;"
-```
-
-Puis supprimer l'enregistrement DNS `9to1` chez Cloudflare et la deploy key
-`vps-9to1-deploy` sur GitHub (le repo a été renommé, l'ancienne clé fonctionne encore : la
-remplacer par `vps-games-deploy` à l'étape 2 et retirer l'ancienne).
 
 ---
 
