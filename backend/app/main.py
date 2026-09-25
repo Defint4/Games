@@ -10,6 +10,7 @@ from app.admin.router import router as admin_router
 from app.core.config import settings
 from app.core.database import engine
 from app.core.rate_limit import limiter
+from app.core.version import COMMIT
 from app.games.chess.router import router as chess_router
 from app.games.solitaire.router import router as solitaire_router
 from app.players.router import router as players_router
@@ -74,8 +75,9 @@ async def health() -> dict[str, str]:
 
 
 @app.get("/api/status")
-async def status(response: Response) -> dict[str, str]:
-    """L'état de maintenance (off / draining / locked), lu par l'app sur toutes ses pages.
-    Jamais en cache : ni navigateur ni Cloudflare ne doivent servir un état périmé."""
+async def status(response: Response) -> dict[str, str | None]:
+    """L'état de maintenance (off / draining / locked) et le commit en ligne, lus par
+    l'app sur toutes ses pages. Jamais en cache : ni navigateur ni Cloudflare ne doivent
+    servir un état périmé."""
     response.headers["Cache-Control"] = "no-store"
-    return {"maintenance": manager.maintenance_phase()}
+    return {"maintenance": manager.maintenance_phase(), "version": COMMIT}
