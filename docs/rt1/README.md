@@ -96,6 +96,10 @@ Déblocage par la campagne, ou achat avec l'argent gagné.
   choix mémorisé par véhicule.
 - **Aucune collision entre véhicules**, ni en ligne ni contre les bots : les autres sont
   des fantômes qu'on traverse.
+- Sorties de route permises. Au-delà de 8,6 m de l'axe, « Hors piste » et 5 s pour
+  revenir ; sinon la voiture est reposée là où elle a quitté la route, chrono qui
+  continue. Les murs se traversent depuis l'extérieur (pour revenir), jamais depuis
+  la route. Retournée ou dans le lagon : même remise en piste.
 
 ## Argent et atelier
 
@@ -172,8 +176,12 @@ frontend/src/games/rt1/
                                  cases de 320 m, voiture, caméra (poursuite / cockpit)
     materials.ts                 asphalte marqué, grain du sol, ciel, lagon, vent
     RaceScene.tsx                Canvas R3F, lumières, résolution adaptée à la cadence
-  Race.tsx                     chrono, commandes tactiles, décompte, arrivée, pause
-  PlayPage.tsx, Home.tsx       chargement, paysage, écran allumé ; accueil du jeu
+  menu/                        écrans hors course : Shell (bandeau, onglets Course,
+                               Carrière, Garage, En ligne, Profil), pages des onglets
+  Home.tsx                     onglet Course (circuit du moment, modes)
+  Race.tsx                     chrono, commandes tactiles, décompte, arrivée, pause ;
+                               rendu tourné de 90° quand l'écran reste en portrait
+  PlayPage.tsx, Loader.tsx     chargement (avancement réel, phrases), écran allumé
   engineSound.ts               moteur, pneus et vent synthétisés, bips de course
 ```
 

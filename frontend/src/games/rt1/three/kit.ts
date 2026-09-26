@@ -39,6 +39,11 @@ export function buildLevel(assets: RaceAssets, anisotropy: number): Object3D {
   const k = assets.level.meta.lmScale * Math.PI;
   const { terrain, road, props } = assets.lightmaps;
   road.channel = 1;
+  // filtrage anisotrope : sans lui, sol et route deviennent flous en vue rasante
+  for (const tex of [terrain, road, props, detailTexture()]) {
+    tex.anisotropy = anisotropy;
+    tex.needsUpdate = true;
+  }
   const asphalt = roadTexture(anisotropy);
   const hide: Object3D[] = [];
   s.traverse((o) => {

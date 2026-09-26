@@ -31,7 +31,7 @@ const FLIP_KEY = "games:rt1:flip";
 function frame(portrait: boolean, flip: boolean): React.CSSProperties {
   const env = (side: string) => `env(safe-area-inset-${side}, 0px)`;
   if (!portrait) {
-    return { inset: 0, ["--sl" as string]: env("left"), ["--sr" as string]: env("right"), ["--st" as string]: env("top"), ["--sb" as string]: env("bottom"), ["--u" as string]: "calc(1*var(--u))" };
+    return { inset: 0, ["--sl" as string]: env("left"), ["--sr" as string]: env("right"), ["--st" as string]: env("top"), ["--sb" as string]: env("bottom"), ["--u" as string]: "1vw" };
   }
   const base = { top: 0, left: 0, width: "100vh", height: "100vw", transformOrigin: "top left", ["--u" as string]: "1vh" };
   return flip
@@ -108,6 +108,8 @@ function RaceView({ game, assets, onSceneReady }: { game: Game; assets: RaceAsse
   const delta = useRef<HTMLDivElement>(null);
   const cp = useRef<HTMLDivElement>(null);
   const fps = useRef<HTMLDivElement>(null);
+  const off = useRef<HTMLDivElement>(null);
+  const offCount = useRef<HTMLSpanElement>(null);
   const deltaTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sound = useRef<EngineSound | null>(null);
   const debug = useRef(false);
@@ -242,6 +244,11 @@ function RaceView({ game, assets, onSceneReady }: { game: Game; assets: RaceAsse
       if (speed.current) speed.current.textContent = String(Math.round(Math.abs(c.forwardSpeed) * 3.6));
       if (gear.current) gear.current.textContent = c.gear === 0 && c.forwardSpeed < -1 ? "R" : String(Math.max(1, c.gear));
       sound.current?.update(c.rpm, c.throttle, c.slip, c.speed, c.grounded > 0);
+      if (off.current && offCount.current) {
+        const left = game.offTrack;
+        off.current.dataset.show = left === null ? "0" : "1";
+        if (left !== null) offCount.current.textContent = String(Math.max(1, Math.ceil(left)));
+      }
       if (debug.current && fps.current) {
         const f = frames.current;
         f.n++;
@@ -311,6 +318,20 @@ function RaceView({ game, assets, onSceneReady }: { game: Game; assets: RaceAsse
         <span className="text-xs opacity-80">km/h</span>
         <span ref={gear} className="ml-1 rounded bg-black/35 px-1.5 text-sm">
           1
+        </span>
+      </div>
+
+      <div
+        ref={off}
+        data-show="0"
+        className={`${bungee.className} pointer-events-none absolute left-1/2 top-[34%] flex -translate-x-1/2 items-center gap-3 rounded-2xl bg-[#C8232C]/90 py-2 pl-4 pr-2 opacity-0 transition-opacity duration-200 data-[show=1]:opacity-100`}
+      >
+        <span className="flex flex-col leading-tight">
+          <span className="text-base">{t.offTrack}</span>
+          <span className="font-sans text-xs font-semibold opacity-85">{t.offTrackNote}</span>
+        </span>
+        <span ref={offCount} className="grid size-10 place-items-center rounded-xl bg-white text-2xl text-[#C8232C] tabular-nums">
+          5
         </span>
       </div>
 
