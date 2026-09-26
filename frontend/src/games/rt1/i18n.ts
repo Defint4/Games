@@ -4,6 +4,23 @@ export const T = dict({
   fr: {
     tagline: "De Nouméa à Poum, au centième.",
     loading: "On chauffe les pneus…",
+    loader: {
+      lines: [
+        "On gonfle les pneus…",
+        "On balaie la terre rouge sur la piste…",
+        "Les cocotiers prennent la pose…",
+        "Le lagon règle son turquoise…",
+        "On allume le phare d’Amédée…",
+        "On cherche les clés du pick-up…",
+        "Petite pause bougna, on arrive…",
+        "On chasse les roussettes du circuit…",
+        "Un cagou traverse, on attend…",
+        "On vérifie le niveau d’huile…",
+      ],
+      sideways: "Tourne ton téléphone à l’horizontale : la course se joue en paysage.",
+      reload: "Recharger",
+      failed: "Le circuit n’arrive pas…",
+    },
     home: {
       track: "Nouméa · Front de mer",
       trackNote: "Le premier circuit : le long de la baie, puis les collines.",
@@ -15,8 +32,7 @@ export const T = dict({
       preview: "Aperçu : ta progression n’est pas encore enregistrée sur le serveur.",
     },
     race: {
-      rotate: "Tourne ton téléphone",
-      rotateNote: "RT1 se joue à l’horizontale.",
+      flip: "Retourner l’écran",
       go: "Top !",
       menu: "Menu",
       restart: "Recommencer",
@@ -38,6 +54,23 @@ export const T = dict({
   en: {
     tagline: "Nouméa to Poum, down to the hundredth.",
     loading: "Warming up the tyres…",
+    loader: {
+      lines: [
+        "Pumping up the tyres…",
+        "Sweeping red dirt off the track…",
+        "The palm trees strike a pose…",
+        "The lagoon tunes its turquoise…",
+        "Lighting up Amédée lighthouse…",
+        "Looking for the pickup keys…",
+        "Quick bougna break, almost there…",
+        "Shooing flying foxes off the circuit…",
+        "A kagu is crossing, hold on…",
+        "Checking the oil level…",
+      ],
+      sideways: "Turn your phone sideways: races are played in landscape.",
+      reload: "Reload",
+      failed: "The circuit isn’t coming through…",
+    },
     home: {
       track: "Nouméa · Seafront",
       trackNote: "The first circuit: along the bay, then up into the hills.",
@@ -49,8 +82,7 @@ export const T = dict({
       preview: "Preview: your progress isn’t saved on the server yet.",
     },
     race: {
-      rotate: "Turn your phone",
-      rotateNote: "RT1 is played sideways.",
+      flip: "Flip the screen",
       go: "Go!",
       menu: "Menu",
       restart: "Restart",

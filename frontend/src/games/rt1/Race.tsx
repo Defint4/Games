@@ -23,6 +23,21 @@ const RaceScene = dynamic(() => import("./three/RaceScene"), { ssr: false, loadi
 
 const PAINT = "#E8552B";
 const CAM_KEY = "games:rt1:camera";
+const FLIP_KEY = "games:rt1:flip";
+
+/* Rendu tourné quand l'écran reste en portrait : 90° (téléphone tourné vers la gauche) ou
+   -90° (vers la droite). Les marges de sécurité suivent : le bord gauche du jeu est alors
+   le haut de l'écran, etc. --u remplace le vw (la largeur du jeu est la hauteur de l'écran). */
+function frame(portrait: boolean, flip: boolean): React.CSSProperties {
+  const env = (side: string) => `env(safe-area-inset-${side}, 0px)`;
+  if (!portrait) {
+    return { inset: 0, ["--sl" as string]: env("left"), ["--sr" as string]: env("right"), ["--st" as string]: env("top"), ["--sb" as string]: env("bottom"), ["--u" as string]: "calc(1*var(--u))" };
+  }
+  const base = { top: 0, left: 0, width: "100vh", height: "100vw", transformOrigin: "top left", ["--u" as string]: "1vh" };
+  return flip
+    ? { ...base, transform: "rotate(-90deg) translateX(-100%)", ["--sl" as string]: env("bottom"), ["--st" as string]: env("left"), ["--sr" as string]: env("top"), ["--sb" as string]: env("right") }
+    : { ...base, transform: "rotate(90deg) translateY(-100%)", ["--sl" as string]: env("top"), ["--st" as string]: env("right"), ["--sr" as string]: env("bottom"), ["--sb" as string]: env("left") };
+}
 
 function trimesh(gltf: GLTF, name: string): TriMesh {
   const root = gltf.scene.getObjectByName(name);
@@ -50,7 +65,7 @@ function trimesh(gltf: GLTF, name: string): TriMesh {
 type Banner = { key: number; text: string } | null;
 type Finish = { time: number; delta: number | null; best: boolean; record: number | null };
 
-export default function Race({ assets }: { assets: RaceAssets }) {
+export default function Race({ assets, onReady }: { assets: RaceAssets; onReady: () => void }) {
   const [game, setGame] = useState<Game | null>(null);
   const colliders = useMemo(
     () => ({ road: trimesh(assets.levelGltf, "col_road"), walls: trimesh(assets.levelGltf, "col_wall") }),
@@ -69,21 +84,23 @@ export default function Race({ assets }: { assets: RaceAssets }) {
   }, [assets, colliders]);
 
   if (!game) return <main className="fixed inset-0 bg-black" />;
-  return <RaceView key={game.id} game={game} assets={assets} />;
+  return <RaceView key={game.id} game={game} assets={assets} onSceneReady={onReady} />;
 }
 
-function RaceView({ game, assets }: { game: Game; assets: RaceAssets }) {
+function RaceView({ game, assets, onSceneReady }: { game: Game; assets: RaceAssets; onSceneReady: () => void }) {
   const router = useRouter();
   const t = useT(T).race;
   const [cam, setCam] = useState<CamMode>("chase");
   const [ready, setReady] = useState(false);
   const [menu, setMenu] = useState(false);
+  /* Écran resté en portrait (app verrouillée, iOS) : on tourne le rendu nous-mêmes. */
   const [portrait, setPortrait] = useState(false);
+  const [flip, setFlip] = useState(false);
   const [banner, setBanner] = useState<Banner>(null);
   const [finish, setFinish] = useState<Finish | null>(null);
   /* ?photo : sans interface, pour les captures du circuit */
   const [photo, setPhoto] = useState(false);
-  const paused = menu || portrait || !ready;
+  const paused = menu || !ready;
 
   const chrono = useRef<HTMLDivElement>(null);
   const speed = useRef<HTMLSpanElement>(null);
@@ -111,6 +128,7 @@ function RaceView({ game, assets }: { game: Game; assets: RaceAssets }) {
       // Réglage lu après montage (localStorage).
       // eslint-disable-next-line react-hooks/set-state-in-effect
       if (saved === "cockpit") setCam("cockpit");
+      setFlip(localStorage.getItem(FLIP_KEY) === "1");
     } catch {
       /* stockage indisponible */
     }
@@ -211,9 +229,10 @@ function RaceView({ game, assets }: { game: Game; assets: RaceAssets }) {
 
   const onReady = useCallback(() => {
     setReady(true);
+    onSceneReady();
     showBanner("3");
     raceSfx.beat();
-  }, [showBanner]);
+  }, [showBanner, onSceneReady]);
 
   const onFrame = useCallback(
     (dt: number) => {
@@ -239,18 +258,18 @@ function RaceView({ game, assets }: { game: Game; assets: RaceAssets }) {
   );
 
   return (
-    <main className="fixed inset-0 select-none overflow-hidden bg-black text-white [-webkit-touch-callout:none]" onContextMenu={(e) => e.preventDefault()}>
+    <main
+      className="fixed select-none overflow-hidden bg-black text-white [-webkit-touch-callout:none]"
+      style={frame(portrait, flip)}
+      onContextMenu={(e) => e.preventDefault()}
+    >
       <div className="absolute inset-0 touch-none">
         <RaceScene game={game} assets={assets} camMode={cam} paint={PAINT} paused={paused} onFrame={onFrame} onReady={onReady} />
       </div>
-      <div
-        className="pointer-events-none absolute inset-0 bg-black transition-opacity duration-500"
-        style={{ opacity: ready ? 0 : 1 }}
-      />
 
       <div className={photo ? "hidden" : "contents"}>
       {/* Haut : menu, recommencer · chrono · vue, checkpoint */}
-      <div className="absolute inset-x-0 top-0 flex items-start justify-between px-[max(1rem,env(safe-area-inset-left))] pt-[max(0.6rem,env(safe-area-inset-top))] [padding-right:max(1rem,env(safe-area-inset-right))]">
+      <div className="absolute inset-x-0 top-0 flex items-start justify-between px-[max(1rem,var(--sl))] pt-[max(0.6rem,var(--st))] [padding-right:max(1rem,var(--sr))]">
         <div className="flex gap-2">
           <HudButton label={t.menu} onClick={() => setMenu(true)}>
             <path d="M5 7h14M5 12h14M5 17h14" />
@@ -260,7 +279,7 @@ function RaceView({ game, assets }: { game: Game; assets: RaceAssets }) {
           </HudButton>
         </div>
         <div className={`${bungee.className} flex flex-col items-center gap-1`}>
-          <div ref={chrono} className="text-[clamp(1.6rem,4.2vw,2.6rem)] leading-none tabular-nums [text-shadow:0_2px_0_rgba(8,40,52,0.55)]">
+          <div ref={chrono} className="text-[clamp(1.6rem,calc(4.2*var(--u)),2.6rem)] leading-none tabular-nums [text-shadow:0_2px_0_rgba(8,40,52,0.55)]">
             0:00.000
           </div>
           <div ref={cp} className="text-[11px] leading-none opacity-80">
@@ -285,8 +304,8 @@ function RaceView({ game, assets }: { game: Game; assets: RaceAssets }) {
       </div>
 
       {/* Bas : compteur */}
-      <div className={`${bungee.className} pointer-events-none absolute bottom-[max(0.8rem,env(safe-area-inset-bottom))] left-1/2 flex -translate-x-1/2 items-baseline gap-2`}>
-        <span ref={speed} className="text-[clamp(1.8rem,4.6vw,2.8rem)] leading-none tabular-nums [text-shadow:0_2px_0_rgba(8,40,52,0.55)]">
+      <div className={`${bungee.className} pointer-events-none absolute bottom-[max(0.8rem,var(--sb))] left-1/2 flex -translate-x-1/2 items-baseline gap-2`}>
+        <span ref={speed} className="text-[clamp(1.8rem,calc(4.6*var(--u)),2.8rem)] leading-none tabular-nums [text-shadow:0_2px_0_rgba(8,40,52,0.55)]">
           0
         </span>
         <span className="text-xs opacity-80">km/h</span>
@@ -301,7 +320,7 @@ function RaceView({ game, assets }: { game: Game; assets: RaceAssets }) {
       {banner && !photo && (
         <div
           key={banner.key}
-          className={`${bungee.className} pointer-events-none absolute inset-0 flex items-center justify-center text-[clamp(3rem,12vw,7rem)] [animation:rt1-pop_0.6s_ease-out_forwards] [text-shadow:0_4px_0_rgba(8,40,52,0.5)]`}
+          className={`${bungee.className} pointer-events-none absolute inset-0 flex items-center justify-center text-[clamp(3rem,calc(12*var(--u)),7rem)] [animation:rt1-pop_0.6s_ease-out_forwards] [text-shadow:0_4px_0_rgba(8,40,52,0.5)]`}
           onAnimationEnd={() => setBanner(null)}
         >
           {banner.text}
@@ -333,7 +352,7 @@ function RaceView({ game, assets }: { game: Game; assets: RaceAssets }) {
 
       {menu && (
         <div className="absolute inset-0 flex items-center justify-center bg-black/45 backdrop-blur-[2px]" onClick={() => setMenu(false)}>
-          <div className="grid w-[min(24rem,90vw)] grid-cols-2 gap-3 rounded-2xl bg-[#0B2A36]/95 p-5 ring-1 ring-white/15" onClick={(e) => e.stopPropagation()}>
+          <div className="grid w-[min(24rem,calc(90*var(--u)))] grid-cols-2 gap-3 rounded-2xl bg-[#0B2A36]/95 p-5 ring-1 ring-white/15" onClick={(e) => e.stopPropagation()}>
             <h2 className={`${bungee.className} col-span-2 text-center text-lg`}>{t.paused}</h2>
             <button type="button" onClick={() => setMenu(false)} className={`${bungee.className} col-span-2 rounded-xl bg-gold p-3.5 text-ink active:translate-y-0.5`}>
               {t.resume}
@@ -344,29 +363,36 @@ function RaceView({ game, assets }: { game: Game; assets: RaceAssets }) {
             <button type="button" onClick={() => router.push(GAME.path)} className="rounded-xl bg-white/10 p-3 font-bold ring-1 ring-white/15 active:translate-y-0.5">
               {t.quit}
             </button>
-            <div className="col-span-2 flex justify-center">
+            <div className="col-span-2 flex items-center justify-center gap-3">
               <SoundToggle />
+              {portrait && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFlip((f) => {
+                      try {
+                        localStorage.setItem(FLIP_KEY, f ? "0" : "1");
+                      } catch {
+                        /* stockage indisponible */
+                      }
+                      return !f;
+                    });
+                  }}
+                  className="rounded-xl bg-white/10 px-4 py-2.5 text-sm font-bold ring-1 ring-white/15 active:translate-y-0.5"
+                >
+                  {t.flip}
+                </button>
+              )}
             </div>
           </div>
         </div>
       )}
 
-      {portrait && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-[#0B2A36] px-8 text-center">
-          <svg viewBox="0 0 64 64" className="h-20 w-20 [animation:rt1-rotate_1.8s_ease-in-out_infinite]" fill="none" stroke="currentColor" strokeWidth="3">
-            <rect x="20" y="8" width="24" height="48" rx="5" />
-            <path d="M29 50h6" />
-          </svg>
-          <p className={`${bungee.className} text-xl`}>{t.rotate}</p>
-          <p className="text-sm text-white/70">{t.rotateNote}</p>
-        </div>
-      )}
 
       <div ref={fps} className="pointer-events-none absolute bottom-1 left-1 font-mono text-[10px] text-white/70" />
       <style>{`
         @keyframes rt1-pop { 0% { transform: scale(1.6); opacity: 0 } 25% { transform: scale(1); opacity: 1 } 75% { opacity: 1 } 100% { transform: scale(0.9); opacity: 0 } }
-        @keyframes rt1-rotate { 0%, 20% { transform: rotate(0) } 60%, 100% { transform: rotate(-90deg) } }
-        @media (prefers-reduced-motion: reduce) { [class*="rt1-pop"], [class*="rt1-rotate"] { animation: none !important } }
+        @media (prefers-reduced-motion: reduce) { [class*="rt1-pop"] { animation: none !important } }
       `}</style>
     </main>
   );
@@ -393,19 +419,23 @@ function Pads({ input, t }: { input: Input; t: { left: string; right: string; ga
   const [side, setSide] = useState<"left" | "right" | null>(null);
   const [gas, setGas] = useState(false);
   const [brake, setBrake] = useState(false);
-  const steerZone = useRef<HTMLDivElement>(null);
+  const leftPad = useRef<HTMLDivElement>(null);
+  const rightPad = useRef<HTMLDivElement>(null);
 
   const steer = (e: React.PointerEvent, down: boolean) => {
-    const zone = steerZone.current;
-    if (!zone) return;
+    const l = leftPad.current, r = rightPad.current;
+    if (!l || !r) return;
     if (!down) {
       input.set("left", false);
       input.set("right", false);
       setSide(null);
       return;
     }
-    const r = zone.getBoundingClientRect();
-    const s = e.clientX < r.left + r.width / 2 ? "left" : "right";
+    const dist = (el: HTMLElement) => {
+      const b = el.getBoundingClientRect();
+      return Math.hypot(e.clientX - (b.left + b.width / 2), e.clientY - (b.top + b.height / 2));
+    };
+    const s = dist(l) <= dist(r) ? "left" : "right";
     input.set("left", s === "left");
     input.set("right", s === "right");
     setSide(s);
@@ -431,8 +461,7 @@ function Pads({ input, t }: { input: Input; t: { left: string; right: string; ga
   return (
     <>
       <div
-        ref={steerZone}
-        className="absolute bottom-0 left-0 flex touch-none items-end gap-4 pb-[max(1rem,env(safe-area-inset-bottom))] pl-[max(1.2rem,env(safe-area-inset-left))] pr-10 pt-10"
+        className="absolute bottom-0 left-0 flex touch-none items-end gap-4 pb-[max(1rem,var(--sb))] pl-[max(1.2rem,var(--sl))] pr-10 pt-10"
         onPointerDown={(e) => {
           e.currentTarget.setPointerCapture(e.pointerId);
           steer(e, true);
@@ -443,18 +472,18 @@ function Pads({ input, t }: { input: Input; t: { left: string; right: string; ga
         onPointerUp={(e) => steer(e, false)}
         onPointerCancel={(e) => steer(e, false)}
       >
-        <div aria-label={t.left} className={`${pad} h-[clamp(4.2rem,11vw,5.6rem)] w-[clamp(4.2rem,11vw,5.6rem)] ${side === "left" ? "scale-95 bg-white/35" : "bg-white/15"}`}>
+        <div ref={leftPad} aria-label={t.left} className={`${pad} h-[clamp(4.2rem,calc(11*var(--u)),5.6rem)] w-[clamp(4.2rem,calc(11*var(--u)),5.6rem)] ${side === "left" ? "scale-95 bg-white/35" : "bg-white/15"}`}>
           <Arrow d="M15 5l-8 7 8 7z" />
         </div>
-        <div aria-label={t.right} className={`${pad} h-[clamp(4.2rem,11vw,5.6rem)] w-[clamp(4.2rem,11vw,5.6rem)] ${side === "right" ? "scale-95 bg-white/35" : "bg-white/15"}`}>
+        <div ref={rightPad} aria-label={t.right} className={`${pad} h-[clamp(4.2rem,calc(11*var(--u)),5.6rem)] w-[clamp(4.2rem,calc(11*var(--u)),5.6rem)] ${side === "right" ? "scale-95 bg-white/35" : "bg-white/15"}`}>
           <Arrow d="M9 5l8 7-8 7z" />
         </div>
       </div>
-      <div className="absolute bottom-0 right-0 flex items-end gap-4 pb-[max(1rem,env(safe-area-inset-bottom))] pr-[max(1.2rem,env(safe-area-inset-right))]">
-        <div aria-label={t.brake} {...hold("brake", setBrake)} className={`${pad} h-[clamp(3.6rem,9vw,4.6rem)] w-[clamp(3.6rem,9vw,4.6rem)] touch-none ${brake ? "scale-95 bg-white/35" : "bg-white/15"}`}>
+      <div className="absolute bottom-0 right-0 flex items-end gap-4 pb-[max(1rem,var(--sb))] pr-[max(1.2rem,var(--sr))]">
+        <div aria-label={t.brake} {...hold("brake", setBrake)} className={`${pad} h-[clamp(3.6rem,calc(9*var(--u)),4.6rem)] w-[clamp(3.6rem,calc(9*var(--u)),4.6rem)] touch-none ${brake ? "scale-95 bg-white/35" : "bg-white/15"}`}>
           <Arrow d="M7 7h10v10H7z" />
         </div>
-        <div aria-label={t.gas} {...hold("gas", setGas)} className={`${pad} h-[clamp(5rem,13vw,6.6rem)] w-[clamp(5rem,13vw,6.6rem)] touch-none ${gas ? "scale-95 bg-[#2EC4C6]/60" : "bg-[#2EC4C6]/25"}`}>
+        <div aria-label={t.gas} {...hold("gas", setGas)} className={`${pad} h-[clamp(5rem,calc(13*var(--u)),6.6rem)] w-[clamp(5rem,calc(13*var(--u)),6.6rem)] touch-none ${gas ? "scale-95 bg-[#2EC4C6]/60" : "bg-[#2EC4C6]/25"}`}>
           <Arrow d="M12 4l7 9h-4v7H9v-7H5z" />
         </div>
       </div>

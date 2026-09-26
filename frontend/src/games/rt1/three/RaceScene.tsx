@@ -34,6 +34,8 @@ export default function RaceScene(props: Props) {
   return (
     <Canvas
       dpr={dpr}
+      // tailles de mise en page (offset) : justes même quand le rendu est tourné de 90°
+      resize={{ offsetSize: true }}
       gl={{ antialias: true, powerPreference: "high-performance", stencil: false }}
       camera={{ fov: 62, near: 0.1, far: 3200, position: [0, 5, -10] }}
     >
