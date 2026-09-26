@@ -88,6 +88,8 @@ export const T = dict({
     },
     race: {
       flip: "Retourner l’écran",
+      stats: "Infos techniques",
+      fullscreen: "Plein écran",
       offTrack: "Hors piste",
       offTrackNote: "Reviens sur la route",
       go: "Top !",
@@ -195,6 +197,8 @@ export const T = dict({
     },
     race: {
       flip: "Flip the screen",
+      stats: "Tech info",
+      fullscreen: "Full screen",
       offTrack: "Off track",
       offTrackNote: "Get back on the road",
       go: "Go!",

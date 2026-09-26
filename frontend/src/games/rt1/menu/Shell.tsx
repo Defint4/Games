@@ -12,6 +12,7 @@ import { useT } from "@/lib/i18n";
 import { currentProfile } from "@/lib/identity";
 import { preloadAssets } from "../assets";
 import { T } from "../i18n";
+import { setThemeColor } from "../immersive";
 import { bungee } from "../meta";
 import { BackIcon, CoinIcon, FlagIcon, GlobeIcon, HelmetIcon, RouteIcon, WrenchIcon } from "./icons";
 
@@ -31,6 +32,9 @@ export default function Shell({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!currentProfile()) router.replace("/");
   }, [router]);
+
+  // Barre d'état (Android) aux couleurs du jeu plutôt qu'au vert de la plateforme
+  useEffect(() => setThemeColor("#0f4a59"), []);
 
   useEffect(() => {
     // Le circuit se charge dès les menus : la course démarre sans attente.

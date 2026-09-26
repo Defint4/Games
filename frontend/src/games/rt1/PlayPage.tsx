@@ -5,13 +5,15 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { currentProfile } from "@/lib/identity";
 import { onLoadProgress, preloadAssets, type RaceAssets } from "./assets";
+import { exitImmersive, setThemeColor } from "./immersive";
 import Loader from "./Loader";
+import { PLAY_PATH } from "./meta";
 
 const Race = dynamic(() => import("./Race"), { ssr: false, loading: () => null });
 
 /* La page de course : écran de chargement jusqu'à la première image de la course, écran
-   gardé allumé, paysage demandé au navigateur (Android) ; sinon la course tourne son
-   rendu elle-même. */
+   gardé allumé, barre d'état noire. Le plein écran et le paysage sont demandés par le
+   bouton « Rouler » (il faut un geste) ; sans eux, la course tourne son rendu. */
 export default function PlayPage() {
   const router = useRouter();
   const [assets, setAssets] = useState<RaceAssets | null>(null);
@@ -64,16 +66,16 @@ export default function PlayPage() {
       if (document.visibilityState === "visible") void acquire();
     };
     document.addEventListener("visibilitychange", onVisible);
-    const orientation = screen.orientation as ScreenOrientation & { lock?: (o: string) => Promise<void> };
-    orientation?.lock?.("landscape").catch(() => {});
+    const restoreTheme = setThemeColor("#000000");
     return () => {
       document.removeEventListener("visibilitychange", onVisible);
       void lock?.release().catch(() => {});
-      try {
-        screen.orientation?.unlock?.();
-      } catch {
-        /* rien à rendre */
-      }
+      restoreTheme();
+      // Sortie du plein écran seulement si on a vraiment quitté la course (le double
+      // montage du mode strict ne doit pas l'annuler).
+      setTimeout(() => {
+        if (!window.location.pathname.startsWith(PLAY_PATH)) exitImmersive();
+      }, 0);
     };
   }, []);
 
