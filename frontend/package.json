@@ -10,6 +10,7 @@
     "brand": "node brand/brand.mjs"
   },
   "dependencies": {
+    "@dimforge/rapier3d-compat": "0.21.0",
     "@react-three/drei": "^10.7.8",
     "@react-three/fiber": "^9.8.0",
     "@tanstack/react-query": "^5.102.8",

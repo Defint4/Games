@@ -95,6 +95,19 @@ export const GAMES: GameMeta[] = [
     available: true,
     rated: true,
   },
+  {
+    slug: "rt1",
+    name: { fr: "RT1", en: "RT1" },
+    tagline: {
+      fr: "De Nouméa à Poum, au centième.",
+      en: "Nouméa to Poum, down to the hundredth.",
+    },
+    players: { fr: "1 joueur", en: "1 player" },
+    path: "/rt1",
+    // Le lagon qui tourne à la terre rouge.
+    mat: "radial-gradient(130% 110% at 85% 15%, #2ec4c6 0%, #0f6f8f 50%, #5a2414 100%)",
+    available: false,
+  },
 ];
 
 export function gameBySlug(slug: string): GameMeta | undefined {

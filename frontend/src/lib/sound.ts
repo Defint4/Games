@@ -115,7 +115,9 @@ export function preloadSounds(...packs: SoundPack[]): Promise<void> {
   return Promise.all(packs.flatMap((pack) => PACKS[pack].map(load))).then(() => undefined);
 }
 
-function audio(): AudioContext | null {
+/* Contexte audio partagé (null si le son est coupé) : pour les sons continus des jeux,
+   comme le moteur de RT1. */
+export function audio(): AudioContext | null {
   if (typeof window === "undefined" || isMuted()) return null;
   try {
     ctx ??= new AudioContext();
