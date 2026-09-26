@@ -105,7 +105,7 @@ export default function Leaderboard({ game }: { game: GameMeta | null }) {
         <Tab href={leaderboardPath(null)} active={game === null}>
           {t.all}
         </Tab>
-        {GAMES.filter((g) => g.available).map((g) => (
+        {GAMES.filter((g) => g.available === true).map((g) => (
           <Tab key={g.slug} href={leaderboardPath(g.slug)} active={game?.slug === g.slug}>
             {g.name[lang]}
           </Tab>

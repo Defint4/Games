@@ -19,8 +19,9 @@ export type GameMeta = {
   path: string;
   /* Le « tapis » du jeu sur la page de sélection : chaque jeu a sa matière. */
   mat: string;
-  /* Faux tant que le jeu n'est pas jouable : sa tuile est visible mais inerte. */
-  available: boolean;
+  /* Faux tant que le jeu n'est pas jouable : sa tuile est visible mais inerte.
+     "dev" : en développement, ouvert au seul compte admin, « Bientôt » pour les autres. */
+  available: boolean | "dev";
   /* Un mot pour quelqu'un, écrit à la main sur la tuile. */
   dedication?: Dict<string>;
   /* Jeu chronométré : le meilleur temps s'affiche à côté des victoires (hors tri). */
@@ -106,9 +107,14 @@ export const GAMES: GameMeta[] = [
     path: "/rt1",
     // Le lagon qui tourne à la terre rouge.
     mat: "radial-gradient(130% 110% at 85% 15%, #2ec4c6 0%, #0f6f8f 50%, #5a2414 100%)",
-    available: false,
+    available: "dev",
   },
 ];
+
+/* La tuile du jeu s'ouvre-t-elle pour ce compte ? */
+export function isOpen(game: GameMeta, admin: boolean): boolean {
+  return game.available === true || (game.available === "dev" && admin);
+}
 
 export function gameBySlug(slug: string): GameMeta | undefined {
   return GAMES.find((g) => g.slug === slug);
