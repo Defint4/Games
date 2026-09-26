@@ -29,8 +29,11 @@ type Props = {
 };
 
 export default function RaceScene(props: Props) {
-  const maxDpr = typeof window === "undefined" ? 1 : Math.min(2, window.devicePixelRatio || 1);
-  const [dpr, setDpr] = useState(() => Math.min(1.5, maxDpr));
+  // Résolution : nette d'entrée (2× sur les écrans 3×), montée jusqu'à la densité de
+  // l'écran si la cadence tient, baissée par paliers sinon, jamais sous 1.
+  const device = typeof window === "undefined" ? 1 : window.devicePixelRatio || 1;
+  const maxDpr = Math.min(3, device);
+  const [dpr, setDpr] = useState(() => Math.min(2, device));
   return (
     <Canvas
       dpr={dpr}
@@ -42,8 +45,8 @@ export default function RaceScene(props: Props) {
       <PerformanceMonitor
         flipflops={4}
         onIncline={() => setDpr((d) => Math.min(maxDpr, d + 0.25))}
-        onDecline={() => setDpr((d) => Math.max(0.75, d - 0.25))}
-        onFallback={() => setDpr(0.75)}
+        onDecline={() => setDpr((d) => Math.max(1, d - 0.25))}
+        onFallback={() => setDpr((d) => Math.max(1, Math.min(d, 1.5)))}
       />
       <fog attach="fog" args={[FOG.color, FOG.near, FOG.far]} />
       <Contents {...props} />

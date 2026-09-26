@@ -135,7 +135,8 @@ export class Car {
         .setDensity(0)
         .setFriction(0.05)
         .setRestitution(0.1)
-        .setCollisionGroups(0x0002_0001),
+        .setCollisionGroups(0x0002_0001)
+        .setActiveHooks(R.ActiveHooks.FILTER_CONTACT_PAIRS),
       this.body,
     );
     const m = s.mass;
