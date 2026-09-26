@@ -9,6 +9,7 @@ import { TransitionOverlay } from "@/components/Loading";
 import { tr, useT } from "@/lib/i18n";
 import { LEVEL } from "./assets";
 import { T } from "./i18n";
+import { enterImmersive } from "./immersive";
 import { LockIcon } from "./menu/icons";
 import { card, Title } from "./menu/Shell";
 import { bungee, PLAY_PATH } from "./meta";
@@ -65,6 +66,7 @@ export default function Home() {
             <button
               type="button"
               onClick={() => {
+                enterImmersive();
                 setLeaving(tr(T).home.leaving);
                 router.push(PLAY_PATH);
               }}

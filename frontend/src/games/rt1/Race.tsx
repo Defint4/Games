@@ -17,6 +17,7 @@ import { bungee, GAME } from "./meta";
 import { Game, type TriMesh } from "./sim/game";
 import type { Input } from "./sim/input";
 import { formatDelta, formatTime } from "./sim/race";
+import { canFullscreen, enterImmersive, isFullscreen } from "./immersive";
 import { type CamMode, renderStats } from "./three/RaceScene";
 
 const RaceScene = dynamic(() => import("./three/RaceScene"), { ssr: false, loading: () => null });
@@ -24,6 +25,7 @@ const RaceScene = dynamic(() => import("./three/RaceScene"), { ssr: false, loadi
 const PAINT = "#E8552B";
 const CAM_KEY = "games:rt1:camera";
 const FLIP_KEY = "games:rt1:flip";
+const STATS_KEY = "games:rt1:stats";
 
 /* Rendu tourné quand l'écran reste en portrait : 90° (téléphone tourné vers la gauche) ou
    -90° (vers la droite). Les marges de sécurité suivent : le bord gauche du jeu est alors
@@ -96,6 +98,9 @@ function RaceView({ game, assets, onSceneReady }: { game: Game; assets: RaceAsse
   /* Écran resté en portrait (app verrouillée, iOS) : on tourne le rendu nous-mêmes. */
   const [portrait, setPortrait] = useState(false);
   const [flip, setFlip] = useState(false);
+  /* ligne technique (cadence, appels, triangles, résolution) : menu pause ou ?debug */
+  const [stats, setStats] = useState(false);
+  const [fullscreen, setFullscreen] = useState(true);
   const [banner, setBanner] = useState<Banner>(null);
   const [finish, setFinish] = useState<Finish | null>(null);
   /* ?photo : sans interface, pour les captures du circuit */
@@ -113,15 +118,24 @@ function RaceView({ game, assets, onSceneReady }: { game: Game; assets: RaceAsse
   const deltaTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sound = useRef<EngineSound | null>(null);
   const debug = useRef(false);
+  useEffect(() => {
+    debug.current = stats;
+  }, [stats]);
   const frames = useRef({ n: 0, t: 0 });
 
   useEffect(() => {
     const q = new URLSearchParams(window.location.search);
-    debug.current = q.has("debug");
-    game.testMode(q.has("autopilot"), Math.min(8, Number(q.get("speedup")) || 1));
+    let saved = false;
+    try {
+      saved = localStorage.getItem(STATS_KEY) === "1";
+    } catch {
+      /* stockage indisponible */
+    }
     // eslint-disable-next-line react-hooks/set-state-in-effect
+    setStats(q.has("debug") || saved);
+    game.testMode(q.has("autopilot"), Math.min(8, Number(q.get("speedup")) || 1));
     setPhoto(q.has("photo"));
-    if (debug.current) (window as unknown as { rt1?: Game }).rt1 = game;
+    if (q.has("debug")) (window as unknown as { rt1?: Game }).rt1 = game;
   }, [game]);
 
   useEffect(() => {
@@ -141,6 +155,13 @@ function RaceView({ game, assets, onSceneReady }: { game: Game; assets: RaceAsse
     return () => mq.removeEventListener("change", sync);
   }, []);
 
+  useEffect(() => {
+    const sync = () => setFullscreen(!canFullscreen() || isFullscreen());
+    sync();
+    document.addEventListener("fullscreenchange", sync);
+    return () => document.removeEventListener("fullscreenchange", sync);
+  }, []);
+
   const showBanner = useCallback((text: string) => setBanner({ key: Date.now(), text }), []);
 
   const toggleCam = useCallback(() => {
@@ -158,6 +179,8 @@ function RaceView({ game, assets, onSceneReady }: { game: Game; assets: RaceAsse
   const restart = useCallback(() => {
     setFinish(null);
     setMenu(false);
+    // un tap : l'occasion de revenir en plein écran si on en est sorti
+    enterImmersive();
     game.restart();
   }, [game]);
 
@@ -375,7 +398,14 @@ function RaceView({ game, assets, onSceneReady }: { game: Game; assets: RaceAsse
         <div className="absolute inset-0 flex items-center justify-center bg-black/45 backdrop-blur-[2px]" onClick={() => setMenu(false)}>
           <div className="grid w-[min(24rem,calc(90*var(--u)))] grid-cols-2 gap-3 rounded-2xl bg-[#0B2A36]/95 p-5 ring-1 ring-white/15" onClick={(e) => e.stopPropagation()}>
             <h2 className={`${bungee.className} col-span-2 text-center text-lg`}>{t.paused}</h2>
-            <button type="button" onClick={() => setMenu(false)} className={`${bungee.className} col-span-2 rounded-xl bg-gold p-3.5 text-ink active:translate-y-0.5`}>
+            <button
+              type="button"
+              onClick={() => {
+                setMenu(false);
+                enterImmersive();
+              }}
+              className={`${bungee.className} col-span-2 rounded-xl bg-gold p-3.5 text-ink active:translate-y-0.5`}
+            >
               {t.resume}
             </button>
             <button type="button" onClick={restart} className="rounded-xl bg-white/10 p-3 font-bold ring-1 ring-white/15 active:translate-y-0.5">
@@ -384,8 +414,34 @@ function RaceView({ game, assets, onSceneReady }: { game: Game; assets: RaceAsse
             <button type="button" onClick={() => router.push(GAME.path)} className="rounded-xl bg-white/10 p-3 font-bold ring-1 ring-white/15 active:translate-y-0.5">
               {t.quit}
             </button>
-            <div className="col-span-2 flex items-center justify-center gap-3">
+            <div className="col-span-2 flex flex-wrap items-center justify-center gap-3">
               <SoundToggle />
+              <button
+                type="button"
+                aria-pressed={stats}
+                onClick={() => {
+                  setStats((v) => {
+                    try {
+                      localStorage.setItem(STATS_KEY, v ? "0" : "1");
+                    } catch {
+                      /* stockage indisponible */
+                    }
+                    return !v;
+                  });
+                }}
+                className={`rounded-xl px-4 py-2.5 text-sm font-bold ring-1 ring-white/15 active:translate-y-0.5 ${stats ? "bg-[#2EC4C6] text-[#061920]" : "bg-white/10"}`}
+              >
+                {t.stats}
+              </button>
+              {!fullscreen && (
+                <button
+                  type="button"
+                  onClick={() => enterImmersive()}
+                  className="rounded-xl bg-white/10 px-4 py-2.5 text-sm font-bold ring-1 ring-white/15 active:translate-y-0.5"
+                >
+                  {t.fullscreen}
+                </button>
+              )}
               {portrait && (
                 <button
                   type="button"
@@ -410,7 +466,12 @@ function RaceView({ game, assets, onSceneReady }: { game: Game; assets: RaceAsse
       )}
 
 
-      <div ref={fps} className="pointer-events-none absolute bottom-1 left-1 font-mono text-[10px] text-white/70" />
+      {stats && (
+        <div
+          ref={fps}
+          className="pointer-events-none absolute left-[max(1rem,var(--sl))] top-[calc(max(0.6rem,var(--st))+3.2rem)] rounded-md bg-black/45 px-2 py-1 font-mono text-[11px] text-white/85"
+        />
+      )}
       <style>{`
         @keyframes rt1-pop { 0% { transform: scale(1.6); opacity: 0 } 25% { transform: scale(1); opacity: 1 } 75% { opacity: 1 } 100% { transform: scale(0.9); opacity: 0 } }
         @media (prefers-reduced-motion: reduce) { [class*="rt1-pop"] { animation: none !important } }
