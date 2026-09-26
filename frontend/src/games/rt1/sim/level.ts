@@ -14,6 +14,8 @@ export type LevelMeta = {
   length: number;
   sun: V3;
   lmScale: number;
+  /* faux : circuit sans murs, la sortie de route est libre */
+  walls?: boolean;
   /* Emprise du terrain en coordonnées Blender : x vers l'est, y vers le nord (z three = -y). */
   terrain: { x0: number; y0: number; x1: number; y1: number; nx: number; ny: number; step: number };
   spawn: { pos: V3; dir: V3 };

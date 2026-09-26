@@ -351,10 +351,10 @@ function RaceView({ game, assets, onSceneReady }: { game: Game; assets: RaceAsse
       >
         <span className="flex flex-col leading-tight">
           <span className="text-base">{t.offTrack}</span>
-          <span className="font-sans text-xs font-semibold opacity-85">{t.offTrackNote}</span>
+          <span className="font-sans text-xs font-semibold opacity-85">{game.walls ? t.offTrackBack : t.offTrackNote}</span>
         </span>
         <span ref={offCount} className="grid size-10 place-items-center rounded-xl bg-white text-2xl text-[#C8232C] tabular-nums">
-          5
+          {game.walls ? 3 : 5}
         </span>
       </div>
 

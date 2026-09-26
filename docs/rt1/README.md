@@ -96,10 +96,11 @@ Déblocage par la campagne, ou achat avec l'argent gagné.
   choix mémorisé par véhicule.
 - **Aucune collision entre véhicules**, ni en ligne ni contre les bots : les autres sont
   des fantômes qu'on traverse.
-- Sorties de route permises. Au-delà de 8,6 m de l'axe, « Hors piste » et 5 s pour
-  revenir ; sinon la voiture est reposée là où elle a quitté la route, chrono qui
-  continue. Les murs se traversent depuis l'extérieur (pour revenir), jamais depuis
-  la route. Retournée ou dans le lagon : même remise en piste.
+- Deux sortes de circuits. **Avec murs** (Nouméa) : infranchissables ; passé par-dessus
+  (saut), remise en piste au bout de 3 s. **Sans murs** (régions nature, à venir) : sortie
+  de route libre, 5 s pour revenir. La voiture est reposée là où elle a quitté la route,
+  chrono qui continue. Retournée ou dans le lagon : même remise en piste.
+  Générateur : `level.py --walls 0`.
 
 ## Argent et atelier
 
