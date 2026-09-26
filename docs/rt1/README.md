@@ -5,8 +5,9 @@ Nouvelle-Calédonie. Le nom vient de la route territoriale 1, de Nouméa à Poum
 
 Slug : `rt1` · Production : https://games.matthieuguiot.dev/rt1
 
-État (26 sept 2026) : étape 2 faite, prototype jouable sur `/rt1` (tuile du hub encore
-inactive). Ce document fait foi pour la suite.
+État (26 sept 2026) : étape 2 faite, prototype jouable sur `/rt1`. Le jeu est « en
+développement » (`available: "dev"`) : ouvert au seul compte admin, « Bientôt » pour les
+autres. Ce document fait foi pour la suite.
 
 ## Principe
 

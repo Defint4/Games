@@ -20,7 +20,7 @@ import SoundToggle from "@/components/SoundToggle";
 import { GearIcon } from "@/components/TableFrame";
 import { ApiError, fetchMe } from "@/lib/api";
 import { formatDuration } from "@/lib/duration";
-import { GAMES, type GameMeta } from "@/lib/games";
+import { GAMES, type GameMeta, isOpen } from "@/lib/games";
 import { dict, useLang, useT } from "@/lib/i18n";
 import { currentProfile, signOut, type StoredProfile } from "@/lib/identity";
 import { COMMON } from "@/lib/texts";
@@ -34,6 +34,7 @@ const T = dict({
     best: (time: string) => `record ${time}`,
     play: "Jouer",
     soon: "Bientôt",
+    dev: "En développement",
   },
   en: {
     editProfile: "Edit my profile",
@@ -42,6 +43,7 @@ const T = dict({
     best: (time: string) => `best ${time}`,
     play: "Play",
     soon: "Coming soon",
+    dev: "In development",
   },
 });
 
@@ -141,7 +143,12 @@ export default function Page() {
       <ul className="flex flex-col gap-4">
         {GAMES.map((game, i) => (
           <li key={game.slug}>
-            <GameTile game={game} index={i} stats={me.data?.stats[game.slug]} />
+            <GameTile
+              game={game}
+              index={i}
+              stats={me.data?.stats[game.slug]}
+              open={isOpen(game, me.data?.admin === true)}
+            />
           </li>
         ))}
       </ul>
@@ -211,17 +218,19 @@ function GameTile({
   game,
   index,
   stats,
+  open,
 }: {
   game: GameMeta;
   index: number;
   stats?: GameStats;
+  open: boolean;
 }) {
   const t = useT(T);
   const lang = useLang();
   const body = (
     <div
       className={`relative flex min-h-[11rem] items-end overflow-hidden rounded-3xl p-5 shadow-card ring-1 ring-white/10 ${
-        game.available ? "" : "opacity-80"
+        open ? "" : "opacity-80"
       }`}
       style={{ background: game.mat }}
     >
@@ -245,7 +254,9 @@ function GameTile({
             {game.dedication[lang]}
           </p>
         )}
-        {game.available ? (
+        {open && game.available === "dev" ? (
+          <p className="mt-2 text-xs font-semibold text-gold/90">{t.dev}</p>
+        ) : open ? (
           stats && stats.played > 0 ? (
             <p className="mt-2 text-xs font-semibold text-gold/90">
               {t.record(stats.played, stats.won)}
@@ -266,7 +277,7 @@ function GameTile({
     </div>
   );
 
-  if (!game.available) return <div aria-disabled>{body}</div>;
+  if (!open) return <div aria-disabled>{body}</div>;
   return (
     <Link
       href={game.path}
