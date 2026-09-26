@@ -34,6 +34,8 @@ OUT = os.path.abspath(A.get("out", "out"))
 SAMPLES = int(A.get("samples", "128"))
 LM = int(A.get("lm", "2048"))
 LM_SCALE = 2.0
+# --walls 0 : circuit sans murs (sortie de route libre, gravier puis terre)
+WALLS = A.get("walls", "1") != "0"
 os.makedirs(OUT, exist_ok=True)
 rng = random.Random(1853)
 
@@ -350,7 +352,8 @@ def build_road():
         # profil : liste de (lat, dz, couleur) ; on relie les points consécutifs
         segs = []
         for side in (1, -1):
-            pts = [(side * 9.4, -1.1)] + [(side * l, dz) for l, dz in WALL] + [(side * 7.0, 0.0), (side * 6.0, 0.0)]
+            border = WALL if WALLS else [(8.2, -0.05), (7.4, 0.0)]
+            pts = [(side * 9.4, -1.1)] + [(side * l, dz) for l, dz in border] + [(side * 7.0, 0.0), (side * 6.0, 0.0)]
             if side == -1:
                 pts = list(reversed(pts))
             segs.append(pts)
@@ -411,6 +414,8 @@ def build_road_colliders():
         c, d = road_point(j, -7.4), road_point(i, -7.4)
         b.face((a, bb, c, d), C["black"])
     road = b.to_object("col_road")
+    if not WALLS:
+        return road, None
     b = Builder()
     for i in range(0, N, step):
         j = i + step
@@ -436,11 +441,12 @@ def gate(i, start=False):
     rz = heading(i) + math.pi / 2  # l'axe x local traverse la route
     base = XY[i]
     zc = Z[i]
+    post = 9.2 if WALLS else 11.5
     for side in (1, -1):
-        p = base + SIDE[i] * (side * 9.2)
+        p = base + SIDE[i] * (side * post)
         props.box((p.x, p.y, zc + 3.6), (1.1, 1.1, 7.6), C["gate_dark"], rz)
     top_c = zc + 7.6
-    span = 20.0
+    span = 2 * post + 1.6
     cells = 16
     for k in range(cells):
         l = -span / 2 + (k + 0.5) * span / cells
@@ -1039,7 +1045,8 @@ def main():
         finalize_colors(o)
         o.hide_render = True
     for o in (col_road, col_wall, back, sky):
-        o.hide_render = True
+        if o:
+            o.hide_render = True
     lights()
     inst = instances_for_bake(protos)
     if "preview" in A:
@@ -1064,6 +1071,7 @@ def main():
         "length": round(LENGTH, 1),
         "sun": g(SUN),
         "lmScale": LM_SCALE,
+        "walls": WALLS,
         "terrain": {"x0": X0, "y0": Y0, "x1": X1, "y1": Y1, "nx": nx, "ny": ny, "step": STEP},
         "spawn": {"pos": g(road_point(spawn, 0, 0.6)), "dir": g(Vector((TAN[spawn].x, TAN[spawn].y, 0)))},
         "start": gate_info(START),
@@ -1075,7 +1083,7 @@ def main():
     with open(os.path.join(OUT, "level.json"), "w") as f:
         json.dump(meta, f, separators=(",", ":"))
 
-    export([terrain, road, props_ob, back, sky, col_road, col_wall], os.path.join(OUT, "level.glb"))
+    export([o for o in (terrain, road, props_ob, back, sky, col_road, col_wall) if o], os.path.join(OUT, "level.glb"))
     export(list(protos.values()), os.path.join(OUT, "flora.glb"))
     print("counts", {k: len(v) for k, v in INST.items()}, "length", LENGTH, "N", N)
 

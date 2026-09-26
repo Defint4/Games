@@ -12,15 +12,14 @@ import { TrackLocator } from "./track";
 
 const H = 1 / 120;
 
-/* Hors piste : au-delà de OUT m de l'axe (les murs sont à 7,75 m), on a OFF_TIME s pour
-   revenir, sinon la voiture est reposée là où elle a quitté la route. */
-const OUT = 8.6;
-const BACK = 7.2;
-const OFF_TIME = 5;
-/* Murs : traversables depuis l'extérieur (on peut revenir), actifs de nouveau une fois
-   la voiture entièrement rentrée (hystérésis : pas de voiture coincée dans un mur). */
-const WALLS_OFF = 8.3;
-const WALLS_ON = 6.2;
+/* Hors piste, selon le circuit. Avec murs (infranchissables, à 7,75 m de l'axe) : passé
+   par-dessus, on ne peut pas revenir, remise en piste au bout de 3 s. Sans murs : la
+   sortie de route est libre, 5 s pour revenir. La voiture est reposée là où elle a
+   quitté la route, le chrono continue. */
+const RULES = {
+  walls: { out: 8.6, back: 7.2, time: 3 },
+  open: { out: 8.2, back: 7.0, time: 5 },
+};
 
 let init: Promise<void> | null = null;
 
@@ -59,9 +58,9 @@ export class Game {
   readonly level: LevelData;
   private track: TrackLocator;
   private lastOnRoad = 0;
-  private wallsOff = false;
-  private wallHandle = -1;
-  private hooks: RAPIER.PhysicsHooks;
+  private rules: (typeof RULES)["walls"];
+  /* circuit bordé de murs infranchissables */
+  readonly walls: boolean;
   /* secondes restantes avant la remise en piste, null sur la route */
   offTrack: number | null = null;
 
@@ -90,22 +89,16 @@ export class Game {
         .setCollisionGroups(0x0001_ffff),
       body,
     );
-    for (const m of [road, walls]) {
+    const hasWalls = meta.walls !== false && walls.indices.length > 0;
+    this.walls = hasWalls;
+    this.rules = hasWalls ? RULES.walls : RULES.open;
+    for (const m of hasWalls ? [road, walls] : [road]) {
       const desc = RAPIER.ColliderDesc.trimesh(m.vertices, m.indices, RAPIER.TriMeshFlags.FIX_INTERNAL_EDGES);
-      const col = this.world.createCollider(desc.setFriction(m === walls ? 0.02 : 0.8).setCollisionGroups(0x0001_ffff), body);
-      if (m === walls) this.wallHandle = col.handle;
+      this.world.createCollider(desc.setFriction(m === walls ? 0.02 : 0.8).setCollisionGroups(0x0001_ffff), body);
     }
 
     this.car = new Car(RAPIER, this.world, STARTER);
     this.track = new TrackLocator(meta.line);
-    const carHandle = this.car.collider.handle;
-    this.hooks = {
-      filterContactPair: (c1, c2) => {
-        const wall = (c1 === carHandle && c2 === this.wallHandle) || (c2 === carHandle && c1 === this.wallHandle);
-        return wall && this.wallsOff ? null : RAPIER.SolverFlags.COMPUTE_IMPULSE;
-      },
-      filterIntersectionPair: () => true,
-    };
     const s = meta.spawn;
     this.spawn = { pos: new Vector3(...s.pos), dir: new Vector3(...s.dir) };
     this.race = new Race(meta.name, meta.checkpoints, meta.start);
@@ -160,7 +153,6 @@ export class Game {
     this.car.place(pos, dir);
     this.flipped = 0;
     this.offTrack = null;
-    this.wallsOff = false;
     this.acc = 0;
     this.readPose(this.curPos, this.curQuat);
     this.prevPos.copy(this.curPos);
@@ -188,7 +180,7 @@ export class Game {
         ? (this.autopilot ? this.autopilot.drive(this.car) : this.input.read())
         : { steer: 0, throttle: 0, brake: 0, hold: true };
       this.car.update(H, c);
-      this.world.step(undefined, this.hooks);
+      this.world.step();
       this.readPose(this.curPos, this.curQuat);
       this.race.step(H, this.prevPos, this.curPos, this.emit);
       if (this.curPos.y < -30) {
@@ -197,14 +189,12 @@ export class Game {
         continue;
       }
       const { i, lateral } = this.track.locate(this.curPos);
-      if (lateral > WALLS_OFF) this.wallsOff = true;
-      else if (lateral < WALLS_ON) this.wallsOff = false;
       if (racing) {
-        if (lateral < BACK) {
+        if (lateral < this.rules.back) {
           this.offTrack = null;
           this.lastOnRoad = i;
-        } else if (lateral > OUT && this.offTrack === null) {
-          this.offTrack = OFF_TIME;
+        } else if (lateral > this.rules.out && this.offTrack === null) {
+          this.offTrack = this.rules.time;
         }
         if (this.offTrack !== null) {
           this.offTrack -= H;
