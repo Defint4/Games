@@ -2,22 +2,34 @@
 
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
-import { LoadingScreen } from "@/components/Loading";
-import { useT } from "@/lib/i18n";
+import { useCallback, useEffect, useState } from "react";
 import { currentProfile } from "@/lib/identity";
-import { preloadAssets, type RaceAssets } from "./assets";
-import { T } from "./i18n";
+import { onLoadProgress, preloadAssets, type RaceAssets } from "./assets";
+import Loader from "./Loader";
 
 const Race = dynamic(() => import("./Race"), { ssr: false, loading: () => null });
 
-/* La page de course : attend que tout soit chargé, garde l'écran allumé, bascule en
-   paysage là où le navigateur le permet (Android ; iOS demande de tourner le téléphone). */
+/* La page de course : écran de chargement jusqu'à la première image de la course, écran
+   gardé allumé, paysage demandé au navigateur (Android) ; sinon la course tourne son
+   rendu elle-même. */
 export default function PlayPage() {
   const router = useRouter();
-  const t = useT(T);
   const [assets, setAssets] = useState<RaceAssets | null>(null);
   const [failed, setFailed] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [ready, setReady] = useState(false);
+  const [portrait, setPortrait] = useState(false);
+  const onReady = useCallback(() => setReady(true), []);
+
+  useEffect(() => onLoadProgress(setProgress), []);
+
+  useEffect(() => {
+    const mq = window.matchMedia("(orientation: portrait)");
+    const sync = () => setPortrait(mq.matches);
+    sync();
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
+  }, []);
 
   useEffect(() => {
     if (!currentProfile()) router.replace("/");
@@ -65,7 +77,10 @@ export default function PlayPage() {
     };
   }, []);
 
-  if (failed) return <LoadingScreen label={t.loading} />;
-  if (!assets) return <LoadingScreen label={t.loading} patient />;
-  return <Race assets={assets} />;
+  return (
+    <>
+      {assets && <Race assets={assets} onReady={onReady} />}
+      {!ready && <Loader progress={progress} portrait={portrait} failed={failed} />}
+    </>
+  );
 }
