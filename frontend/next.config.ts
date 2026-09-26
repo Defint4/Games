@@ -38,7 +38,7 @@ const nextConfig: NextConfig = {
         value: "public, max-age=604800, stale-while-revalidate=2592000",
       },
     ];
-    const paths = ["/cards/:path*", "/sounds/:path*", "/chess/:path*", "/stockfish/:path*"];
+    const paths = ["/cards/:path*", "/sounds/:path*", "/chess/:path*", "/stockfish/:path*", "/rt1/noumea/:path*", "/rt1/cars/:path*"];
     return [...paths, "/logo.svg"].map((source) => ({
       source,
       headers: cached,

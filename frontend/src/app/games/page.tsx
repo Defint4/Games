@@ -5,6 +5,7 @@ import { motion, useReducedMotion } from "motion/react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { bungee } from "@/games/rt1/meta";
 import Avatar from "@/components/Avatar";
 import Brand from "@/components/Brand";
 import { leaderboardPath } from "@/components/Leaderboard";
@@ -284,6 +285,7 @@ function Illustration({ slug, index }: { slug: string; index: number }) {
   if (slug === "chess") return <ChessIllustration />;
   if (slug === "perudo") return <DiceIllustration index={index} />;
   if (slug === "solitaire") return <SolitaireIllustration index={index} />;
+  if (slug === "rt1") return <RoadIllustration />;
   const cards =
     slug === "nine-to-one"
       ? [
@@ -351,6 +353,22 @@ function ChessIllustration() {
       {/* U+FE0E : glyphe texte, sinon certains téléphones dessinent un emoji. */}
       <span className="absolute -bottom-2 left-1/2 -translate-x-1/2 -rotate-12 font-serif text-6xl leading-none text-ivory [text-shadow:0_3px_0_#20241f,0_8px_14px_rgba(0,0,0,0.5)]">
         {"\u265E\uFE0E"}
+      </span>
+    </div>
+  );
+}
+
+/* RT1 : le cartouche rouge des routes sur un bout de bitume. */
+function RoadIllustration() {
+  return (
+    <div aria-hidden className="absolute right-5 top-6 h-24 w-28 rotate-12">
+      <div className="absolute inset-x-3 inset-y-0 rounded-md bg-[#34373d] shadow-card ring-1 ring-black/30">
+        <span className="absolute inset-y-2 left-1/2 w-1 -translate-x-1/2 bg-[repeating-linear-gradient(180deg,#f3f1ec_0_10px,transparent_10px_18px)]" />
+      </div>
+      <span
+        className={`${bungee.className} absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 -rotate-12 rounded-lg border-2 border-white bg-[#C8232C] px-2.5 pt-1 text-2xl leading-none text-white shadow-card`}
+      >
+        RT1
       </span>
     </div>
   );
