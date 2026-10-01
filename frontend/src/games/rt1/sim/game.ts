@@ -164,6 +164,10 @@ export class Game {
   private gateIdx: number[];
   private q2 = new Quaternion();
   private tmpV = new Vector3();
+  /* vitesse avant le pas, normale du mur touché, contact au pas précédent */
+  private before = new Vector3();
+  private wallN = new Vector3();
+  private touching = false;
 
   constructor(level: LevelData, road: TriMesh, setup: RaceSetup) {
     this.level = level;
@@ -275,6 +279,35 @@ export class Game {
     this.race = new Race(meta.checkpoints, meta.start, meta.laps ?? 1, setup.best, setup.rival?.best ?? null);
     if (setup.online) this.race.startAt = setup.online.startAt;
     this.restart(false);
+  }
+
+  /* Contre un mur ou un obstacle : la normale du contact (horizontale, vers la voiture),
+     passée à la voiture qui décide de ce que le contact coûte (frôler ou taper). */
+  private wallContact() {
+    const n = this.wallN.set(0, 0, 0);
+    let found = false;
+    this.world.contactPairsWith(this.car.collider, (other) => {
+      if (found || other.collisionGroups() !== WALL_GROUP) return;
+      this.world.contactPair(this.car.collider, other, (m) => {
+        if (found || m.numContacts() === 0) return;
+        const mn = m.normal();
+        n.set(mn.x, 0, mn.z);
+        found = n.lengthSq() > 1e-4;
+      });
+    });
+    const fresh = found && !this.touching;
+    this.touching = found;
+    if (!found) return;
+    n.normalize();
+    // orientée vers la voiture : contre la vitesse d'approche, sinon vers l'axe de la route
+    const approach = this.before.x * n.x + this.before.z * n.z;
+    if (Math.abs(approach) > 0.5) {
+      if (approach > 0) n.negate();
+    } else {
+      const p = this.level.meta.line[this.lineIdx];
+      if ((p[0] - this.curPos.x) * n.x + (p[2] - this.curPos.z) * n.z < 0) n.negate();
+    }
+    this.car.wall(n, this.before, H, fresh);
   }
 
   /* Course en direct : pas de « Recommencer », le chrono est celui de tous. */
@@ -404,18 +437,11 @@ export class Game {
         ? (this.autopilot ? this.autopilot.drive(this.car) : this.input.read())
         : { steer: 0, throttle: 0, brake: 0, hold: true };
       this.car.update(H, c);
+      const v0 = this.car.body.linvel();
+      this.before.set(v0.x, v0.y, v0.z);
       this.world.step();
       this.readPose(this.curPos, this.curQuat);
-      // contre un mur ou un obstacle : la voiture glisse et ralentit (car.ts) un court moment
-      let wall = false;
-      this.world.contactPairsWith(this.car.collider, (other) => {
-        if (!wall && other.collisionGroups() === WALL_GROUP) {
-          this.world.contactPair(this.car.collider, other, (m) => {
-            if (m.numContacts() > 0) wall = true;
-          });
-        }
-      });
-      if (wall) this.car.wallTime = 0.25;
+      this.wallContact();
       this.race.step(H, this.prevPos, this.curPos, this.onRace);
       if (this.curPos.y < -30) {
         // tombée hors du monde : on repart du départ (en direct, même hors course)

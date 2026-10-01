@@ -87,10 +87,25 @@ const RAY_GROUPS = 0xffff_0001;
 
 /* angle de dérive (rad) au pic d'adhérence du pneu */
 const SLIP_PEAK = 0.13;
-/* contre un mur : part de l'adhérence latérale gardée, freinage (part de la vitesse par
-   seconde), vitesse verticale au plus */
-const WALL_GRIP = 0.35;
-const WALL_DRAG = 0.9;
+/* Contre un mur, tout dépend de la vitesse d'approche perpendiculaire au mur (vn, m/s) :
+   sous SCRAPE_VN on frôle (on glisse le long en perdant un peu de vitesse, la voiture se
+   remet dans l'axe), au-dessus de HIT_VN on tape (grosse perte, rebond, la voiture est
+   secouée), entre les deux on passe progressivement de l'un à l'autre. */
+const SCRAPE_VN = 4;
+const HIT_VN = 11;
+/* frottement en glissade (part de la vitesse perdue par seconde) : de base, et par m/s
+   d'approche */
+const SCRAPE_DRAG = 0.25;
+const SCRAPE_DRAG_VN = 0.08;
+/* choc : vitesse perdue par m/s d'approche (au plus HIT_LOSS_MAX), rebond, adhérence
+   gardée et durée de la secousse */
+const HIT_LOSS = 0.03;
+const HIT_LOSS_MAX = 0.6;
+const HIT_BOUNCE = 0.3;
+const HIT_GRIP = 0.55;
+const HIT_TIME = 0.35;
+/* remise dans l'axe du mur en glissade (rad/s par rad d'écart) */
+const ALIGN = 3;
 const WALL_MAX_VY = 1.0;
 
 type Wheel = {
@@ -143,8 +158,10 @@ export class Car {
   airTime = 0;
   /* secondes de boost restantes */
   boostTime = 0;
-  /* secondes restantes de l'état « contre un mur » (nourri par Game après chaque pas) */
+  /* secondes restantes de l'état « contre un mur » (nourri par wall() après chaque pas) */
   wallTime = 0;
+  /* secondes restantes après un choc franc : adhérence réduite, la voiture est secouée */
+  hitTime = 0;
   /* inclinaison dans le virage (rad, positive vers la gauche), lissée : l'image des motos */
   lean = 0;
 
@@ -208,6 +225,7 @@ export class Car {
     this.airTime = 0;
     this.boostTime = 0;
     this.wallTime = 0;
+    this.hitTime = 0;
     this.lean = 0;
     for (const w of this.wheels) {
       w.offset = this.spec.rest;
@@ -336,7 +354,7 @@ export class Car {
       // Pneu latéral progressif : l'effort monte avec l'angle de dérive jusqu'au pic
       // (SLIP_PEAK), puis plafonne, au lieu d'annuler toute dérive en un pas puis de
       // décrocher d'un coup. Sous 3 m/s, l'ancienne règle : la voiture s'arrête net.
-      const mu = (w.front ? s.gripFront : s.gripRear) * w.load * (this.wallTime > 0 ? WALL_GRIP : 1);
+      const mu = (w.front ? s.gripFront : s.gripRear) * w.load * (this.hitTime > 0 ? HIT_GRIP : 1);
       const kill = (-vLat * mEff) / h;
       const sa = Math.atan2(Math.abs(vLat), Math.max(Math.abs(vLong), 3));
       const progressive = -Math.sign(vLat) * mu * Math.tanh(sa / SLIP_PEAK);
@@ -363,12 +381,12 @@ export class Car {
       w.spin += (vLong / s.wheelRadius) * h;
     }
 
-    // Contre un mur : la voiture glisse (adhérence latérale réduite, voir mu), perd de la
-    // vitesse, et ne décolle ni ne bascule : vitesse verticale gagnée bornée, roulis ramené.
+    // Contre un mur (voir wall()) : ni décollage ni tonneau, vitesse verticale bornée et
+    // roulis ramené.
+    if (this.hitTime > 0) this.hitTime -= h;
     if (this.wallTime > 0) {
       this.wallTime -= h;
       const m = s.mass;
-      b.applyImpulse({ x: -vel.x * WALL_DRAG * m * h, y: 0, z: -vel.z * WALL_DRAG * m * h }, true);
       if (lv.y > WALL_MAX_VY) b.applyImpulse({ x: 0, y: -(lv.y - WALL_MAX_VY) * m, z: 0 }, true);
       const side = tmp.side.set(1, 0, 0).applyQuaternion(tmp.q);
       const av0 = b.angvel();
@@ -431,6 +449,52 @@ export class Car {
     const free = this.throttle > 0.5 && Math.abs(this.forwardSpeed) < 1 ? 0.55 : 0;
     this.rpm = MathUtils.lerp(this.rpm, Math.max(target2, free, 0.18), 1 - Math.exp(-h * (gear !== this.gear ? 6 : 14)));
     this.gear = gear;
+  }
+
+  /* Contact avec un mur, après le pas de physique. `n` : normale horizontale du mur, vers
+     la voiture ; `before` : vitesse avant le pas (celle d'approche) ; `fresh` : premier
+     pas du contact. Le solveur a déjà empêché la traversée ; ici on décide de ce que le
+     contact coûte. */
+  wall(n: Vector3, before: Vector3, h: number, fresh: boolean) {
+    const b = this.body;
+    const lv = b.linvel();
+    const vn = Math.max(0, -(before.x * n.x + before.z * n.z));
+    // vitesse actuelle : composante le long du mur, et vers l'extérieur du mur
+    const dn = lv.x * n.x + lv.z * n.z;
+    let tx = lv.x - dn * n.x, tz = lv.z - dn * n.z;
+    const hit = MathUtils.clamp((vn - SCRAPE_VN) / (HIT_VN - SCRAPE_VN), 0, 1);
+    let out: number;
+    if (fresh && hit > 0) {
+      // choc : perte de vitesse et rebond selon la violence de l'approche
+      const loss = Math.min(HIT_LOSS_MAX, HIT_LOSS * vn) * hit;
+      tx *= 1 - loss;
+      tz *= 1 - loss;
+      out = Math.max(dn, HIT_BOUNCE * vn * hit, 0.3);
+      if (hit >= 1) this.hitTime = HIT_TIME;
+    } else {
+      // glissade : on frotte, un peu plus si on appuie contre le mur
+      const k = Math.min(1, (SCRAPE_DRAG + SCRAPE_DRAG_VN * vn) * h);
+      tx *= 1 - k;
+      tz *= 1 - k;
+      out = MathUtils.clamp(dn, 0.2, 1.2);
+    }
+    b.setLinvel({ x: tx + out * n.x, y: lv.y, z: tz + out * n.z }, true);
+    // en glissade, la voiture se remet dans l'axe du mur au lieu de partir en travers
+    if (this.hitTime <= 0) {
+      const r = b.rotation();
+      tmp.q.set(r.x, r.y, r.z, r.w);
+      const f = tmp.fwd.set(0, 0, 1).applyQuaternion(tmp.q).setY(0).normalize();
+      const along = Math.sign(f.x * tx + f.z * tz) || 1;
+      const len = Math.hypot(tx, tz);
+      if (len > 1) {
+        const dx = (tx / len) * along, dz = (tz / len) * along;
+        const err = Math.atan2(f.z * dx - f.x * dz, f.x * dx + f.z * dz);
+        const av = b.angvel();
+        const want = MathUtils.clamp(err * ALIGN, -2, 2);
+        b.setAngvel({ x: av.x, y: av.y + (want - av.y) * Math.min(1, h * 20), z: av.z }, true);
+      }
+    }
+    this.wallTime = 0.25;
   }
 
   /* Retournée ou coincée : à remettre au dernier checkpoint. */
