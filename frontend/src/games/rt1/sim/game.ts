@@ -5,7 +5,7 @@ import RAPIER from "@dimforge/rapier3d-compat";
 import { Quaternion, Vector3 } from "three";
 import { Autopilot, type DriveStyle } from "./autopilot";
 import { type Bot, type BotLevel, botPose } from "./bots";
-import { Car, GRAVITY } from "./car";
+import { Car, GRAVITY, GROUND_GROUP, WALL_GROUP } from "./car";
 import { Input } from "./input";
 import type { LevelData } from "./level";
 import { GhostRecorder, ghostPose } from "./ghost";
@@ -15,6 +15,7 @@ import { TrackLocator } from "./track";
 import type { Vehicle } from "./vehicles";
 
 const H = 1 / 120;
+const MAX_STEPS = 6;
 
 /* Hors piste, selon le circuit. Avec murs (infranchissables, à 7,75 m de l'axe) : passé
    par-dessus, on ne peut pas revenir, remise en piste au bout de 3 s. Sans murs : la
@@ -137,15 +138,18 @@ export class Game {
       RAPIER.ColliderDesc.heightfield(nr, nc, hf, { x: tr.x1 - tr.x0, y: 1, z: tr.y1 - tr.y0 })
         .setTranslation((tr.x0 + tr.x1) / 2, 0, -(tr.y0 + tr.y1) / 2)
         .setFriction(0.8)
-        .setCollisionGroups(0x0001_ffff),
+        .setCollisionGroups(GROUND_GROUP),
       body,
     );
     const hasWalls = meta.walls !== false && walls.indices.length > 0;
     this.walls = hasWalls;
     this.rules = hasWalls ? RULES.walls : RULES.open;
+    // Maillages à deux faces : avec FIX_INTERNAL_EDGES seul, Rapier jette les contacts venant
+    // de l'arrière d'un triangle, et les murs générés regardent dehors d'un côté (le droit
+    // ne bloquait rien), la route vers le bas.
     for (const m of hasWalls ? [road, walls] : [road]) {
-      const desc = RAPIER.ColliderDesc.trimesh(m.vertices, m.indices, RAPIER.TriMeshFlags.FIX_INTERNAL_EDGES);
-      this.world.createCollider(desc.setFriction(m === walls ? 0.02 : 0.8).setCollisionGroups(0x0001_ffff), body);
+      const desc = RAPIER.ColliderDesc.trimesh(m.vertices, m.indices, RAPIER.TriMeshFlags.FIX_INTERNAL_EDGES_TWO_SIDED);
+      this.world.createCollider(desc.setFriction(m === walls ? 0.02 : 0.8).setCollisionGroups(m === walls ? WALL_GROUP : GROUND_GROUP), body);
     }
 
     this.track = new TrackLocator(meta.line);
@@ -160,7 +164,7 @@ export class Game {
           kind === "rock"
             ? RAPIER.ColliderDesc.ball(r * sc).setTranslation(x, y + 0.2, z)
             : RAPIER.ColliderDesc.cylinder(3, r * sc).setTranslation(x, y + 3, z);
-        this.world.createCollider(desc.setFriction(0.4).setCollisionGroups(0x0001_ffff), body);
+        this.world.createCollider(desc.setFriction(0.4).setCollisionGroups(WALL_GROUP), body);
       }
     }
     this.track.reset();
@@ -300,6 +304,9 @@ export class Game {
   /* Appelé à chaque image avec le temps écoulé. */
   update(dt: number) {
     this.acc += Math.min(dt, 0.1) * this.speedup;
+    // Après une image très longue, au plus six pas : le temps en trop est perdu (ralenti),
+    // plutôt qu'une image suivante encore plus longue.
+    if (this.acc > MAX_STEPS * H) this.acc = MAX_STEPS * H;
     while (this.acc >= H) {
       this.acc -= H;
       this.prevPos.copy(this.curPos);
@@ -313,8 +320,11 @@ export class Game {
       this.readPose(this.curPos, this.curQuat);
       this.race.step(H, this.prevPos, this.curPos, this.onRace);
       if (this.curPos.y < -30) {
-        // tombée hors du monde : on repart du départ
-        this.restart();
+        // tombée hors du monde : on repart du départ (en direct, même hors course)
+        if (this.live) {
+          this.place(this.spawn.pos, this.spawn.dir);
+          this.emit({ type: "respawn" });
+        } else this.restart();
         continue;
       }
       const { i, lateral } = this.track.locate(this.curPos);
@@ -354,9 +364,10 @@ export class Game {
           this.respawn();
           continue;
         }
-        // retournée ou dans le lagon : remise en piste
-        this.flipped = this.car.upsideDown() || this.curPos.y < -2.5 ? this.flipped + H : 0;
-        if (this.flipped > (this.curPos.y < -2.5 ? 0.6 : 1.4)) this.recover();
+        // retournée ou dans le lagon (l'eau est à y = 0, la route jamais sous 2 m) : remise en piste
+        const inWater = this.curPos.y < -0.8;
+        this.flipped = this.car.upsideDown() || inWater ? this.flipped + H : 0;
+        if (this.flipped > (inWater ? 0.6 : 1.4)) this.recover();
       }
     }
     const a = this.acc / H;

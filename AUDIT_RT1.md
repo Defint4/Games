@@ -1472,3 +1472,16 @@ idéalement sur un modèle ancien (A10-A11), un moyen (A12-A14) et un Pro ProMot
 8. Ombre des véhicules : silhouette projetée par paliers, ou ombre de contact améliorée partout ?
 9. KTX2 et terrain en tuiles alourdissent le pipeline d'assets : en phase 4 ou plus tard ?
 10. Phase 0 : je peux créer une branche et commiter le travail en cours par lots ?
+
+### Réponses (1er octobre 2026)
+
+1. Pas de modèle minimum connu : rester réaliste pour les vieux iPhone sans se tordre pour
+   les trop anciens. 2. App installée uniquement. 3. Mur invisible au-dessus du muret, et
+   ralentissement au contact. 4. 30 i/s plafonnés acceptés en palier bas. 5. Anti-triche
+   maintenant. 6. Un seul jeu de seuils de médailles (celui qui a beaucoup joué doit être plus
+   fort, ça pousse à faire la campagne). 7. Temps officiel sur l'horloge du serveur, pause
+   sans effet. 8. Ombre de contact améliorée partout. 9. KTX2 et tuiles en phase 4.
+   10. Commits sur `main`, sans branche.
+
+Phase 1 faite le même jour : banc des murs de 46 % de traversées et 9 % de passages
+par-dessus à 0,1 % et 0,6 % ; tonneaux au choc toujours à 15 % (phase 7).

@@ -77,6 +77,14 @@ export const STARTER: CarSpec = {
 
 export const GRAVITY = 9.81 * 1.35;
 
+/* Groupes de collision Rapier (appartenance << 16 | filtre). Le sol (terrain, route) porte
+   les rayons de suspension ; murs et obstacles ne les portent pas : un rayon qui touchait un
+   mur le prenait pour du sol et faisait grimper la voiture par-dessus. La caisse heurte tout. */
+export const GROUND_GROUP = 0x0001_ffff;
+export const WALL_GROUP = 0x0004_ffff;
+const CAR_GROUP = 0x0002_0005;
+const RAY_GROUPS = 0xffff_0001;
+
 type Wheel = {
   attach: Vector3;
   front: boolean;
@@ -145,7 +153,7 @@ export class Car {
         .setDensity(0)
         .setFriction(0.05)
         .setRestitution(0.1)
-        .setCollisionGroups(0x0002_0001),
+        .setCollisionGroups(CAR_GROUP),
       this.body,
     );
     const m = s.mass;
@@ -250,8 +258,9 @@ export class Car {
       const o = tmp.origin.copy(w.attach).applyQuaternion(tmp.q).add(pos);
       this.ray.origin = { x: o.x, y: o.y, z: o.z };
       this.ray.dir = { x: down.x, y: down.y, z: down.z };
-      const hit = this.world.castRayAndGetNormal(this.ray, maxLen, true, undefined, 0xffff_0001, undefined, b);
-      if (hit) {
+      const hit = this.world.castRayAndGetNormal(this.ray, maxLen, true, undefined, RAY_GROUPS, undefined, b);
+      // une paroi (normale presque horizontale) n'est pas un sol : la roue est en l'air
+      if (hit && hit.normal.y > 0.5) {
         const toi = hit.timeOfImpact;
         w.grounded = true;
         w.contact.copy(o).addScaledVector(down, toi);
