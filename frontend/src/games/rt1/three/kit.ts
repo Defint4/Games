@@ -7,7 +7,9 @@ import {
   DoubleSide,
   Float32BufferAttribute,
   Group,
+  InstancedBufferAttribute,
   InstancedMesh,
+  type Material,
   Matrix4,
   Mesh,
   MeshBasicMaterial,
@@ -23,10 +25,11 @@ import {
 import type { CarModel, RaceAssets } from "../assets";
 import { type CarSpec, GRAVITY } from "../sim/car";
 import type { BotState, Game } from "../sim/game";
+import { groundLight } from "../sim/level";
 import { groundY, type Vehicle } from "../sim/vehicles";
 import type { Livery } from "../livery";
 import { carSpace, decals, glassTint, paintMaterial, rimColor } from "./livery";
-import { clock, detailTexture, roadTexture, waterMaterial, withGroundDetail, withWind } from "./materials";
+import { clock, detailTexture, roadTexture, waterMaterial, withFlora, withGroundDetail } from "./materials";
 
 export type CamMode = "chase" | "cockpit";
 
@@ -77,7 +80,7 @@ export function buildLevel(assets: RaceAssets, anisotropy: number): Object3D {
       m.material = new MeshBasicMaterial({ vertexColors: true });
     } else if (top === "boosts") {
       // plaques de boost : vives, sans lumière cuite
-      m.material = new MeshBasicMaterial({ vertexColors: true, color: new Color(1.6, 1.6, 1.6), side: DoubleSide, polygonOffset: true, polygonOffsetFactor: -1 });
+      m.material = new MeshBasicMaterial({ vertexColors: true, color: new Color(1.25, 1.25, 1.25), side: DoubleSide, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2 });
     } else if (top === "clouds") {
       m.material = new MeshBasicMaterial({ vertexColors: true, fog: false, color: new Color(1.3, 1.3, 1.3) });
     }
@@ -132,14 +135,19 @@ export function buildFlora(assets: RaceAssets): Group {
     }
     for (const mesh of meshes) {
       const mat = new MeshLambertMaterial({ vertexColors: true, side: DoubleSide });
-      if (amp > 0) withWind(mat, amp, start);
+      withFlora(mat, amp, start);
       for (const items of cells.values()) {
         const im = new InstancedMesh(mesh.geometry, mat, items.length);
+        // à l'ombre du relief ou d'un immeuble (sonde de lumière), l'arbre l'est aussi
+        const shade = new Float32Array(items.length);
         items.forEach((it, i) => {
           q.setFromAxisAngle(up, it[3]);
           m.compose(p.set(it[0], it[1], it[2]), q, sc.setScalar(it[4])).multiply(mesh.matrixWorld);
           im.setMatrixAt(i, m);
+          shade[i] = 0.45 + 0.55 * groundLight(assets.level, it[0], it[2]);
         });
+        im.geometry = mesh.geometry.clone();
+        im.geometry.setAttribute("instanceShade", new InstancedBufferAttribute(shade, 1));
         im.instanceMatrix.needsUpdate = true;
         im.computeBoundingSphere();
         im.matrixAutoUpdate = false;
@@ -247,6 +255,8 @@ function carMaterials(): Record<string, MeshStandardMaterial | MeshBasicMaterial
 
 const BRAKE_OFF = new Color("#5A0A0E");
 const BRAKE_ON = new Color("#FF2A2A");
+const SHADOW_OPACITY = 0.6;
+const SH = { p: new Vector3(), n: new Vector3(), fwd: new Vector3(), side: new Vector3(), pos: new Vector3(), m: new Matrix4() };
 
 export class CarView {
   readonly root = new Group();
@@ -254,6 +264,13 @@ export class CarView {
   private glass: MeshStandardMaterial[] = [];
   private rear: MeshBasicMaterial | null = null;
   private shadow: MeshBasicMaterial;
+  private blob: Mesh;
+  /* dernier sol connu sous la voiture : l'ombre y reste quand elle décolle */
+  private groundPos = new Vector3();
+  private groundNormal = new Vector3(0, 1, 0);
+  private groundOk = false;
+  /* vers le soleil, à plat : l'ombre se décale un peu à l'opposé */
+  private sun = new Vector3(0, 0, 1);
   /* moto : tout sauf l'ombre penche autour du point de contact */
   private tilt = new Group();
   private bike: boolean;
@@ -314,15 +331,20 @@ export class CarView {
       color: 0x000000,
       alphaMap: model.shadow,
       transparent: true,
-      opacity: 0.8,
+      opacity: SHADOW_OPACITY,
       depthWrite: false,
       polygonOffset: true,
       polygonOffsetFactor: -2,
+      polygonOffsetUnits: -4,
     });
-    const blob = new Mesh(new PlaneGeometry(...blobSize(spec)).rotateX(-Math.PI / 2), this.shadow);
-    blob.position.y = ground + 0.02;
-    blob.renderOrder = 1;
-    this.root.add(blob);
+    // Posée sur le sol (points de contact des roues), pas sous la caisse : elle ne suit ni
+    // le roulis ni le tangage, et ne passe plus sous la route quand la suspension travaille.
+    this.blob = new Mesh(new PlaneGeometry(...blobSize(spec)).rotateX(-Math.PI / 2), this.shadow);
+    this.blob.renderOrder = 1;
+    this.blob.matrixAutoUpdate = false;
+    this.blob.matrixWorldAutoUpdate = false;
+    this.blob.frustumCulled = false;
+    this.root.add(this.blob);
 
     // Livrée : repère de la caisse (véhicule à l'origine), peinture, jantes, vitres, décalques
     this.root.updateMatrixWorld(true);
@@ -334,10 +356,15 @@ export class CarView {
     const d = decals(painted, bounds, livery, font);
     for (const m of d.meshes) inner.add(m);
     this.release.push(d.dispose, () => paint.dispose(), () => Object.values(mats).forEach((m) => m.dispose()));
+    this.release.push(() => this.shadow.dispose(), () => this.blob.geometry.dispose());
   }
 
   dispose() {
     for (const f of this.release) f();
+  }
+
+  setSun(sun: Vector3) {
+    this.sun.copy(sun).setY(0).normalize();
   }
 
   update(g: Game) {
@@ -352,7 +379,46 @@ export class CarView {
     });
     this.tilt.rotation.z = this.bike ? -car.lean : 0;
     this.rear?.color.copy(car.brakeInput > 0 ? BRAKE_ON : BRAKE_OFF);
-    this.shadow.opacity = 0.8 * Math.min(1, car.grounded / 3 + (car.airTime < 0.3 ? 0.4 : 0));
+    this.placeShadow(g);
+  }
+
+  /* L'ombre : au sol sous la voiture (moyenne des contacts de roue), alignée sur le cap,
+     légèrement décalée à l'opposé du soleil, estompée avec la hauteur quand elle vole. */
+  private placeShadow(g: Game) {
+    const car = g.car;
+    if (car.grounded > 0) {
+      SH.p.set(0, 0, 0);
+      SH.n.set(0, 0, 0);
+      for (const w of car.wheels) {
+        if (!w.grounded) continue;
+        SH.p.add(w.contact);
+        SH.n.add(w.normal);
+      }
+      SH.p.divideScalar(car.grounded);
+      SH.n.normalize();
+      // le centre des contacts n'est pas celui de la caisse quand une roue est en l'air :
+      // on reste sous l'origine, à la hauteur des contacts
+      SH.p.x = g.pos.x;
+      SH.p.z = g.pos.z;
+      this.groundPos.copy(SH.p);
+      this.groundNormal.copy(SH.n);
+      this.groundOk = true;
+    } else if (this.groundOk) {
+      this.groundPos.x = g.pos.x;
+      this.groundPos.z = g.pos.z;
+    }
+    // hauteur de la caisse au-dessus de sa position de repos sur ce sol
+    const height = Math.max(0, g.pos.y + this.ground - this.groundPos.y);
+    this.shadow.opacity = SHADOW_OPACITY * (this.groundOk ? Math.max(0, 1 - height / 4) : 0);
+    // repère : haut = normale du sol, avant = cap de la voiture projeté sur le sol
+    SH.fwd.set(0, 0, 1).applyQuaternion(g.quat);
+    SH.fwd.addScaledVector(this.groundNormal, -SH.fwd.dot(this.groundNormal)).normalize();
+    SH.side.crossVectors(this.groundNormal, SH.fwd);
+    SH.m.makeBasis(SH.side, this.groundNormal, SH.fwd);
+    SH.pos.copy(this.groundPos).addScaledVector(this.groundNormal, 0.03).addScaledVector(this.sun, -0.5 - height * 0.5);
+    SH.m.setPosition(SH.pos);
+    // le blob est enfant de la caisse : on écrit sa matrice monde directement
+    this.blob.matrixWorld.copy(SH.m);
   }
 
   setCockpit(on: boolean) {
@@ -363,11 +429,15 @@ export class CarView {
 /* ------------------------------------------------------------------ fantôme */
 
 const GHOST_MAT = new MeshBasicMaterial({ color: "#8CE6D2", transparent: true, opacity: 0.32, depthWrite: false });
+/* profondeur seule, dessinée d'abord : la translucidité ne laisse voir que les surfaces
+   de devant, pas les roues et l'intérieur à travers la caisse */
+const GHOST_DEPTH = new MeshBasicMaterial({ colorWrite: false });
 
 /* La voiture du meilleur tour, translucide ; on la traverse. Un seul maillage (caisse et
-   roues fusionnées) : un seul appel de dessin. */
+   roues fusionnées), deux appels de dessin (profondeur, puis couleur). */
 export class GhostView {
-  readonly root: Mesh;
+  readonly root = new Group();
+  private mesh: Mesh;
   private q2 = new Quaternion();
   private p = new Vector3();
   private q = new Quaternion();
@@ -395,12 +465,19 @@ export class GhostView {
     const geo = new BufferGeometry();
     geo.setAttribute("position", new Float32BufferAttribute(pos, 3));
     geo.setIndex(idx);
-    this.root = new Mesh(geo, GHOST_MAT);
+    const depth = new Mesh(geo, GHOST_DEPTH);
+    depth.renderOrder = 2;
+    this.mesh = new Mesh(geo, GHOST_MAT);
+    this.mesh.renderOrder = 3;
+    this.root.add(depth, this.mesh);
     this.root.matrixAutoUpdate = false;
     this.bike = !!spec.bike;
     this.ground = groundY(spec);
-    this.root.renderOrder = 2;
     this.root.visible = false;
+  }
+
+  dispose() {
+    this.mesh.geometry.dispose();
   }
 
   update(g: Game, enabled: boolean) {
@@ -506,16 +583,25 @@ export class BotsView {
       color: 0x000000,
       alphaMap: model.shadow,
       transparent: true,
-      opacity: 0.7,
+      opacity: 0.45,
       depthWrite: false,
       polygonOffset: true,
       polygonOffsetFactor: -2,
+      polygonOffsetUnits: -4,
     });
     const blob = new PlaneGeometry(...blobSize(spec)).rotateX(-Math.PI / 2).translate(0, groundY(spec) + 0.02, 0);
     this.shadows = new InstancedMesh(blob, shadowMat, colors.length);
     this.shadows.renderOrder = 1;
     this.shadows.frustumCulled = false;
     this.root.add(this.cars, this.shadows);
+  }
+
+  dispose() {
+    for (const im of [this.cars, this.shadows]) {
+      im.geometry.dispose();
+      (im.material as Material).dispose();
+      im.dispose();
+    }
   }
 
   /* `states` : les bots par défaut, ou les pilotes en direct d'un même véhicule. */
@@ -624,7 +710,9 @@ export class Rig {
     const s = speed / this.top;
     this.kick += ((g.car.boostTime > 0 ? 1 : 0) - this.kick) * (1 - Math.exp(-d * 4));
     cam.fov = (1 - b) * (60 + s * 12) + b * (72 + s * 8) + this.kick * 7;
-    cam.near = b > 0.5 ? 0.05 : 0.1;
+    // en poursuite la voiture est à plus de 6 m : near large = profondeur précise au loin
+    // (boosts, rivage et décalques ne scintillent plus)
+    cam.near = b > 0.5 ? 0.08 : 0.4;
     cam.updateProjectionMatrix();
   }
 }

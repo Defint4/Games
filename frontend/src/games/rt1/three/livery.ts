@@ -100,7 +100,7 @@ export function glassTint(mat: MeshStandardMaterial, l: Livery) {
   mat.color.set("#3a5566").lerp(new Color("#05080a"), l.tint);
 }
 
-const DECAL_BASE = { transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, roughness: 0.45 };
+const DECAL_BASE = { transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4, roughness: 0.45 };
 
 function texture(draw: (ctx: CanvasRenderingContext2D) => void): CanvasTexture {
   const canvas = document.createElement("canvas");

@@ -7,7 +7,8 @@
 import { Environment, PerformanceMonitor } from "@react-three/drei";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { BackSide, Color, type Mesh, type PerspectiveCamera, SphereGeometry, Vector3 } from "three";
+import { BackSide, Color, type DirectionalLight, type Mesh, NeutralToneMapping, type PerspectiveCamera, SphereGeometry, Vector3 } from "three";
+import { groundLight } from "../sim/level";
 import type { CarModel, RaceAssets } from "../assets";
 import { type Vehicle, vehicleById } from "../sim/vehicles";
 import type { Livery } from "../livery";
@@ -49,8 +50,13 @@ export default function RaceScene(props: Props) {
       dpr={dpr}
       // tailles de mise en page (offset) : justes même quand le rendu est tourné de 90°
       resize={{ offsetSize: true }}
-      gl={{ antialias: true, powerPreference: "high-performance", stencil: false }}
-      camera={{ fov: 62, near: 0.1, far: 3200, position: [0, 5, -10] }}
+      // tone mapping neutre (Khronos) : garde les teintes de la palette, et le brouillard
+      // (mélangé après) retrouve la couleur de l'horizon ; ACES délavait le lagon et faisait
+      // une bande à l'horizon
+      gl={{ antialias: true, powerPreference: "high-performance", stencil: false, toneMapping: NeutralToneMapping }}
+      // near large (la voiture est à plus de 6 m en poursuite, kit.ts l'ajuste en cockpit)
+      // et far ramené à la fin du brouillard : profondeur précise au loin
+      camera={{ fov: 62, near: 0.4, far: 2400, position: [0, 5, -10] }}
     >
       <PerformanceMonitor
         flipflops={4}
@@ -72,8 +78,15 @@ function Contents({ game, assets, camMode, livery, paused, ghost, ghostCar, riva
   const level = useMemo(() => buildLevel(assets, gl.capabilities.getMaxAnisotropy()), [assets, gl]);
   const water = useMemo(() => buildWater(assets, sun), [assets, sun]);
   const flora = useMemo(() => buildFlora(assets), [assets]);
-  const car = useMemo(() => new CarView(assets.car, assets.vehicle.spec, livery, bungee.style.fontFamily), [assets, livery]);
+  const car = useMemo(() => {
+    const v = new CarView(assets.car, assets.vehicle.spec, livery, bungee.style.fontFamily);
+    v.setSun(sun);
+    return v;
+  }, [assets, livery, sun]);
   useEffect(() => () => car.dispose(), [car]);
+  /* le soleil sur la voiture suit la sonde de lumière : à l'ombre d'un immeuble, il s'éteint */
+  const sunLight = useRef<DirectionalLight>(null);
+  const sunK = useRef(1);
   const rig = useMemo(() => {
     const r = new Rig();
     r.setVehicle(assets.vehicle);
@@ -83,10 +96,12 @@ function Contents({ game, assets, camMode, livery, paused, ghost, ghostCar, riva
     () => (ghostCar ? new GhostView(ghostCar.model, ghostCar.vehicle.spec) : new GhostView(assets.car, assets.vehicle.spec)),
     [assets, ghostCar],
   );
+  useEffect(() => () => ghostView.dispose(), [ghostView]);
   const botsView = useMemo(
     () => (game.bots.length ? new BotsView(assets.car, assets.vehicle.spec, game.bots.map((b) => b.color)) : null),
     [assets, game],
   );
+  useEffect(() => () => botsView?.dispose(), [botsView]);
   // Pilotes en direct : une vue instanciée par modèle de véhicule, aux couleurs de leur livrée.
   const rivalViews = useMemo(() => {
     const groups = new Map<string, number[]>();
@@ -97,6 +112,7 @@ function Contents({ game, assets, camMode, livery, paused, ghost, ghostCar, riva
       return { view: new BotsView(model, spec, idx.map((i) => game.rivals[i].color)), states: idx.map((i) => game.rivalStates[i]) };
     });
   }, [assets, game, rivalCars]);
+  useEffect(() => () => rivalViews.forEach((r) => r.view.dispose()), [rivalViews]);
   const pausedRef = useRef(paused);
   const ghostRef = useRef(ghost);
   // callbacks lus par les effets et la boucle sans en être des dépendances : un parent qui
@@ -143,6 +159,11 @@ function Contents({ game, assets, camMode, livery, paused, ghost, ghostCar, riva
     if (!pausedRef.current || (game.live && game.race.phase === "racing")) game.update(dt);
     clock.value += Math.min(dt, 0.1);
     car.update(game);
+    if (sunLight.current) {
+      const k = groundLight(assets.level, game.pos.x, game.pos.z);
+      sunK.current += (k - sunK.current) * Math.min(1, dt * 8);
+      sunLight.current.intensity = 3.2 * (0.12 + 0.88 * sunK.current);
+    }
     ghostView.update(game, ghostRef.current);
     rig.update(game, camera as PerspectiveCamera, dt);
     botsView?.update(game, camera as PerspectiveCamera);
@@ -160,7 +181,7 @@ function Contents({ game, assets, camMode, livery, paused, ghost, ghostCar, riva
         <EnvSky sun={sun} />
       </Environment>
       <hemisphereLight args={[new Color(0.42, 0.62, 0.95), new Color(0.35, 0.3, 0.22), 1.7]} />
-      <directionalLight position={sun.clone().multiplyScalar(200)} intensity={3.2} color="#FFEDD1" />
+      <directionalLight ref={sunLight} position={sun.clone().multiplyScalar(200)} intensity={3.2} color="#FFEDD1" />
       <primitive object={level} />
       <primitive object={water} />
       <primitive object={flora} />

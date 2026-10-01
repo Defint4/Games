@@ -159,28 +159,39 @@ export function withGroundDetail(mat: Material, tex: Texture) {
   mat.customProgramCacheKey = () => "rt1-ground";
 }
 
-/* Vent : balancement proportionnel au carré de la hauteur, déphasé par instance. */
-export function withWind(mat: Material, amp: number, start: number) {
+/* Flore instanciée : ombrage par instance (attribut `instanceShade`, lu dans la sonde de
+   lumière au chargement) et, si `amp` > 0, vent : balancement proportionnel au carré de la
+   hauteur, déphasé par instance. */
+export function withFlora(mat: Material, amp: number, start: number) {
   mat.onBeforeCompile = (s) => {
     s.uniforms.uTime = clock;
+    const wind =
+      amp > 0
+        ? `
+        float ph = ip.x * 0.043 + ip.z * 0.061;
+        float hh = max(0.0, transformed.y - ${start.toFixed(2)});
+        float k = hh * hh * ${amp.toFixed(5)};
+        transformed.x += (sin(uTime * 1.3 + ph) * 0.6 + sin(uTime * 2.9 + ph * 1.7) * 0.25) * k;
+        transformed.z += (cos(uTime * 1.1 + ph * 1.3) * 0.4) * k;`
+        : "";
     s.vertexShader = s.vertexShader
-      .replace("#include <common>", "#include <common>\nuniform float uTime;")
+      .replace("#include <common>", "#include <common>\nuniform float uTime;\nattribute float instanceShade;\nvarying float vShade;")
       .replace(
         "#include <begin_vertex>",
         `#include <begin_vertex>
         #ifdef USE_INSTANCING
           vec3 ip = instanceMatrix[3].xyz;
+          vShade = instanceShade;
         #else
           vec3 ip = vec3(0.0);
-        #endif
-        float ph = ip.x * 0.043 + ip.z * 0.061;
-        float hh = max(0.0, transformed.y - ${start.toFixed(2)});
-        float k = hh * hh * ${amp.toFixed(5)};
-        transformed.x += (sin(uTime * 1.3 + ph) * 0.6 + sin(uTime * 2.9 + ph * 1.7) * 0.25) * k;
-        transformed.z += (cos(uTime * 1.1 + ph * 1.3) * 0.4) * k;`,
+          vShade = 1.0;
+        #endif${wind}`,
       );
+    s.fragmentShader = s.fragmentShader
+      .replace("#include <common>", "#include <common>\nvarying float vShade;")
+      .replace("#include <color_fragment>", "#include <color_fragment>\ndiffuseColor.rgb *= vShade;");
   };
-  mat.customProgramCacheKey = () => `rt1-wind-${amp}-${start}`;
+  mat.customProgramCacheKey = () => `rt1-flora-${amp}-${start}`;
 }
 
 function lin(hex: string): Color {

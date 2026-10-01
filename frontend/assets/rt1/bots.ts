@@ -44,7 +44,7 @@ type Run = { time: number; splits: number[]; ghost: Float32Array };
 function record(slug: string, c: Circuit, vehicle: Vehicle): Run[] {
   const runs: Run[] = [];
   for (const style of STYLES) {
-    const game = new Game({ meta: c.meta, heights: c.heights }, c.road, { best: null, ghost: null, rival: null, bots: [], vehicle });
+    const game = new Game({ meta: c.meta, heights: c.heights, probe: null }, c.road, { best: null, ghost: null, rival: null, bots: [], vehicle });
     game.testMode(true, 8, style);
     let clean = true;
     game.on((e) => {

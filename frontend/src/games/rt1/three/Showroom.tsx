@@ -6,7 +6,7 @@
 import { Environment } from "@react-three/drei";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { useEffect, useMemo, useRef } from "react";
-import { BackSide, Color, type Group, Vector3 } from "three";
+import { BackSide, Color, type Group, NeutralToneMapping, Vector3 } from "three";
 import type { CarModel } from "../assets";
 import type { Livery } from "../livery";
 import { bungee } from "../meta";
@@ -21,7 +21,7 @@ export default function Showroom({ model, vehicle, livery }: { model: CarModel; 
   return (
     <Canvas
       dpr={[1, 2]}
-      gl={{ antialias: true, alpha: true }}
+      gl={{ antialias: true, alpha: true, toneMapping: NeutralToneMapping }}
       camera={{ fov: 32, position: [size * 1.35, size * 0.5, size * 1.35], near: 0.1, far: 100 }}
       className="touch-none"
     >

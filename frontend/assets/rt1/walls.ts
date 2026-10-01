@@ -49,7 +49,7 @@ for (const slug of wanted) {
   const n = line.length;
   for (const vehicle of VEHICLES) {
     if (only && !only.includes(vehicle.id)) continue;
-    const game = new Game({ meta: c.meta, heights: c.heights }, c.road, { best: null, ghost: null, rival: null, bots: [], vehicle });
+    const game = new Game({ meta: c.meta, heights: c.heights, probe: null }, c.road, { best: null, ghost: null, rival: null, bots: [], vehicle });
     const loc = new TrackLocator(c.meta.line);
     const r: Result = { essais: 0, travers: 0, dessus: 0, tonneaux: 0, hmax: 0 };
     for (let k = 0; k < points; k++) {

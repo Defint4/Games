@@ -10,6 +10,7 @@ Sorties (dans --out) :
                      encodées en KTX2 par build.sh
   heights.bin        hauteurs du terrain (int16, cm), grille nx × ny
   water.png          profondeur d'eau (R) sur l'emprise du terrain
+  probe.bin          éclairement au sol (u8, 128 × 96 sur l'emprise) : sonde de lumière
   level.json         départ, portes, murs (tronçons), soleil, emprise, instances
 
 Repère Blender : Z en haut, la mer au sud (-Y). Le glTF passe en Y en haut :
@@ -1005,6 +1006,14 @@ def bake(ob, name, size, margin=6, hidden=()):
     rgb = px[:, :, :3]
     print(f"[{name}] p50={np.percentile(rgb, 50):.3f} p99={np.percentile(rgb, 99):.3f} max={rgb.max():.3f}")
     rgb = np.clip(rgb / LM_SCALE, 0, 1)
+    if name == "lm_terrain":
+        # sonde de lumière : l'éclairement au sol sur une grille grossière, pour que la
+        # voiture et la flore passent à l'ombre des immeubles et du relief (probe.bin, u8)
+        PX, PY = 128, 96
+        lum = rgb.mean(axis=2)
+        blocks = lum[: (size // PY) * PY, : (size // PX) * PX].reshape(PY, size // PY, PX, size // PX).mean(axis=(1, 3))
+        with open(os.path.join(OUT, "probe.bin"), "wb") as f:
+            f.write(np.clip(blocks * 255, 0, 255).astype(np.uint8).tobytes())
     # sRGB pour garder de la précision dans les ombres (le client la déclare en sRGB)
     rgb = np.where(rgb <= 0.0031308, rgb * 12.92, 1.055 * np.power(rgb, 1 / 2.4) - 0.055)
     out = bpy.data.images.new(name + "_out", size, size, alpha=False)
@@ -1215,6 +1224,7 @@ def main():
         "walls": WALLS,
         "wallSegments": wall_segments(),
         "lineStep": round(DS * max(1, int(4 / DS)), 3),
+        "probe": {"nx": 128, "ny": 96, "lit": 0.42},
         "terrain": {"x0": X0, "y0": Y0, "x1": X1, "y1": Y1, "nx": nx, "ny": ny, "step": STEP},
         "spawn": {"pos": g(road_point(spawn, 0, 0.6)), "dir": g(Vector((TAN[spawn].x, TAN[spawn].y, 0)))},
         "start": gate_info(START),

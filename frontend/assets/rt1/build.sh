@@ -59,7 +59,7 @@ for c in $CIRCUITS; do
   opt "$OUT/$c/flora.glb" "$PUB/$c/flora.glb"
   for m in lm_terrain lm_road lm_props; do lm "$OUT/$c/$m.png" "$PUB/$c/$m.ktx2"; done
   rm -f "$PUB/$c"/lm_*.webp
-  cp "$OUT/$c"/{water.png,heights.bin,level.json} "$PUB/$c/"
+  cp "$OUT/$c"/{water.png,heights.bin,probe.bin,level.json} "$PUB/$c/"
 done
 # le décodeur Basis de three, servi avec les fichiers du jeu
 mkdir -p "$PUB/basis"

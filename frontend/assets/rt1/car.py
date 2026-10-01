@@ -330,7 +330,9 @@ def bake_shadow(body, wheels):
     yy, xx = np.mgrid[0:size_y, 0:size_x]
     edge = np.minimum(np.minimum(xx, size_x - 1 - xx) / (size_x * 0.12), np.minimum(yy, size_y - 1 - yy) / (size_y * 0.08))
     ao = 1 - (1 - ao) * np.clip(edge, 0, 1)
-    shadow = np.clip((1 - ao) * 1.25, 0, 1)
+    # pas de renforcement : l'occlusion telle quelle, son bord doux compris (le client
+    # l'affiche à 55 %, posée au sol)
+    shadow = np.clip(1 - ao, 0, 1)
     out = bpy.data.images.new("shadow_out", size_x, size_y, alpha=False)
     rgba = np.stack([shadow, shadow, shadow, np.ones_like(shadow)], axis=2).astype(np.float32)
     out.colorspace_settings.name = "Non-Color"
