@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // fichiers servis tels quels (moteur d'échecs compilé, décodeur Basis) : pas notre code
+    "public/**",
   ]),
 ]);
 

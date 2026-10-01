@@ -35,7 +35,7 @@ export default function Workshop({ vehicle, state, profile }: { vehicle: Vehicle
       setNote({ ok: true, text: won.map((m) => `${tr(T).race.gainMission(tr(T).missions[m.id]?.name ?? m.id)} +${formatMoney(m.reward, lang)}`).join(" · ") });
     }
   };
-  const fail = (e: Error) => setNote({ ok: false, text: e instanceof ApiError ? e.message : tr(T).online.failed });
+  const fail = (e: Error) => setNote({ ok: false, text: e instanceof ApiError ? e.message : tr(T).garage.failed });
   const upgrade = useMutation({
     mutationFn: (p: Part) => upgradePart(profile.token, vehicle.id, p),
     onMutate: () => setNote(null),

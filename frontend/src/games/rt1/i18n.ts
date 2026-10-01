@@ -96,11 +96,7 @@ export const T = dict({
       needMoney: (missing: string) => `Il manque ${missing}`,
       bought: "Au garage !",
       stats: { speed: "Vitesse", accel: "Accélération", grip: "Adhérence" },
-      soon: "Arrive ensuite",
-      groups: [
-        { title: "Atelier", items: ["Moteur, turbo, boîte, transmission", "Pneus, suspensions, freins, aéro, allègement", "Réglages fins au niveau maximum"] },
-        { title: "Peinture", items: ["Couleur, deux tons, finitions mate à chromée", "Jantes, vitres, numéro de course", "Logos en calques : formes, texte, logos libres"] },
-      ],
+      failed: "Ça n’a pas marché, réessaie.",
     },
     paint: {
       title: "Peinture",
@@ -243,6 +239,7 @@ export const T = dict({
       qualityLevels: { auto: "Auto", low: "Éco", mid: "Standard", high: "Élevée" },
       qualityNote: "Prise en compte à la prochaine course.",
       stats: "Infos techniques",
+      statsLine: (fps: number, calls: number, tri: number, dpr: number) => `${fps} i/s · ${calls} appels · ${tri}k tri · dpr ${dpr}`,
       ghost: "Fantôme",
       lap: "Tour",
       fullscreen: "Plein écran",
@@ -382,11 +379,7 @@ export const T = dict({
       needMoney: (missing: string) => `${missing} short`,
       bought: "In the garage!",
       stats: { speed: "Speed", accel: "Acceleration", grip: "Grip" },
-      soon: "Coming next",
-      groups: [
-        { title: "Workshop", items: ["Engine, turbo, gearbox, drivetrain", "Tyres, suspension, brakes, aero, weight", "Fine tuning at max level"] },
-        { title: "Paint", items: ["Colour, two-tone, matte to chrome finishes", "Rims, windows, race number", "Layered logos: shapes, text, free logos"] },
-      ],
+      failed: "That didn’t work, try again.",
     },
     paint: {
       title: "Paint",
@@ -529,6 +522,7 @@ export const T = dict({
       qualityLevels: { auto: "Auto", low: "Eco", mid: "Standard", high: "High" },
       qualityNote: "Applied at the next race.",
       stats: "Tech info",
+      statsLine: (fps: number, calls: number, tri: number, dpr: number) => `${fps} fps · ${calls} calls · ${tri}k tris · dpr ${dpr}`,
       ghost: "Ghost",
       lap: "Lap",
       fullscreen: "Full screen",

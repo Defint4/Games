@@ -25,3 +25,4 @@ ml/*/*_league/
 # Outils locaux
 .claude/
 .DS_Store
+.deploy-previous

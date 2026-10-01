@@ -42,7 +42,7 @@ export default function Garage() {
     // le modèle se charge dès maintenant : la prochaine course part sans attente
     void loadCar(next.vehicle).catch(() => {});
   };
-  const fail = (e: Error) => setError(e instanceof ApiError ? e.message : tr(T).online.failed);
+  const fail = (e: Error) => setError(e instanceof ApiError ? e.message : tr(T).garage.failed);
   const buy = useMutation({
     mutationFn: (id: string) => buyVehicle(profile!.token, id),
     onMutate: () => setError(null),
@@ -161,22 +161,6 @@ export default function Garage() {
         })}
       </div>
 
-      <h2 className={`${bungee.className} mb-2 text-sm text-[#8CE6D2]`}>{t.soon}</h2>
-      <div className="flex flex-col gap-3">
-        {t.groups.map((g) => (
-          <section key={g.title} className={`${card} p-4 opacity-80`}>
-            <h3 className={`${bungee.className} mb-1.5 flex items-center gap-1.5 text-sm`}>
-              <LockIcon className="size-4 text-white/50" />
-              {g.title}
-            </h3>
-            <ul className="flex flex-col gap-1 text-sm text-white/70">
-              {g.items.map((it) => (
-                <li key={it}>{it}</li>
-              ))}
-            </ul>
-          </section>
-        ))}
-      </div>
     </>
   );
 }

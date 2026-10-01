@@ -5,7 +5,7 @@ Nouvelle-Calédonie. Le nom vient de la route territoriale 1, de Nouméa à Poum
 
 Slug : `rt1` · Production : https://games.matthieuguiot.dev/rt1
 
-État (30 sept 2026) : étapes 2 à 9 faites, 4 circuits jouables sur `/rt1`, progression
+État (1er oct 2026, après l'audit `AUDIT_RT1.md`) : étapes 2 à 9 faites, 4 circuits jouables sur `/rt1`, progression
 sur le serveur, courses contre les bots, garage de 13 véhicules (dont 3 motos), atelier,
 peinture, courses en direct jusqu'à 8 pilotes (à tester sur téléphone). Le jeu
 est « en développement » (`available: "dev"`) : ouvert au seul compte admin, « Bientôt »
@@ -73,10 +73,14 @@ Ordre de déblocage :
 
 - Tracés par points de contrôle sur l'île commune (`assets/rt1/circuits.py`), avec
   murs ou non, nombre de tours et **blocs** : boosts (chevrons orange, poussée 1,4 s,
-  vitesse max +30 %) et sauts (rampe de 22 m, ~1 s en l'air). À venir : boucles,
+  plafond moteur +30 %, soit +19 à +24 % de vitesse réelle) et sauts (rampe de 22 m,
+  ~1 s en l'air à vitesse moyenne, 1,6 s en F1). À venir : boucles,
   surfaces (terre, sable, herbe, mouillé) avec leur adhérence, circuits point à point.
 - Départ, 3 checkpoints obligatoires par tour, arrivée sous le portique de départ.
-- Médailles bronze, argent, or, auteur, calibrées au pilote automatique (`circuits.ts`).
+- Médailles bronze, argent, or, auteur **par véhicule** : meilleur tour du pilote
+  automatique dans ce véhicule × 0,985 (auteur), 1,03 (or), 1,13 (argent), 1,28 (bronze).
+  Les rythmes sont dans `pace.json` (écrit par `pnpm rt1:bots`, lu par le client et le
+  serveur). L'en ligne, lui, reste sans classes.
 - Fantôme du meilleur tour (20 poses/s, gardé sur le serveur avec le record), désactivable
   en course.
 - Troncs, lampadaires et rochers à moins de 30 m de la route sont de vrais obstacles.
@@ -142,9 +146,9 @@ dans le véhicule du joueur, leurs fourchettes ramenées au rythme de ce véhicu
 
 - Physique arcade maison : précise, lisible, pardonnante en sortie de virage, jamais
   aléatoire.
-- Commandes au choix : boutons (gauche, droite, accélérer, freiner), inclinaison du
-  téléphone, accélération automatique. Vibrations sur Android (Safari iOS n'y donne pas
-  accès).
+- Commandes : direction dosée par la position du doigt entre les deux flèches, frein et
+  accélérateur dans une même zone (on glisse de l'un à l'autre), accélération automatique
+  en option. Pas encore : inclinaison du téléphone, vibrations.
 - Caméras : 3e personne (proche ou loin) et 1re personne (cockpit), bascule en un tap,
   choix mémorisé par véhicule.
 - Pilote automatique (tests, bots) : vitesse visée par véhicule ; les véhicules rapides
@@ -153,11 +157,12 @@ dans le véhicule du joueur, leurs fourchettes ramenées au rythme de ce véhicu
   vitesse plafonnée. La citadine garde le pilotage d'origine (médailles calées dessus).
 - **Aucune collision entre véhicules**, ni en ligne ni contre les bots : les autres sont
   des fantômes qu'on traverse.
-- Deux sortes de circuits. **Avec murs** (Nouméa) : infranchissables ; passé par-dessus
-  (saut), remise en piste au bout de 3 s. **Sans murs** (régions nature, à venir) : sortie
-  de route libre, 5 s pour revenir. La voiture est reposée là où elle a quitté la route,
-  chrono qui continue. Retournée ou dans le lagon : même remise en piste.
-  Générateur : `level.py --walls 0`.
+- Deux sortes de circuits. **Avec murs** (front de mer, centre-ville, corniche) : des pavés
+  pleins de 1 m le long du muret et 9 m de haut (mur invisible au-dessus), on ne les
+  franchit pas ; au contact la voiture glisse et ralentit, sans décoller ni basculer.
+  **Sans murs** (le col) : sortie de route libre, 5 s pour revenir. La voiture est
+  reposée là où elle a quitté la route, chrono qui continue. Retournée ou dans le lagon :
+  même remise en piste. Générateur : `level.py --walls 0`. Banc : `pnpm rt1:walls`.
 
 ## Argent et atelier
 
@@ -227,9 +232,13 @@ Faite (Garage → Peinture, gratuite, par véhicule acheté) :
 - Classement par circuit (fait) : meilleur temps de chacun, à temps
   égal le premier à l'avoir signé ; « Défier » lance le circuit avec le fantôme de ce
   pilote et les écarts calculés sur ses passages.
-- Pas d'anti-triche pour l'instant : les temps envoyés par le téléphone sont crus
-  (voir Plus tard). Un pilote arrivé en retard au départ (scène pas prête) part avec
-  son propre chrono à zéro : à corriger avec le rejeu serveur.
+- Anti-triche (1er oct 2026) : chaque course solo demande un ticket de départ
+  (`POST /api/rt1/start`) ; l'arrivée doit tenir dans le temps que le serveur a vu passer,
+  dépasser la moitié du meilleur tour de la citadine, avoir un passage par porte et un
+  fantôme lisible ; renvoyée, elle rend le même résultat sans repayer. En direct, le temps
+  mesuré par le serveur depuis le top départ fait foi (celui du téléphone gardé à ±1,5 s) :
+  pause, arrière-plan et rechargement coûtent du temps réel. Jeux en développement fermés
+  côté serveur (`DEV_GAMES`, `OPEN_DEV_GAMES=1` sur une machine de dev).
 
 ## Sons
 
@@ -242,14 +251,16 @@ Musique discrète, qu'on peut couper.
 L'optimisation est un point d'honneur : le jeu doit être fluide sur un téléphone moyen.
 
 - three.js + @react-three/fiber (déjà dans le projet pour le Perudo).
-- Cible : 60 i/s sur un téléphone de milieu de gamme, 30 minimum sur un ancien ;
-  qualité adaptée automatiquement à la cadence mesurée (définition de rendu, ombres,
-  densité de végétation), réglable à la main.
+- Cible : 60 i/s sur un téléphone de milieu de gamme, 30 stables sur un ancien. Trois
+  paliers (`quality.ts`) : Éco (30 i/s plafonnés, sans MSAA, végétation proche), Standard,
+  Élevée ; palier appris en course et gardé, réglable dans le menu pause. La définition
+  suit la cadence dans la fourchette du palier.
 - Objets répétés instanciés, niveaux de détail à distance, découpage du décor par zones,
   lumière précalculée plutôt que dynamique, une seule ombre temps réel.
-- Modèles glTF compressés (meshopt), textures WebP (KTX2 si la mémoire vidéo devient
-  juste), atlas partagés ; chargement par
-  région, écran de chargement tant que tout n'est pas prêt.
+- Modèles glTF compressés (meshopt, positions 16 bits), cartes de lumière en KTX2 ETC1S
+  (`toktx`, transcodées en ASTC sur iPhone), terrain en 16 tuiles, végétation coupée par
+  distance, Rapier chargé à la première course ; écran de chargement jusqu'à la première
+  image (shaders compilés, textures envoyées au GPU).
 - Physique en pas fixe, découplée de l'affichage.
 - Modèles : packs libres de droit (Quaternius, Poly Haven, Kenney) retouchés à la
   palette, et modèles générés par script.
@@ -330,9 +341,11 @@ frontend/src/games/rt1/
 ```
 
 **Rendu.** Le décor fixe est dessiné sans lumière temps réel : couleur de sommet ×
-carte de lumière cuite par Cycles (`lm_*.webp`, éclairement / `lmScale`). Seuls la
+carte de lumière cuite par Cycles (`lm_*.ktx2`, éclairement / `lmScale`). Seuls la
 voiture et la flore sont éclairées en direct, avec le même soleil et le même ciel que la
-cuisson. L'ombre de la voiture est une texture cuite, pas une ombre portée.
+cuisson ; une sonde de lumière (`probe.bin`) les met à l'ombre des immeubles et du relief.
+L'ombre de la voiture est une ombre de contact cuite, posée au sol d'après les roues et
+décalée à l'opposé du soleil. Tone mapping neutre (Khronos).
 
 **Régénérer les bots.** Après tout changement de circuit, de véhicule, de physique ou de
 pilote automatique : `pnpm rt1:bots` (tous les circuits, ou `pnpm rt1:bots le-col` ;
@@ -343,9 +356,11 @@ environ une minute par circuit). Il faut au moins 7 tours sans sortie par véhic
 sa voix dans `engineSound.ts`, ses textes dans `i18n.ts`, puis `build.sh` et
 `pnpm rt1:bots`.
 
-**Régénérer les modèles.** `frontend/assets/rt1/build.sh` (Blender portable dans
-`~/.local/opt/`, ou `BLENDER=…`). `SAMPLES=128` pour aller vite, `SKIP_BLENDER=1` pour ne
-refaire que l'optimisation. La couverture (`cover.webp`) est une capture du jeu.
+**Régénérer les modèles.** `frontend/assets/rt1/build.sh` (Blender 4.5 et KTX-Software
+4.4 portables dans `~/.local/opt/`, ou `BLENDER=…`, `TOKTX=…`). `SAMPLES=128` pour aller
+vite, `SKIP_CARS=1` pour ne refaire que les circuits, `SKIP_BLENDER=1` pour ne refaire que
+l'optimisation. Le build s'arrête si Blender échoue et finit par `pnpm rt1:check` (route
+sous le terrain, sens du collider). La couverture (`cover.webp`) est une capture du jeu.
 
 **Tests.** `/rt1/play?debug` affiche cadence, appels de dessin, triangles et résolution.
 `&autopilot` fait rouler le pilote automatique, `&speedup=n` accélère le temps,
@@ -358,7 +373,9 @@ Validés par Matthieu le 26 sept 2026 :
 - Direction A « l'île », ancrée en Nouvelle-Calédonie.
 - Pas de classes de performance pour équilibrer l'en ligne.
 - Aucune collision entre véhicules, bots compris.
-- Pas d'anti-triche au départ (trop de calcul serveur).
+- Pas d'anti-triche au départ (trop de calcul serveur). Revu le 1er oct 2026 : bornes
+  serveur sans rejeu (voir En ligne).
+- Médailles par véhicule en campagne (1er oct 2026).
 - Pas de logo importé : formes, texte et logos libres de droit.
 
 ## Plan de construction
@@ -390,7 +407,9 @@ Chaque étape se joue sur téléphone avant la suivante.
 
 ## Plus tard (non validé)
 
-- Anti-triche : rejeu serveur des commandes, donc physique déterministe.
+- Anti-triche plus poussé : contrôle statistique des passages et des fantômes. Un rejeu
+  serveur au bit près n'est pas réaliste (V8 contre JavaScriptCore, Rapier non
+  déterministe).
 - Éditeur de circuits au doigt, partage, circuits de la communauté.
 - Modes : défi du jour, championnats, élimination, cascades à moto, glisse.
 - Progression : permis, niveau pilote et succès, aides à la conduite qui rapportent plus

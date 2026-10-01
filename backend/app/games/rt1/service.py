@@ -243,8 +243,9 @@ async def finish(
     old = rec.time_ms if rec is not None else None
     is_record = old is None or time_ms < old
     if is_record:
-        had = set(rules.medals_for(circuit, old))
-        for medal in rules.medals_for(circuit, time_ms):
+        # les médailles sont celles du véhicule ; chacune n'est payée qu'une fois par circuit
+        had = set() if rec is None else set(rules.medals_for(circuit, old, rec.vehicle))
+        for medal in rules.medals_for(circuit, time_ms, vehicle):
             if medal not in had:
                 gains.append(Gain("medal", rules.MEDAL_MONEY[medal], medal))
                 profile.money += rules.MEDAL_MONEY[medal]
@@ -278,15 +279,16 @@ async def _pay_missions(
     db: AsyncSession, profile: Rt1Profile, bots: BotsResult | None = None, pi: int | None = None
 ) -> list[Gain]:
     """Paie les missions nouvellement accomplies (une fois chacune)."""
-    bests = dict(
-        (
+    bests = {
+        c: (t, v)
+        for c, t, v in (
             await db.execute(
-                select(Rt1Record.circuit, Rt1Record.time_ms).where(
+                select(Rt1Record.circuit, Rt1Record.time_ms, Rt1Record.vehicle).where(
                     Rt1Record.player_id == profile.player_id
                 )
             )
         ).all()
-    )
+    }
     gains = []
     done = list(profile.missions)
     for mission in rules.MISSIONS:

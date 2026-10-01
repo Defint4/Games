@@ -96,7 +96,7 @@ export default function Paint() {
       setSavedAt(Date.now());
       raceSfx.checkpoint(true);
     },
-    onError: (e) => setError(e instanceof ApiError ? e.message : tr(T).online.failed),
+    onError: (e) => setError(e instanceof ApiError ? e.message : tr(T).garage.failed),
   });
 
   const set = (patch: Partial<Livery>) => setDraft((d) => (d ? { ...d, ...patch } : d));

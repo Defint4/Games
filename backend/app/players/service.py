@@ -14,6 +14,7 @@ from app.players.models import Player, PlayerGameStats
 DEFAULT_PIN = "0000"
 PIN_MAX_FAILURES = 5
 PIN_LOCK = timedelta(minutes=15)
+PIN_LOCK_MAX = timedelta(hours=24)
 
 
 class PseudoTaken(Exception):
@@ -39,8 +40,8 @@ class Suspended(Exception):
 async def _check_pin(db: AsyncSession, player: Player, pin: str) -> None:
     """Vérifie le code du joueur, dont la ligne est verrouillée (FOR UPDATE) par l'appelant :
     les essais sur un même compte passent un par un, le compteur d'échecs ne peut pas être
-    contourné en rafale. Après PIN_MAX_FAILURES échecs d'affilée, le compte est bloqué
-    PIN_LOCK, quel que soit l'appareil."""
+    contourné en rafale. Tous les PIN_MAX_FAILURES échecs d'affilée, le compte est bloqué,
+    de plus en plus longtemps, quel que soit l'appareil."""
     now = datetime.now(UTC)
     if player.pin_locked_until is not None and player.pin_locked_until > now:
         raise PinLocked
@@ -53,10 +54,13 @@ async def _check_pin(db: AsyncSession, player: Player, pin: str) -> None:
         player.pin_failures = 0
         player.pin_locked_until = None
         return
+    # Le compteur n'est remis à zéro que par un bon code : chaque blocage dure quatre fois
+    # le précédent (15 min, 1 h, 4 h, puis 24 h au plus). Un code à 4 chiffres ne tient
+    # qu'à ce prix : à blocage fixe, ~480 essais par jour suffisaient en dix jours.
     player.pin_failures += 1
-    if player.pin_failures >= PIN_MAX_FAILURES:
-        player.pin_failures = 0
-        player.pin_locked_until = now + PIN_LOCK
+    if player.pin_failures % PIN_MAX_FAILURES == 0:
+        rounds = player.pin_failures // PIN_MAX_FAILURES - 1
+        player.pin_locked_until = now + min(PIN_LOCK * 4**rounds, PIN_LOCK_MAX)
     await db.commit()
     raise WrongPin
 

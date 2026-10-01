@@ -256,6 +256,13 @@ function RaceView({
   }, [closed, game]);
 
   const showBanner = useCallback((text: string) => setBanner({ key: Date.now(), text }), []);
+  // retiré à la fin de son animation, ou au bout de 0,7 s si les animations sont réduites
+  // (sans animation, onAnimationEnd n'arrive jamais)
+  useEffect(() => {
+    if (!banner) return;
+    const timer = setTimeout(() => setBanner((b) => (b?.key === banner.key ? null : b)), 700);
+    return () => clearTimeout(timer);
+  }, [banner]);
 
   /* Envoie l'arrivée ; la réponse ne s'affiche que si le panneau est toujours le sien. */
   const submit = useCallback(
@@ -353,7 +360,7 @@ function RaceView({
           const el = delta.current;
           if (el) {
             el.textContent = e.delta == null ? formatTime(e.time) : formatDelta(e.delta);
-            el.dataset.kind = e.delta == null ? "neutral" : e.delta <= 0 ? "ahead" : "behind";
+            el.dataset.kind = e.delta == null || Math.abs(e.delta) < 0.0005 ? "neutral" : e.delta < 0 ? "ahead" : "behind";
             el.dataset.show = "1";
             if (deltaTimer.current) clearTimeout(deltaTimer.current);
             deltaTimer.current = setTimeout(() => {
@@ -449,13 +456,13 @@ function RaceView({
         f.t += dt;
         if (f.t > 0.5) {
           const s = renderStats;
-          fps.current.textContent = `${Math.round(f.n / f.t)} i/s · ${s.calls} appels · ${Math.round(s.triangles / 1000)}k tri · dpr ${s.dpr}`;
+          fps.current.textContent = t.statsLine(Math.round(f.n / f.t), s.calls, Math.round(s.triangles / 1000), s.dpr);
           f.n = 0;
           f.t = 0;
         }
       }
     },
-    [game],
+    [game, t],
   );
 
   return (
@@ -484,7 +491,7 @@ function RaceView({
       <div className={photo ? "hidden" : "contents"}>
       {/* Haut : menu, recommencer · chrono · vue, checkpoint */}
       <div className="absolute inset-x-0 top-0 flex items-start justify-between px-[max(1rem,var(--sl))] pt-[max(0.6rem,var(--st))] [padding-right:max(1rem,var(--sr))]">
-        <div className="flex gap-2">
+        <div className="flex gap-4">
           <HudButton label={t.menu} onClick={() => setMenu(true)}>
             <path d="M5 7h14M5 12h14M5 17h14" />
           </HudButton>
@@ -568,7 +575,7 @@ function RaceView({
 
       {finish && (
         <div className="absolute inset-0 flex items-center justify-center bg-black/45">
-          <div className="flex max-h-full items-stretch gap-6 overflow-y-auto rounded-2xl bg-[#0B2A36]/90 px-8 py-5 ring-1 ring-white/15">
+          <div role="dialog" aria-modal="true" className="flex max-h-full max-w-full items-stretch gap-4 overflow-auto rounded-2xl bg-[#0B2A36]/90 px-5 py-5 ring-1 ring-white/15">
           {online ? <LiveStandings online={online} /> : game.bots.length > 0 && <Standings game={game} time={finish.time} color={livery.color} />}
           <div className="flex min-w-[16rem] flex-col items-center gap-2.5">
             <p className={`${bungee.className} text-sm text-[#8CE6D2]`}>{finish.best ? t.newBest : t.finish}</p>
@@ -615,7 +622,13 @@ function RaceView({
 
       {menu && (
         <div className="absolute inset-0 flex items-center justify-center bg-black/55" onClick={() => setMenu(false)}>
-          <div className="grid w-[min(24rem,calc(90*var(--u)))] grid-cols-2 gap-3 rounded-2xl bg-[#0B2A36]/95 p-5 ring-1 ring-white/15" onClick={(e) => e.stopPropagation()}>
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label={t.paused}
+            className="grid max-h-full w-[min(24rem,calc(90*var(--u)))] grid-cols-2 gap-3 overflow-y-auto rounded-2xl bg-[#0B2A36]/95 p-5 ring-1 ring-white/15"
+            onClick={(e) => e.stopPropagation()}
+          >
             <h2 className={`${bungee.className} col-span-2 text-center text-lg`}>{t.paused}</h2>
             <button
               type="button"
@@ -918,7 +931,7 @@ function HudButton({ label, onClick, children }: { label: string; onClick: () =>
       type="button"
       aria-label={label}
       onClick={onClick}
-      className="rounded-full bg-black/40 p-2.5 ring-1 ring-white/25 active:scale-95"
+      className="rounded-full bg-black/40 p-3 ring-1 ring-white/25 active:scale-95"
     >
       <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         {children}

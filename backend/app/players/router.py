@@ -22,7 +22,7 @@ from app.players.schemas import (
 
 router = APIRouter(prefix="/api/players", tags=["players"])
 
-PIN_LOCKED = "Trop d'essais : ce compte est bloqué quelques minutes."
+PIN_LOCKED = "Trop d'essais : ce compte est bloqué un moment."
 
 
 async def _me(db: AsyncSession, player: Player) -> MeOut:

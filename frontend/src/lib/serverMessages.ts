@@ -92,8 +92,14 @@ const EN: Record<string, string> = {
   "Seul le créateur de la table choisit le circuit.": "Only the table's creator picks the circuit.",
   "La course n'est pas en cours.": "The race isn't running.",
   "Tu as déjà passé la ligne.": "You've already crossed the line.",
-  "Trop d'essais : ce compte est bloqué quelques minutes.":
-    "Too many tries: this account is locked for a few minutes.",
+  "Course inconnue.": "Unknown race.",
+  "Course déjà comptée.": "Race already counted.",
+  "Course périmée.": "Race expired.",
+  "Temps impossible.": "Impossible time.",
+  "Temps de passage impossibles.": "Impossible split times.",
+  "Trop de tables ouvertes, réessaie dans quelques minutes.": "Too many open tables, try again in a few minutes.",
+  "Trop d'essais : ce compte est bloqué un moment.":
+    "Too many tries: this account is locked for a while.",
   "Trop de tentatives : réessaie dans quelques minutes.":
     "Too many tries: try again in a few minutes.",
   "Trop tard : le coup ne peut plus être enchaîné.": "Too late: that move can't be chained anymore.",

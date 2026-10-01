@@ -3,13 +3,15 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
+# Le commit en ligne avant la mise à jour : rollback.sh y revient.
+git rev-parse HEAD > .deploy-previous
+
 echo "==> git pull"
 git pull
 
-echo "==> Backend : dépendances + migrations"
+echo "==> Backend : dépendances"
 cd backend
-uv sync
-uv run alembic upgrade head
+uv sync --locked
 cd ..
 
 echo "==> Frontend : dépendances + build"
@@ -38,6 +40,13 @@ if [ -d .next/static ]; then cp -r --update=none .next/static/. .next-build/stat
 rm -rf .next-old
 if [ -d .next ]; then mv .next .next-old; fi
 mv .next-build .next
+cd ..
+
+# Migrations juste avant le redémarrage : l'ancien backend ne tourne pas des minutes (le
+# temps du build) sur un schéma qu'il ne connaît pas.
+echo "==> Migrations"
+cd backend
+uv run alembic upgrade head
 cd ..
 
 echo "==> Redémarrage des services"

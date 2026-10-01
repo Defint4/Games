@@ -645,6 +645,8 @@ export class BotsView {
 
 /* ------------------------------------------------------------------ caméra */
 
+const REDUCED_MOTION = typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
 /* Une caméra regarde vers -Z ; la voiture avance vers +Z : demi-tour, léger piqué. */
 const COCKPIT_Q = new Quaternion()
   .setFromAxisAngle(new Vector3(0, 1, 0), Math.PI)
@@ -713,7 +715,7 @@ export class Rig {
 
     // moto : l'œil tourne avec l'inclinaison (adoucie : 60 %, sinon l'horizon donne le
     // tournis), autour du point de contact
-    this.leanQ.setFromAxisAngle(this.zAxis, this.bike ? -g.car.lean * 0.6 : 0);
+    this.leanQ.setFromAxisAngle(this.zAxis, this.bike ? -g.car.lean * (REDUCED_MOTION ? 0.25 : 0.6) : 0);
     const eye = this.tmp.copy(this.eye);
     eye.y -= this.ground;
     eye.applyQuaternion(this.leanQ);
@@ -727,7 +729,8 @@ export class Rig {
       cam.quaternion.slerp(this.q, b);
     }
     const s = speed / this.top;
-    this.kick += ((g.car.boostTime > 0 ? 1 : 0) - this.kick) * (1 - Math.exp(-d * 4));
+    // « réduire les animations » : pas d'élargissement du champ au boost
+    this.kick += ((g.car.boostTime > 0 && !REDUCED_MOTION ? 1 : 0) - this.kick) * (1 - Math.exp(-d * 4));
     cam.fov = (1 - b) * (60 + s * 12) + b * (72 + s * 8) + this.kick * 7;
     // en poursuite la voiture est à plus de 6 m : near large = profondeur précise au loin
     // (boosts, rivage et décalques ne scintillent plus)

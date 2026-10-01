@@ -89,7 +89,7 @@ class StateOut(BaseModel):
 
 def _state_out(s: service.State) -> StateOut:
     level = rules.level_for(s.xp)
-    bests = {c: r.time_ms for c, r in s.records.items()}
+    bests = {c: (r.time_ms, r.vehicle) for c, r in s.records.items()}
     return StateOut(
         money=s.money,
         xp=s.xp,
