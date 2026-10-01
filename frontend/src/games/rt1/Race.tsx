@@ -29,6 +29,7 @@ import { performanceIndex } from "./sim/tuning";
 import type { Vehicle } from "./sim/vehicles";
 import { formatDelta, formatTime } from "./sim/race";
 import { canFullscreen, enterImmersive, isFullscreen } from "./immersive";
+import { type QualityPref, readQualityPref, saveQualityPref } from "./quality";
 import { type CamMode, renderStats } from "./three/RaceScene";
 
 const RaceScene = dynamic(() => import("./three/RaceScene"), { ssr: false, loading: () => null });
@@ -165,6 +166,7 @@ function RaceView({
   const [finish, setFinish] = useState<Finish | null>(null);
   /* ?photo : sans interface, pour les captures du circuit */
   const [photo, setPhoto] = useState(false);
+  const [quality, setQuality] = useState<QualityPref>("auto");
   const paused = menu || !ready;
 
   const chrono = useRef<HTMLDivElement>(null);
@@ -212,6 +214,7 @@ function RaceView({
       if (saved === "cockpit") setCam("cockpit");
       setGhostOn(localStorage.getItem(GHOST_KEY) !== "0");
       setFlip(localStorage.getItem(FLIP_KEY) === "1");
+      setQuality(readQualityPref());
     } catch {
       /* stockage indisponible */
     }
@@ -406,10 +409,11 @@ function RaceView({
       sound.current = null;
     };
   }, [ready, game]);
+  const hushed = paused || finish !== null;
   useEffect(() => {
-    sound.current?.hush(paused);
+    sound.current?.hush(hushed);
     if (paused) game.input.clear();
-  }, [paused, game]);
+  }, [hushed, paused, game]);
 
   const onReady = useCallback(() => {
     setReady(true);
@@ -468,6 +472,7 @@ function RaceView({
           onFrame={onFrame}
           onReady={onReady}
           onContextLost={onContextLost}
+          quality={quality}
         />
       </div>
 
@@ -484,7 +489,7 @@ function RaceView({
             </HudButton>
           )}
           {game.opponents > 0 && (
-            <div className={`${bungee.className} ml-1 flex items-baseline rounded-xl bg-black/30 px-2.5 py-1 ring-1 ring-white/25 backdrop-blur-sm`}>
+            <div className={`${bungee.className} ml-1 flex items-baseline rounded-xl bg-black/40 px-2.5 py-1 ring-1 ring-white/25`}>
               <span ref={place} className="text-[clamp(1.4rem,calc(3.6*var(--u)),2.2rem)] leading-none tabular-nums [text-shadow:0_2px_0_rgba(8,40,52,0.55)]">
                 1
               </span>
@@ -557,7 +562,7 @@ function RaceView({
       )}
 
       {finish && (
-        <div className="absolute inset-0 flex items-center justify-center bg-black/35 backdrop-blur-[2px]">
+        <div className="absolute inset-0 flex items-center justify-center bg-black/45">
           <div className="flex max-h-full items-stretch gap-6 overflow-y-auto rounded-2xl bg-[#0B2A36]/90 px-8 py-5 ring-1 ring-white/15">
           {online ? <LiveStandings online={online} /> : game.bots.length > 0 && <Standings game={game} time={finish.time} color={livery.color} />}
           <div className="flex min-w-[16rem] flex-col items-center gap-2.5">
@@ -604,7 +609,7 @@ function RaceView({
       )}
 
       {menu && (
-        <div className="absolute inset-0 flex items-center justify-center bg-black/45 backdrop-blur-[2px]" onClick={() => setMenu(false)}>
+        <div className="absolute inset-0 flex items-center justify-center bg-black/55" onClick={() => setMenu(false)}>
           <div className="grid w-[min(24rem,calc(90*var(--u)))] grid-cols-2 gap-3 rounded-2xl bg-[#0B2A36]/95 p-5 ring-1 ring-white/15" onClick={(e) => e.stopPropagation()}>
             <h2 className={`${bungee.className} col-span-2 text-center text-lg`}>{t.paused}</h2>
             <button
@@ -625,6 +630,26 @@ function RaceView({
             <button type="button" onClick={quit} className={`rounded-xl bg-white/10 p-3 font-bold ring-1 ring-white/15 active:translate-y-0.5 ${game.live ? "col-span-2" : ""}`}>
               {game.live && game.race.phase !== "finished" ? t.giveUp : t.quit}
             </button>
+            <div className="col-span-2 flex flex-col items-center gap-1">
+              <div className="flex items-center gap-1 rounded-xl bg-white/10 p-1 ring-1 ring-white/15">
+                <span className="px-2 text-xs font-bold text-white/70">{t.quality}</span>
+                {(["auto", "low", "mid", "high"] as const).map((q) => (
+                  <button
+                    key={q}
+                    type="button"
+                    aria-pressed={quality === q}
+                    onClick={() => {
+                      saveQualityPref(q);
+                      setQuality(q);
+                    }}
+                    className={`rounded-lg px-2.5 py-1.5 text-xs font-bold active:translate-y-0.5 ${quality === q ? "bg-[#2EC4C6] text-[#061920]" : "text-white/80"}`}
+                  >
+                    {t.qualityLevels[q]}
+                  </button>
+                ))}
+              </div>
+              <span className="text-[10px] text-white/50">{t.qualityNote}</span>
+            </div>
             <div className="col-span-2 flex flex-wrap items-center justify-center gap-3">
               <SoundToggle />
               <button
@@ -871,7 +896,7 @@ function HudButton({ label, onClick, children }: { label: string; onClick: () =>
       type="button"
       aria-label={label}
       onClick={onClick}
-      className="rounded-full bg-black/30 p-2.5 ring-1 ring-white/25 backdrop-blur-sm active:scale-95"
+      className="rounded-full bg-black/40 p-2.5 ring-1 ring-white/25 active:scale-95"
     >
       <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         {children}
@@ -924,7 +949,7 @@ function Pads({ input, t }: { input: Input; t: { left: string; right: string; ga
     },
   });
 
-  const pad = "flex items-center justify-center rounded-full ring-1 ring-white/45 backdrop-blur-[2px] transition-transform duration-75";
+  const pad = "flex items-center justify-center rounded-full ring-1 ring-white/45 transition-transform duration-75";
   return (
     <>
       <div

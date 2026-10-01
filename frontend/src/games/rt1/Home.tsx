@@ -6,7 +6,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { TransitionOverlay } from "@/components/Loading";
 import { tr, useLang, useT } from "@/lib/i18n";
 import { fetchRival, readVehicle, useProfile, useRt1State } from "./api";
@@ -58,11 +58,20 @@ export default function Home() {
     router.push(`${PLAY_PATH}?c=${slug}${query}`);
   };
 
+  // le circuit choisi se précharge, mais seulement une fois le doigt posé sur lui (pas à
+  // chaque tap d'une série : chaque préchargement est un décor entier à décoder)
+  const preloadTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const choose = (c: Circuit) => {
     setSlug(c.slug);
     saveCircuit(c.slug);
-    void preloadAssets(c.slug, state.data?.vehicle ?? readVehicle()).catch(() => {});
+    if (preloadTimer.current) clearTimeout(preloadTimer.current);
+    preloadTimer.current = setTimeout(() => {
+      void preloadAssets(c.slug, state.data?.vehicle ?? readVehicle()).catch(() => {});
+    }, 700);
   };
+  useEffect(() => () => {
+    if (preloadTimer.current) clearTimeout(preloadTimer.current);
+  }, []);
 
   return (
     <>

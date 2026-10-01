@@ -238,6 +238,9 @@ export const T = dict({
     },
     race: {
       flip: "Retourner l’écran",
+      quality: "Qualité",
+      qualityLevels: { auto: "Auto", low: "Éco", mid: "Standard", high: "Élevée" },
+      qualityNote: "Prise en compte à la prochaine course.",
       stats: "Infos techniques",
       ghost: "Fantôme",
       lap: "Tour",
@@ -520,6 +523,9 @@ export const T = dict({
     },
     race: {
       flip: "Flip the screen",
+      quality: "Quality",
+      qualityLevels: { auto: "Auto", low: "Eco", mid: "Standard", high: "High" },
+      qualityNote: "Applied at the next race.",
       stats: "Tech info",
       ghost: "Ghost",
       lap: "Lap",

@@ -10,10 +10,9 @@
    À relancer quand un circuit, un véhicule ou le pilote automatique change. */
 
 import { writeFileSync } from "node:fs";
-import RAPIER from "@dimforge/rapier3d-compat";
 import { Quaternion, Vector3 } from "three";
 import type { DriveStyle } from "../../src/games/rt1/sim/autopilot";
-import { Game } from "../../src/games/rt1/sim/game";
+import { Game, initPhysics } from "../../src/games/rt1/sim/game";
 import { ghostPose } from "../../src/games/rt1/sim/ghost";
 import { type Vehicle, VEHICLES } from "../../src/games/rt1/sim/vehicles";
 import { type Circuit, CIRCUITS, loadCircuit, PUBLIC } from "./load";
@@ -88,7 +87,7 @@ function encode(runs: Run[], ratio: number): Buffer {
   return Buffer.concat(parts);
 }
 
-await RAPIER.init();
+await initPhysics();
 for (const slug of process.argv.slice(2).length ? process.argv.slice(2) : CIRCUITS) {
   const circuit = await loadCircuit(slug);
   let base = 0;

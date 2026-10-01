@@ -4,9 +4,10 @@
    caméra (construits dans kit.ts). La simulation avance dans le même useFrame que le
    rendu. */
 
-import { Environment, PerformanceMonitor } from "@react-three/drei";
+import { Environment } from "@react-three/drei";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Governor, type QualityPref, startTier, type Tier, TIERS } from "../quality";
 import { BackSide, Color, type DirectionalLight, type Mesh, NeutralToneMapping, type PerspectiveCamera, SphereGeometry, Vector3 } from "three";
 import { groundLight } from "../sim/level";
 import type { CarModel, RaceAssets } from "../assets";
@@ -14,7 +15,7 @@ import { type Vehicle, vehicleById } from "../sim/vehicles";
 import type { Livery } from "../livery";
 import { bungee } from "../meta";
 import type { Game } from "../sim/game";
-import { BotsView, buildFlora, buildLevel, buildWater, type CamMode, CarView, GhostView, Rig } from "./kit";
+import { BotsView, buildFlora, buildLevel, buildWater, type CamMode, CarView, cullFlora, GhostView, Rig } from "./kit";
 import { clock, FOG, skyMaterial } from "./materials";
 
 export type { CamMode };
@@ -37,41 +38,55 @@ type Props = {
   onReady: () => void;
   /* contexte WebGL perdu (mémoire, retour d'arrière-plan) : la course se met en pause */
   onContextLost?: () => void;
+  /* réglage de qualité choisi dans le menu pause (la définition suit tout de suite) */
+  quality: QualityPref;
 };
 
 export default function RaceScene(props: Props) {
-  // Résolution : nette d'entrée (2× sur les écrans 3×), montée jusqu'à la densité de
-  // l'écran si la cadence tient, baissée par paliers sinon, jamais sous 1.
+  // Palier de qualité de cette course (préférence, palier appris, ou estimation) : MSAA et
+  // cadence sont fixés à la création du rendu ; la définition se règle en direct.
+  const [tier] = useState<Tier>(startTier);
+  const spec = TIERS[tier];
   const device = typeof window === "undefined" ? 1 : window.devicePixelRatio || 1;
-  const maxDpr = Math.min(3, device);
-  const [dpr, setDpr] = useState(() => Math.min(2, device));
+  const [dpr, setDpr] = useState(() => Math.min(device, spec.dpr[0]));
   return (
     <Canvas
       dpr={dpr}
+      frameloop="never"
       // tailles de mise en page (offset) : justes même quand le rendu est tourné de 90°
       resize={{ offsetSize: true }}
       // tone mapping neutre (Khronos) : garde les teintes de la palette, et le brouillard
       // (mélangé après) retrouve la couleur de l'horizon ; ACES délavait le lagon et faisait
-      // une bande à l'horizon
-      gl={{ antialias: true, powerPreference: "high-performance", stencil: false, toneMapping: NeutralToneMapping }}
+      // une bande à l'horizon. Canvas opaque : rien à composer avec la page.
+      gl={{ antialias: spec.msaa, alpha: false, powerPreference: "high-performance", stencil: false, toneMapping: NeutralToneMapping }}
       // near large (la voiture est à plus de 6 m en poursuite, kit.ts l'ajuste en cockpit)
       // et far ramené à la fin du brouillard : profondeur précise au loin
       camera={{ fov: 62, near: 0.4, far: 2400, position: [0, 5, -10] }}
     >
-      <PerformanceMonitor
-        flipflops={4}
-        onIncline={() => setDpr((d) => Math.min(maxDpr, d + 0.25))}
-        onDecline={() => setDpr((d) => Math.max(1, d - 0.25))}
-        onFallback={() => setDpr((d) => Math.max(1, Math.min(d, 1.5)))}
-      />
       <fog attach="fog" args={[FOG.color, FOG.near, FOG.far]} />
-      <Contents {...props} />
+      <Contents {...props} tier={tier} dpr={dpr} setDpr={setDpr} />
     </Canvas>
   );
 }
 
-function Contents({ game, assets, camMode, livery, paused, ghost, ghostCar, rivalCars, onFrame, onReady, onContextLost }: Props) {
-  const { camera, gl, scene } = useThree();
+function Contents({
+  game,
+  assets,
+  camMode,
+  livery,
+  paused,
+  ghost,
+  ghostCar,
+  rivalCars,
+  onFrame,
+  onReady,
+  onContextLost,
+  quality,
+  tier,
+  dpr,
+  setDpr,
+}: Props & { tier: Tier; dpr: number; setDpr: (d: number) => void }) {
+  const { camera, gl, scene, advance } = useThree();
   /* la carte des reflets est refaite après une perte de contexte (sinon noire) */
   const [envKey, setEnvKey] = useState(0);
   const sun = useMemo(() => new Vector3(...assets.level.meta.sun).normalize(), [assets]);
@@ -133,9 +148,14 @@ function Contents({ game, assets, camMode, livery, paused, ghost, ghostCar, riva
     rig.snap(game);
     car.update(game);
     rig.update(game, camera as PerspectiveCamera, 0);
-    // shaders compilés avant la première image : pas d'à-coup au départ
-    gl.compile(scene, camera);
-    onReadyRef.current();
+    let cancelled = false;
+    // shaders compilés et textures envoyées au GPU avant la première image : pas d'à-coup
+    // au départ (le Loader reste affiché pendant ce temps)
+    const lm = assets.lightmaps;
+    for (const t of [lm.terrain, lm.road, lm.props, assets.water]) gl.initTexture(t);
+    void gl.compileAsync(scene, camera).then(() => {
+      if (!cancelled) onReadyRef.current();
+    });
     const lost = () => onLostRef.current?.();
     const restored = () => {
       rig.snap(game);
@@ -144,20 +164,62 @@ function Contents({ game, assets, camMode, livery, paused, ghost, ghostCar, riva
     gl.domElement.addEventListener("webglcontextlost", lost);
     gl.domElement.addEventListener("webglcontextrestored", restored);
     return () => {
+      cancelled = true;
       gl.domElement.removeEventListener("webglcontextlost", lost);
       gl.domElement.removeEventListener("webglcontextrestored", restored);
     };
-  }, [game, gl, scene, camera, car, rig]);
+  }, [game, gl, scene, camera, car, rig, assets]);
+
+  // La boucle d'images est à nous : plafonnée à la cadence du palier (60, ou 30 en
+  // économie : une image sur deux à 60 Hz, une sur quatre à 120), et à l'arrêt en pause ou
+  // sur l'écran d'arrivée (l'image reste, rien à redessiner).
+  const liveRef = useRef(false);
+  useEffect(() => {
+    const minInterval = 1000 / TIERS[tier].fps - 2.5;
+    let raf = 0, last = -1e9, idle = 0;
+    const loop = (t: number) => {
+      raf = requestAnimationFrame(loop);
+      if (t - last < minInterval) return;
+      const running = !pausedRef.current || liveRef.current;
+      // à l'arrêt, encore quelques images pour laisser l'interface se poser
+      if (!running && ++idle > 3) return;
+      if (running) idle = 0;
+      last = t;
+      advance(t);
+    };
+    raf = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(raf);
+  }, [tier, advance]);
+
+  // Gouverneur : la définition suit la cadence mesurée, dans la fourchette du palier.
+  const gov = useRef<Governor | null>(null);
+  gov.current ??= new Governor(tier, dpr);
+  useEffect(() => {
+    const g = gov.current!;
+    const spec = TIERS[quality === "auto" ? tier : quality];
+    g.dpr = Math.min(spec.dpr[2], Math.max(spec.dpr[1], g.dpr));
+    setDpr(g.dpr);
+  }, [quality, tier, setDpr]);
+  // Végétation : une case n'est dessinée qu'à portée (par sorte), revu quatre fois par seconde.
+  const floraTimer = useRef(0);
 
   useEffect(() => {
     rig.setMode(camMode);
     car.setCockpit(camMode === "cockpit");
   }, [camMode, car, rig]);
 
-  useFrame((_, dt) => {
+  useFrame(({ clock: c }, dt) => {
     // en direct, le menu ne suspend rien : le chrono est celui de tous
-    if (!pausedRef.current || (game.live && game.race.phase === "racing")) game.update(dt);
+    liveRef.current = game.live && game.race.phase === "racing";
+    if (!pausedRef.current || liveRef.current) game.update(dt);
     clock.value += Math.min(dt, 0.1);
+    const g = gov.current!;
+    if (game.race.phase === "racing" && quality === "auto" && g.frame(dt, c.elapsedTime)) setDpr(g.dpr);
+    floraTimer.current -= dt;
+    if (floraTimer.current <= 0) {
+      floraTimer.current = 0.25;
+      cullFlora(flora, camera.position, TIERS[tier].flora);
+    }
     car.update(game);
     if (sunLight.current) {
       const k = groundLight(assets.level, game.pos.x, game.pos.z);

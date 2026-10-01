@@ -151,11 +151,23 @@ export function buildFlora(assets: RaceAssets): Group {
         im.instanceMatrix.needsUpdate = true;
         im.computeBoundingSphere();
         im.matrixAutoUpdate = false;
+        // centre de la case : le rendu écarte la case au-delà de la portée de sa sorte
+        const cx = items.reduce((a, it) => a + it[0], 0) / items.length, cz = items.reduce((a, it) => a + it[2], 0) / items.length;
+        im.userData = { kind, cx, cz };
         root.add(im);
       }
     }
   }
   return root;
+}
+
+/* Une case n'est dessinée qu'à portée de sa sorte (plus la demi-diagonale de la case). */
+export function cullFlora(root: Group, from: Vector3, range: Record<string, number>) {
+  for (const im of root.children) {
+    const u = im.userData as { kind: string; cx: number; cz: number };
+    const r = (range[u.kind] ?? 400) + CELL * 0.71;
+    im.visible = (from.x - u.cx) ** 2 + (from.z - u.cz) ** 2 < r * r;
+  }
 }
 
 /* ------------------------------------------------------------------ voiture */
@@ -419,6 +431,13 @@ export class CarView {
     SH.m.setPosition(SH.pos);
     // le blob est enfant de la caisse : on écrit sa matrice monde directement
     this.blob.matrixWorld.copy(SH.m);
+  }
+
+  /* Vitrine : l'ombre sous la voiture posée, qui tourne avec elle. */
+  restShadow() {
+    this.shadow.opacity = SHADOW_OPACITY;
+    SH.m.makeTranslation(0, this.ground + 0.03, 0);
+    this.blob.matrixWorld.multiplyMatrices(this.root.matrixWorld, SH.m);
   }
 
   setCockpit(on: boolean) {

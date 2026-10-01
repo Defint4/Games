@@ -1,7 +1,7 @@
 /* La partie : monde physique, voiture, chrono. Pas fixe de 120 Hz découplé de
    l'affichage, avec interpolation de la pose pour un rendu fluide à toute cadence. */
 
-import RAPIER from "@dimforge/rapier3d-compat";
+import type RapierModule from "@dimforge/rapier3d-compat";
 import { Quaternion, Vector3 } from "three";
 import { Autopilot, type DriveStyle } from "./autopilot";
 import { type Bot, type BotLevel, botPose } from "./bots";
@@ -26,13 +26,22 @@ const RULES = {
   open: { out: 8.2, back: 7.0, time: 5 },
 };
 
+/* Rapier (4 Mo de JS, WASM compris) n'est chargé qu'à la première course, pas avec les
+   menus : le module est importé à la demande et gardé ici. */
+type Rapier = typeof RapierModule;
+let RAPIER: Rapier;
 let init: Promise<void> | null = null;
 
 export function initPhysics(): Promise<void> {
-  init ??= RAPIER.init().catch((e) => {
-    init = null;
-    throw e;
-  });
+  init ??= import("@dimforge/rapier3d-compat")
+    .then(async (m) => {
+      await m.default.init();
+      RAPIER = m.default;
+    })
+    .catch((e) => {
+      init = null;
+      throw e;
+    });
   return init;
 }
 
@@ -106,7 +115,7 @@ let ids = 0;
 
 export class Game {
   readonly id = ++ids;
-  readonly world: RAPIER.World;
+  readonly world: RapierModule.World;
   readonly car: Car;
   readonly race: Race;
   readonly input = new Input();

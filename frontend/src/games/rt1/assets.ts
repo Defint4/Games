@@ -25,8 +25,11 @@ export type RaceAssets = LevelAssets & { vehicle: Vehicle; car: CarModel };
 /* Un seul circuit gardé en mémoire : en changer libère le précédent. */
 let warm: { slug: string; promise: Promise<LevelAssets> } | null = null;
 
-/* Avancement du chargement (0 → 1), pondéré par la taille des fichiers. */
+/* Avancement du chargement (0 → 1), pondéré par la taille des fichiers. Les fichiers
+   mènent à SCENE_SHARE ; le reste est la préparation de la scène (monde physique,
+   shaders, textures envoyées au GPU), signalée par markSceneReady. */
 let progress = 0;
+const SCENE_SHARE = 0.82;
 const listeners = new Set<(p: number) => void>();
 
 export function onLoadProgress(fn: (p: number) => void): () => void {
@@ -37,11 +40,16 @@ export function onLoadProgress(fn: (p: number) => void): () => void {
   };
 }
 
+export function markSceneReady() {
+  progress = 1;
+  for (const fn of listeners) fn(progress);
+}
+
 /* `total` : somme des poids annoncée d'avance, pour que la barre ne recule jamais. */
 function tracker(total: number) {
   const parts: { weight: number; done: number }[] = [];
   const emit = () => {
-    progress = parts.reduce((a, p) => a + p.weight * p.done, 0) / total;
+    progress = (SCENE_SHARE * parts.reduce((a, p) => a + p.weight * p.done, 0)) / total;
     for (const fn of listeners) fn(progress);
   };
   /* `weight` ~ poids en centaines de ko ; `run` reçoit de quoi signaler une fraction. */

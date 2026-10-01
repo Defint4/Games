@@ -43,6 +43,8 @@ type Nodes = {
   ctx: AudioContext;
   out: GainNode;
   osc: OscillatorNode[];
+  /* les deux bruits en boucle (pneus, vent), à arrêter avec le reste */
+  sources: AudioBufferSourceNode[];
   filter: BiquadFilterNode;
   engine: GainNode;
   skid: GainNode;
@@ -78,6 +80,7 @@ export class EngineSound {
   }
   private muted = false;
   private checked = 0;
+  private retry = 0;
 
   start() {
     if (this.n) return;
@@ -136,32 +139,60 @@ export class EngineSound {
     windSrc.connect(windFilter).connect(wind).connect(out);
     windSrc.start();
 
-    this.n = { ctx, out, osc, filter, engine, skid, skidFilter, wind };
+    this.n = { ctx, out, osc, sources: [skidSrc, windSrc], filter, engine, skid, skidFilter, wind };
   }
 
-  /* rpm 0..1, throttle 0..1, slip 0..1, speed en m/s */
+  private last = { f: -1, cut: -1, eng: -1, sk: -1, skf: -1, wind: -1 };
+
+  /* rpm 0..1, throttle 0..1, slip 0..1, speed en m/s. Les paramètres ne sont envoyés au
+     graphe audio que s'ils ont bougé : neuf automations par image l'encombraient. */
   update(rpm: number, throttle: number, slip: number, speed: number, grounded: boolean) {
-    const n = this.n;
-    if (!n) return;
+    if (!this.n) {
+      // course partie son coupé : le moteur démarre quand le son revient
+      const now = performance.now();
+      if (now - this.retry < 500) return;
+      this.retry = now;
+      if (isMuted()) return;
+      this.start();
+      const started = this.n as Nodes | null;
+      if (!started) return;
+      started.out.gain.setTargetAtTime(this.hushed ? 0 : 1, started.ctx.currentTime, 0.2);
+    }
+    const n = this.n as Nodes;
     const now = n.ctx.currentTime;
     if (now - this.checked > 0.5) {
       this.checked = now;
-      this.muted = isMuted();
+      const muted = isMuted();
+      if (muted !== this.muted) {
+        this.muted = muted;
+        n.out.gain.setTargetAtTime(muted || this.hushed ? 0 : 1, now, 0.05);
+      }
     }
-    n.out.gain.setTargetAtTime(this.muted ? 0 : 1, now, 0.05);
+    const L = this.last;
+    const changed = (key: keyof typeof L, v: number, eps: number) => {
+      if (Math.abs(L[key] - v) < eps) return false;
+      L[key] = v;
+      return true;
+    };
     const v = this.voice;
     const f = v.base + rpm * v.span;
-    for (const o of n.osc) o.frequency.setTargetAtTime(f * (o as OscillatorNode & { mult: number }).mult, now, 0.03);
-    n.filter.frequency.setTargetAtTime(v.filter[0] + throttle * v.filter[1] + rpm * v.filter[2], now, 0.05);
-    n.engine.gain.setTargetAtTime(0.045 + throttle * 0.07 + rpm * 0.03, now, 0.05);
+    if (changed("f", f, 0.3)) for (const o of n.osc) o.frequency.setTargetAtTime(f * (o as OscillatorNode & { mult: number }).mult, now, 0.03);
+    const cut = v.filter[0] + throttle * v.filter[1] + rpm * v.filter[2];
+    if (changed("cut", cut, 4)) n.filter.frequency.setTargetAtTime(cut, now, 0.05);
+    const eng = 0.045 + throttle * 0.07 + rpm * 0.03;
+    if (changed("eng", eng, 0.002)) n.engine.gain.setTargetAtTime(eng, now, 0.05);
     const sk = grounded ? Math.max(0, slip - 0.18) * Math.min(1, speed / 8) : 0;
-    n.skid.gain.setTargetAtTime(Math.min(0.16, sk * 0.3), now, 0.04);
-    n.skidFilter.frequency.setTargetAtTime(1100 + speed * 12, now, 0.1);
-    n.wind.gain.setTargetAtTime(Math.min(0.09, (speed / 55) ** 2 * 0.09), now, 0.2);
+    if (changed("sk", sk, 0.01)) n.skid.gain.setTargetAtTime(Math.min(0.16, sk * 0.3), now, 0.04);
+    if (changed("skf", speed, 1)) n.skidFilter.frequency.setTargetAtTime(1100 + speed * 12, now, 0.1);
+    const wind = Math.min(0.09, (speed / 55) ** 2 * 0.09);
+    if (changed("wind", wind, 0.003)) n.wind.gain.setTargetAtTime(wind, now, 0.2);
   }
+
+  private hushed = false;
 
   /* Silence (pause, fin de course) sans détruire les nœuds. */
   hush(on: boolean) {
+    this.hushed = on;
     const n = this.n;
     if (!n) return;
     n.out.gain.setTargetAtTime(on || this.muted ? 0 : 1, n.ctx.currentTime, 0.08);
@@ -174,6 +205,7 @@ export class EngineSound {
     const nodes = n;
     setTimeout(() => {
       for (const o of nodes.osc) o.stop();
+      for (const src of nodes.sources) src.stop();
       nodes.out.disconnect();
     }, 300);
     this.n = null;

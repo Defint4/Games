@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { currentProfile } from "@/lib/identity";
 import { loadRaceSetup, readVehicle, type StartBody, startRace } from "./api";
-import { type CarModel, loadCar, onLoadProgress, preloadAssets, type RaceAssets } from "./assets";
+import { type CarModel, loadCar, markSceneReady, onLoadProgress, preloadAssets, type RaceAssets } from "./assets";
 import { exitImmersive, setThemeColor } from "./immersive";
 import { circuitBySlug, readCircuit } from "./circuits";
 import { BOT_LEVELS, type BotLevel, loadBotRuns, MAX_BOTS, pickBots } from "./sim/bots";
@@ -38,7 +38,10 @@ export default function PlayPage() {
   const [progress, setProgress] = useState(0);
   const [ready, setReady] = useState(false);
   const [portrait, setPortrait] = useState(false);
-  const onReady = useCallback(() => setReady(true), []);
+  const onReady = useCallback(() => {
+    markSceneReady();
+    setReady(true);
+  }, []);
 
   useEffect(() => onLoadProgress(setProgress), []);
 

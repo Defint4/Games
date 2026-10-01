@@ -8,9 +8,8 @@
    RT1_VEHICLES=starter,f1 pnpm rt1:walls
    RT1_QUICK=1 pnpm rt1:walls           8 points du tracé au lieu de 16 */
 
-import RAPIER from "@dimforge/rapier3d-compat";
 import { Vector3 } from "three";
-import { Game } from "../../src/games/rt1/sim/game";
+import { Game, initPhysics } from "../../src/games/rt1/sim/game";
 import { TrackLocator } from "../../src/games/rt1/sim/track";
 import { VEHICLES } from "../../src/games/rt1/sim/vehicles";
 import { CIRCUITS, loadCircuit } from "./load";
@@ -36,7 +35,7 @@ function fmt(r: Result): string {
   return `${r.essais} essais | à travers ${pct(r.travers)} | par-dessus ${pct(r.dessus)} | tonneaux ${pct(r.tonneaux)} | envol max ${r.hmax.toFixed(1)} m`;
 }
 
-await RAPIER.init();
+await initPhysics();
 const only = process.env.RT1_VEHICLES?.split(",");
 const points = process.env.RT1_QUICK ? 8 : 16;
 const wanted = process.argv.slice(2).length ? process.argv.slice(2) : CIRCUITS;

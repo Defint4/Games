@@ -16,22 +16,29 @@ import { skyMaterial } from "./materials";
 
 const SUN = new Vector3(0.5, 0.8, 0.35).normalize();
 
+const SKY_COLOR = new Color(0.42, 0.62, 0.95);
+const GROUND_COLOR = new Color(0.35, 0.3, 0.22);
+const SUN_POS = SUN.clone().multiplyScalar(20);
+
 export default function Showroom({ model, vehicle, livery }: { model: CarModel; vehicle: Vehicle; livery: Livery }) {
   const size = Math.max(2 * vehicle.spec.half[2], 2.6);
+  const sky = useMemo(() => skyMaterial(SUN, BackSide), []);
   return (
     <Canvas
       dpr={[1, 2]}
+      // à la demande : la vitrine ne tourne (et ne consomme) qu'après un geste
+      frameloop="demand"
       gl={{ antialias: true, alpha: true, toneMapping: NeutralToneMapping }}
       camera={{ fov: 32, position: [size * 1.35, size * 0.5, size * 1.35], near: 0.1, far: 100 }}
       className="touch-none"
     >
       <Environment resolution={64} frames={1}>
-        <mesh material={skyMaterial(SUN, BackSide)}>
+        <mesh material={sky}>
           <sphereGeometry args={[50, 32, 16]} />
         </mesh>
       </Environment>
-      <hemisphereLight args={[new Color(0.42, 0.62, 0.95), new Color(0.35, 0.3, 0.22), 1.6]} />
-      <directionalLight position={SUN.clone().multiplyScalar(20)} intensity={3} color="#FFEDD1" />
+      <hemisphereLight args={[SKY_COLOR, GROUND_COLOR, 1.6]} />
+      <directionalLight position={SUN_POS} intensity={3} color="#FFEDD1" />
       <Turntable model={model} vehicle={vehicle} livery={livery} size={size} />
     </Canvas>
   );
@@ -39,7 +46,9 @@ export default function Showroom({ model, vehicle, livery }: { model: CarModel; 
 
 function Turntable({ model, vehicle, livery, size }: { model: CarModel; vehicle: Vehicle; livery: Livery; size: number }) {
   const gl = useThree((s) => s.gl);
-  const drag = useRef({ active: false, x: 0, speed: 0.35, angle: -0.6 });
+  const invalidate = useThree((s) => s.invalidate);
+  /* elle tourne seule quelques secondes après un geste ou un changement, puis se fige */
+  const drag = useRef({ active: false, x: 0, speed: 0.35, angle: -0.6, until: 0 });
   // glisser du doigt : tourne la vitrine, l'élan retombe ensuite vers la rotation lente
   useEffect(() => {
     const el = gl.domElement;
@@ -47,6 +56,7 @@ function Turntable({ model, vehicle, livery, size }: { model: CarModel; vehicle:
       drag.current.active = true;
       drag.current.x = e.clientX;
       el.setPointerCapture(e.pointerId);
+      invalidate();
     };
     const move = (e: PointerEvent) => {
       const d = drag.current;
@@ -54,9 +64,12 @@ function Turntable({ model, vehicle, livery, size }: { model: CarModel; vehicle:
       d.angle += (e.clientX - d.x) * 0.012;
       d.speed = (e.clientX - d.x) * 0.4;
       d.x = e.clientX;
+      invalidate();
     };
     const up = () => {
       drag.current.active = false;
+      drag.current.until = performance.now() + 4000;
+      invalidate();
     };
     el.addEventListener("pointerdown", down);
     el.addEventListener("pointermove", move);
@@ -68,9 +81,14 @@ function Turntable({ model, vehicle, livery, size }: { model: CarModel; vehicle:
       el.removeEventListener("pointerup", up);
       el.removeEventListener("pointercancel", up);
     };
-  }, [gl]);
+  }, [gl, invalidate]);
   const car = useMemo(() => new CarView(model, vehicle.spec, livery, bungee.style.fontFamily), [model, vehicle, livery]);
-  useEffect(() => () => car.dispose(), [car]);
+  useEffect(() => {
+    // nouvelle voiture ou nouvelle peinture : quelques tours pour la montrer
+    drag.current.until = performance.now() + 4000;
+    invalidate();
+    return () => car.dispose();
+  }, [car, invalidate]);
   const spin = useRef<Group>(null);
   useFrame(({ camera }, dt) => {
     const d = drag.current;
@@ -80,6 +98,8 @@ function Turntable({ model, vehicle, livery, size }: { model: CarModel; vehicle:
     }
     if (spin.current) spin.current.rotation.y = d.angle;
     camera.lookAt(0, size * 0.08, 0);
+    car.restShadow();
+    if (d.active || performance.now() < d.until) invalidate();
   });
   return (
     <group ref={spin}>
