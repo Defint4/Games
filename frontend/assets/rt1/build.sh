@@ -9,7 +9,19 @@ SAMPLES=${SAMPLES:-256}
 OUT=.out
 PUB=../../public/rt1
 
-blend() { "$BLENDER" -b --factory-startup -P "$1" -- "${@:2}" 2>&1 | grep -E "^\[lm|counts|Error|Traceback|rror" || true; }
+LOG=$(mktemp)
+trap 'rm -f "$LOG"' EXIT
+
+# Lance un script Blender ; un échec (code de sortie ou exception Python, que Blender ne
+# remonte pas toujours) arrête le build au lieu de recopier les anciens fichiers de .out.
+blend() {
+  if ! "$BLENDER" -b --factory-startup -P "$1" -- "${@:2}" >"$LOG" 2>&1 || grep -q "Traceback" "$LOG"; then
+    tail -n 40 "$LOG"
+    echo "build.sh : $1 a échoué" >&2
+    exit 1
+  fi
+  grep -E "^\[lm|^\[veh|counts|Error|rror" "$LOG" || true
+}
 
 CIRCUITS=${CIRCUITS:-"noumea centre-ville le-col la-corniche"}
 
@@ -20,15 +32,13 @@ if [ -z "${SKIP_BLENDER:-}" ]; then
   blend car.py --out "$OUT/cars"
   # dimensions des véhicules : une seule source, sim/vehicles.ts
   ../../node_modules/.bin/jiti specs.ts > "$OUT/specs.json"
-  "$BLENDER" -b --factory-startup -P vehicles.py -- --out "$OUT/cars" --specs "$OUT/specs.json" --thumbs 1 2>&1 \
-    | grep -E "^\[veh|Error|Traceback|rror" || true
-  "$BLENDER" -b --factory-startup -P vehicles.py -- --out "$OUT/cars" --specs "$OUT/specs.json" --only starter --thumbs 1 2>&1 \
-    | grep -E "^\[veh|Error|Traceback|rror" || true
+  blend vehicles.py --out "$OUT/cars" --specs "$OUT/specs.json" --thumbs 1
+  blend vehicles.py --out "$OUT/cars" --specs "$OUT/specs.json" --only starter --thumbs 1
 fi
 
 mkdir -p "$PUB/cars"
 opt() {
-  npx -y @gltf-transform/cli@4.5.0 optimize "$1" "$2" --compress meshopt --flatten false --join false \
+  ../../node_modules/.bin/gltf-transform optimize "$1" "$2" --compress meshopt --flatten false --join false \
     --instance false --palette false --simplify false --texture-compress false \
     --prune-attributes false >/dev/null
 }
@@ -48,3 +58,6 @@ V=$(cat "$PUB"/*/* | sha1sum | cut -c1-10)
 printf '/* Généré par assets/rt1/build.sh : change quand les modèles changent. */\nexport const ASSET_VERSION = "%s";\n' "$V" \
   > ../../src/games/rt1/assetVersion.ts
 du -sh "$PUB"/*
+
+# Contrôles : route sous le terrain, sens des colliders (voir check.ts)
+../../node_modules/.bin/jiti check.ts $CIRCUITS

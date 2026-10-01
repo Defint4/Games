@@ -9,21 +9,16 @@
                                          rythme, roule toujours)
    À relancer quand un circuit, un véhicule ou le pilote automatique change. */
 
-import { readFileSync, writeFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 import RAPIER from "@dimforge/rapier3d-compat";
 import { Quaternion, Vector3 } from "three";
-import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
-import { MeshoptDecoder } from "three/examples/jsm/libs/meshopt_decoder.module.js";
 import type { DriveStyle } from "../../src/games/rt1/sim/autopilot";
-import { trimesh } from "../../src/games/rt1/sim/colliders";
 import { Game } from "../../src/games/rt1/sim/game";
 import { ghostPose } from "../../src/games/rt1/sim/ghost";
-import type { LevelMeta } from "../../src/games/rt1/sim/level";
 import { type Vehicle, VEHICLES } from "../../src/games/rt1/sim/vehicles";
+import { type Circuit, CIRCUITS, loadCircuit, PUBLIC } from "./load";
 
 const HZ = 10;
-
-const CIRCUITS = ["noumea", "centre-ville", "le-col", "la-corniche"];
 
 /* Du plus rapide au plus lent ; les trajectoires décalées évitent que les bots se
    superposent. */
@@ -43,22 +38,7 @@ const STYLES: DriveStyle[] = [
   { pace: 0.67, offset: -1.6 },
 ];
 
-const PUBLIC = new URL("../../public/rt1/", import.meta.url);
-
 type Run = { time: number; splits: number[]; ghost: Float32Array };
-
-type Circuit = { meta: LevelMeta; heights: Int16Array; road: ReturnType<typeof trimesh>; walls: ReturnType<typeof trimesh> };
-
-async function load(slug: string): Promise<Circuit> {
-  const meta = JSON.parse(readFileSync(new URL(`${slug}/level.json`, PUBLIC), "utf8")) as LevelMeta;
-  const hb = readFileSync(new URL(`${slug}/heights.bin`, PUBLIC));
-  const heights = new Int16Array(hb.buffer.slice(hb.byteOffset, hb.byteOffset + hb.byteLength));
-  const glb = readFileSync(new URL(`${slug}/level.glb`, PUBLIC));
-  const loader = new GLTFLoader();
-  loader.setMeshoptDecoder(MeshoptDecoder);
-  const gltf = await loader.parseAsync(glb.buffer.slice(glb.byteOffset, glb.byteOffset + glb.byteLength), "");
-  return { meta, heights, road: trimesh(gltf, "col_road"), walls: trimesh(gltf, "col_wall") };
-}
 
 function record(slug: string, c: Circuit, vehicle: Vehicle): Run[] {
   const runs: Run[] = [];
@@ -109,7 +89,7 @@ function encode(runs: Run[], ratio: number): Buffer {
 
 await RAPIER.init();
 for (const slug of process.argv.slice(2).length ? process.argv.slice(2) : CIRCUITS) {
-  const circuit = await load(slug);
+  const circuit = await loadCircuit(slug);
   let base = 0;
   const sizes: string[] = [];
   // la citadine d'abord : les autres se mesurent à elle
