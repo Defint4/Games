@@ -185,7 +185,8 @@ function Contents({
       if (!running && ++idle > 3) return;
       if (running) idle = 0;
       last = t;
-      advance(t);
+      // en secondes : R3F calcule le delta des images (useFrame) à partir de cette heure
+      advance(t / 1000);
     };
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
