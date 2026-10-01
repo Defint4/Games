@@ -25,7 +25,7 @@ def test_pace_and_medal_factors_match_circuits_ts():
         found.setdefault(m.group(1), float(m.group(2)))
     assert found == rules.MEDAL_FACTORS
     assert json.loads((FRONT / "pace.json").read_text("utf8")) == rules.PACE
-    assert set(rules.PACE) == {"noumea", "centre-ville", "le-col", "la-corniche"}
+    assert set(rules.PACE) == {c for _, circuits in rules.REGIONS for c in circuits}
 
 
 def test_medal_times_follow_the_vehicle():

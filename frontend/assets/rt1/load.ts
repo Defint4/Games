@@ -10,7 +10,7 @@ import type { LevelMeta } from "../../src/games/rt1/sim/level";
 
 export const PUBLIC = new URL("../../public/rt1/", import.meta.url);
 
-export const CIRCUITS = ["noumea", "centre-ville", "le-col", "la-corniche"];
+export const CIRCUITS = ["noumea", "centre-ville", "le-col", "la-corniche", "plaine-des-lacs", "yate", "prony", "la-madeleine"];
 
 export type Circuit = {
   slug: string;

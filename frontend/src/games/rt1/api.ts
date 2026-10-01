@@ -20,7 +20,7 @@ import type { Best } from "./sim/race";
 
 export type Standing = { time_ms: number; splits: number[]; rank: number; vehicle: string };
 
-export type Mission = { id: string; reward: number; progress: number; target: number; done: boolean };
+export type Mission = { id: string; reward: number; progress: number; target: number; done: boolean; region: string };
 
 export type Rt1State = {
   money: number;
@@ -31,6 +31,8 @@ export type Rt1State = {
   finishes: number;
   records: Record<string, Standing>;
   missions: Mission[];
+  /* régions de la campagne ouvertes, dans l'ordre (circuits.ts REGIONS) */
+  regions: string[];
   /* véhicules achetés, et celui qui roule */
   vehicles: string[];
   vehicle: string;

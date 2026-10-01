@@ -29,7 +29,25 @@ def medal_times(circuit: str, vehicle: str) -> dict[str, int]:
 
 
 # Portes par course (checkpoints et ligne, par tour) : la longueur des temps de passage.
-GATES: dict[str, int] = {"noumea": 4, "centre-ville": 8, "le-col": 4, "la-corniche": 8}
+GATES: dict[str, int] = {
+    "noumea": 4,
+    "centre-ville": 8,
+    "le-col": 4,
+    "la-corniche": 8,
+    "plaine-des-lacs": 8,
+    "yate": 4,
+    "prony": 4,
+    "la-madeleine": 8,
+}
+
+# Les régions de la campagne, dans l'ordre, avec leurs circuits (miroir de circuits.ts).
+# La première est ouverte ; chacune des suivantes s'ouvre avec le bronze sur tous les
+# circuits de la précédente. En ligne, tous les circuits restent ouverts.
+REGIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("noumea", ("noumea", "centre-ville", "le-col", "la-corniche")),
+    ("grand-sud", ("plaine-des-lacs", "yate", "prony", "la-madeleine")),
+)
+REGION_OF: dict[str, str] = {c: r for r, circuits in REGIONS for c in circuits}
 
 # En deçà de cette part du temps auteur, aucun véhicule ne passe (la F1 est à 0,61 au
 # pilote automatique) : un temps plus bas est inventé.
@@ -170,6 +188,16 @@ def medals_for(circuit: str, time_ms: int | None, vehicle: str = STARTER) -> lis
     return [m for m in MEDALS if time_ms <= limits[m]]
 
 
+def unlocked_regions(bests: dict[str, tuple[int, str]]) -> list[str]:
+    """Les régions ouvertes au pilote, d'après ses records (ms, véhicule) par circuit."""
+    out = [REGIONS[0][0]]
+    for (_, circuits), (region, _) in zip(REGIONS, REGIONS[1:], strict=False):
+        if not all(c in bests and "bronze" in medals_for(c, *bests[c]) for c in circuits):
+            break
+        out.append(region)
+    return out
+
+
 def level_floor(level: int) -> int:
     """Expérience qu'il faut pour atteindre ce niveau : 0, 100, 300, 600, 1000…"""
     return 50 * level * (level - 1)
@@ -199,6 +227,9 @@ class Mission:
     rivals: int = 0
     place: int = 1
     pi_max: int | None = None
+    # La région de la campagne qui propose la mission ; les médailles comptées
+    # ("medals") sont celles de ses circuits.
+    region: str = "noumea"
 
     @property
     def xp(self) -> int:
@@ -224,7 +255,12 @@ class Mission:
             best = bests.get(self.circuit)
             return int(best is not None and self.medal in medals_for(self.circuit, *best))
         return min(
-            self.count, sum(self.medal in medals_for(c, t, v) for c, (t, v) in bests.items())
+            self.count,
+            sum(
+                self.medal in medals_for(c, t, v)
+                for c, (t, v) in bests.items()
+                if REGION_OF.get(c) == self.region
+            ),
         )
 
     def beaten_by(self, level: str, count: int, place: int, pi: int | None) -> bool:
@@ -255,4 +291,22 @@ MISSIONS: tuple[Mission, ...] = (
     Mission("full-tune", 3000, "maxed", count=9),
     Mission("all-gold", 4000, "medals", count=4, medal="gold"),
     Mission("expert-win", 5000, "bots", level="expert", rivals=7),
+    # Région 2 : le Grand Sud.
+    Mission(
+        "lakes-bronze", 400, "medal", medal="bronze", circuit="plaine-des-lacs", region="grand-sud"
+    ),
+    Mission("south-bronze", 1000, "medals", count=4, medal="bronze", region="grand-sud"),
+    Mission("yate-silver", 1000, "medal", medal="silver", circuit="yate", region="grand-sud"),
+    Mission("red-dirt-win", 2000, "bots", level="hard", rivals=5, region="grand-sud"),
+    Mission("prony-gold", 1500, "medal", medal="gold", circuit="prony", region="grand-sud"),
+    Mission("south-regular", 1500, "finishes", count=60, region="grand-sud"),
+    Mission(
+        "madeleine-author",
+        3500,
+        "medal",
+        medal="author",
+        circuit="la-madeleine",
+        region="grand-sud",
+    ),
+    Mission("south-gold", 5000, "medals", count=4, medal="gold", region="grand-sud"),
 )

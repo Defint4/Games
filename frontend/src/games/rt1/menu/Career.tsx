@@ -1,11 +1,13 @@
 "use client";
 
-/* Carrière : la RT1 de Nouméa à Poum, une étape par région. Nouméa est ouverte, avec ses
-   missions (accomplies d'elles-mêmes à l'arrivée d'une course, payées une fois) ; les
-   régions suivantes arrivent avec leurs circuits. */
+/* Carrière : la RT1 de Nouméa à Poum, une étape par région. Chaque région jouable montre
+   ses missions (accomplies d'elles-mêmes à l'arrivée d'une course, payées une fois) ; une
+   région fermée dit ce qu'il faut pour l'ouvrir ; les suivantes arrivent avec leurs
+   circuits. */
 
 import { useLang, useT } from "@/lib/i18n";
 import { formatMoney, type Mission, useProfile, useRt1State } from "../api";
+import { regionBefore, REGIONS } from "../circuits";
 import { T } from "../i18n";
 import { bungee } from "../meta";
 import { LockIcon } from "./icons";
@@ -13,9 +15,10 @@ import { card, Title } from "./Shell";
 
 export default function Career() {
   const t = useT(T).career;
+  const lang = useLang();
   const state = useRt1State(useProfile());
   const missions = state.data?.missions;
-  const done = missions?.filter((m) => m.done).length ?? 0;
+  const unlocked = state.data?.regions ?? [REGIONS[0].slug];
   return (
     <>
       <Title sub={t.sub}>{t.title}</Title>
@@ -24,51 +27,59 @@ export default function Career() {
         <span aria-hidden className="absolute bottom-3 left-[13px] top-3 w-2.5 rounded-full bg-[#2b2e33]">
           <span className="absolute inset-x-[4px] inset-y-2 bg-[repeating-linear-gradient(180deg,rgba(255,255,255,0.7)_0_6px,transparent_6px_12px)]" />
         </span>
-        {t.regions.map((r, i) => (
-          <li key={r.name} className={`${card} relative p-3.5 ${i === 0 ? "ring-[#2EC4C6]/60" : "opacity-75"}`}>
-            <span
-              aria-hidden
-              className={`absolute -left-[26px] top-5 size-4 rounded-full border-[3px] ${
-                i === 0 ? "border-[#2EC4C6] bg-[#061920]" : "border-white/40 bg-[#061920]"
-              }`}
-            />
-            <div className="flex items-baseline justify-between gap-2">
-              <h2 className={`${bungee.className} text-base`}>{r.name}</h2>
-              <span className="text-[11px] font-bold uppercase tracking-wide text-white/45">{t.region(i + 1)}</span>
-            </div>
-            <p className="mt-0.5 text-sm text-white/70">{r.note}</p>
-            {i === 0 ? (
-              <>
-                <div className="mb-2 mt-3 flex items-baseline justify-between">
-                  <h3 className={`${bungee.className} text-sm text-[#8CE6D2]`}>{t.missions}</h3>
-                  {missions && (
-                    <span className="text-xs tabular-nums text-white/55">
-                      {done}/{missions.length}
-                    </span>
+        {t.regions.map((r, i) => {
+          // les premières régions de la feuille de route sont jouables (circuits.ts)
+          const region = REGIONS[i];
+          const open = region !== undefined && unlocked.includes(region.slug);
+          const mine = region ? missions?.filter((m) => m.region === region.slug) : undefined;
+          const done = mine?.filter((m) => m.done).length ?? 0;
+          const before = region ? regionBefore(region.slug) : null;
+          return (
+            <li key={r.name} className={`${card} relative p-3.5 ${open ? "ring-[#2EC4C6]/60" : "opacity-75"}`}>
+              <span
+                aria-hidden
+                className={`absolute -left-[26px] top-5 size-4 rounded-full border-[3px] ${
+                  open ? "border-[#2EC4C6] bg-[#061920]" : "border-white/40 bg-[#061920]"
+                }`}
+              />
+              <div className="flex items-baseline justify-between gap-2">
+                <h2 className={`${bungee.className} text-base`}>{r.name}</h2>
+                <span className="text-[11px] font-bold uppercase tracking-wide text-white/45">{t.region(i + 1)}</span>
+              </div>
+              <p className="mt-0.5 text-sm text-white/70">{r.note}</p>
+              {open ? (
+                <>
+                  <div className="mb-2 mt-3 flex items-baseline justify-between">
+                    <h3 className={`${bungee.className} text-sm text-[#8CE6D2]`}>{t.missions}</h3>
+                    {mine && (
+                      <span className="text-xs tabular-nums text-white/55">
+                        {done}/{mine.length}
+                      </span>
+                    )}
+                  </div>
+                  {mine ? (
+                    <ul className="flex flex-col gap-2">
+                      {mine.map((m) => (
+                        <MissionRow key={m.id} mission={m} />
+                      ))}
+                    </ul>
+                  ) : state.isError ? null : (
+                    <ul className="flex flex-col gap-2">
+                      {Array.from({ length: 5 }, (_, k) => (
+                        <li key={k} className="h-12 animate-pulse rounded-xl bg-white/5" />
+                      ))}
+                    </ul>
                   )}
-                </div>
-                {missions ? (
-                  <ul className="flex flex-col gap-2">
-                    {missions.map((m) => (
-                      <MissionRow key={m.id} mission={m} />
-                    ))}
-                  </ul>
-                ) : state.isError ? null : (
-                  <ul className="flex flex-col gap-2">
-                    {Array.from({ length: 5 }, (_, k) => (
-                      <li key={k} className="h-12 animate-pulse rounded-xl bg-white/5" />
-                    ))}
-                  </ul>
-                )}
-              </>
-            ) : (
-              <p className={`${bungee.className} mt-2 inline-flex items-center gap-1.5 rounded-full bg-white/10 px-2.5 py-0.5 text-[11px] text-white/60`}>
-                <LockIcon className="size-3.5" />
-                {t.soon}
-              </p>
-            )}
-          </li>
-        ))}
+                </>
+              ) : (
+                <p className={`${bungee.className} mt-2 inline-flex items-center gap-1.5 rounded-full bg-white/10 px-2.5 py-0.5 text-[11px] text-white/60`}>
+                  <LockIcon className="size-3.5" />
+                  {region && before ? t.locked(before.name[lang]) : t.soon}
+                </p>
+              )}
+            </li>
+          );
+        })}
       </ol>
     </>
   );

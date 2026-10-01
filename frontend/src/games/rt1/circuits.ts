@@ -17,9 +17,30 @@ export const MEDAL_FACTORS: Record<Medal, number> = { author: 0.985, gold: 1.03,
 
 export type Circuit = {
   slug: string;
+  region: string;
   name: Dict<string>;
   note: Dict<string>;
 };
+
+/* Une région de la campagne : une île (world_<région>.py), ses circuits. Dans l'ordre de
+   déblocage ; la première est ouverte, chaque suivante s'ouvre avec le bronze sur tous les
+   circuits de la précédente (rules.unlocked_regions, renvoyé dans l'état du pilote). */
+export type Region = { slug: string; name: Dict<string>; note: Dict<string> };
+
+export const REGIONS: Region[] = [
+  { slug: "noumea", name: { fr: "Nouméa", en: "Nouméa" }, note: { fr: "Le front de mer, la ville, les collines.", en: "The seafront, the city, the hills." } },
+  { slug: "grand-sud", name: { fr: "Grand Sud", en: "Deep South" }, note: { fr: "Terre rouge, lacs, maquis minier.", en: "Red dirt, lakes, mining scrubland." } },
+];
+
+export function circuitsOf(region: string): Circuit[] {
+  return CIRCUITS.filter((c) => c.region === region);
+}
+
+/* Région précédente dans la campagne, celle dont il faut le bronze partout. */
+export function regionBefore(region: string): Region | null {
+  const i = REGIONS.findIndex((r) => r.slug === region);
+  return i > 0 ? REGIONS[i - 1] : null;
+}
 
 type Pace = Record<string, { base: number; ratio: Record<string, number> }>;
 
@@ -39,23 +60,51 @@ export function medalsFor(circuit: Circuit | string, vehicle: string): Record<Me
 export const CIRCUITS: Circuit[] = [
   {
     slug: "noumea",
+    region: "noumea",
     name: { fr: "Front de mer", en: "Seafront" },
     note: { fr: "La baie, puis les collines. Un tour.", en: "The bay, then the hills. One lap." },
   },
   {
     slug: "centre-ville",
+    region: "noumea",
     name: { fr: "Centre-ville", en: "Downtown" },
     note: { fr: "Entre les immeubles, virages serrés. Deux tours.", en: "Between the buildings, tight turns. Two laps." },
   },
   {
     slug: "le-col",
+    region: "noumea",
     name: { fr: "Le col", en: "The pass" },
     note: { fr: "Lacets dans les collines, sans murs, un saut sur la crête.", en: "Hairpins in the hills, no walls, a jump on the ridge." },
   },
   {
     slug: "la-corniche",
+    region: "noumea",
     name: { fr: "La corniche", en: "The cliff road" },
     note: { fr: "Falaises sur le lagon, rapide. Deux tours.", en: "Cliffs over the lagoon, fast. Two laps." },
+  },
+  {
+    slug: "plaine-des-lacs",
+    region: "grand-sud",
+    name: { fr: "Plaine des Lacs", en: "Plain of Lakes" },
+    note: { fr: "Grande boucle rapide sur la terre rouge, sans murs. Deux tours.", en: "Big fast loop over red dirt, no walls. Two laps." },
+  },
+  {
+    slug: "yate",
+    region: "grand-sud",
+    name: { fr: "Yaté", en: "Yaté" },
+    note: { fr: "Le lac et son barrage, montée sur la cuirasse, un saut sur la crête.", en: "The lake and its dam, up onto the plateau, a jump on the ridge." },
+  },
+  {
+    slug: "prony",
+    region: "grand-sud",
+    name: { fr: "Baie de Prony", en: "Prony Bay" },
+    note: { fr: "Le tour de la baie par la côte, les ruines du bagne, un saut.", en: "Round the bay along the coast, the penal colony ruins, a jump." },
+  },
+  {
+    slug: "la-madeleine",
+    region: "grand-sud",
+    name: { fr: "La Madeleine", en: "La Madeleine" },
+    note: { fr: "Court et technique entre deux lacs, une épingle. Deux tours.", en: "Short and technical between two lakes, a hairpin. Two laps." },
   },
 ];
 

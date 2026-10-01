@@ -32,6 +32,7 @@ const EN: Record<string, string> = {
   "Code PIN actuel incorrect.": "Your current PIN is wrong.",
   "Code PIN incorrect.": "Wrong PIN.",
   "Circuit inconnu.": "Unknown circuit.",
+  "Cette région n'est pas encore ouverte.": "This region isn't open yet.",
   "Coup illégal.": "Illegal move.",
   "Coup illisible.": "Unreadable move.",
   "Deux charges maximum.": "Two charges at most.",

@@ -70,5 +70,77 @@
       "super": 0.872,
       "f1": 0.737
     }
+  },
+  "plaine-des-lacs": {
+    "base": 61.68,
+    "ratio": {
+      "starter": 1,
+      "kart": 1.016,
+      "trail": 1.08,
+      "truck": 1.118,
+      "pickup": 1.018,
+      "suv": 0.979,
+      "sport": 0.951,
+      "mx": 1.111,
+      "rally": 0.92,
+      "buggy": 0.914,
+      "sportbike": 0.912,
+      "super": 0.829,
+      "f1": 0.678
+    }
+  },
+  "yate": {
+    "base": 34.46,
+    "ratio": {
+      "starter": 1,
+      "kart": 1.11,
+      "trail": 0.99,
+      "truck": 1.085,
+      "pickup": 0.982,
+      "suv": 0.943,
+      "sport": 0.875,
+      "mx": 0.933,
+      "rally": 0.878,
+      "buggy": 0.872,
+      "sportbike": 0.847,
+      "super": 0.814,
+      "f1": 0.707
+    }
+  },
+  "prony": {
+    "base": 39.49,
+    "ratio": {
+      "starter": 1,
+      "kart": 0.987,
+      "trail": 1.039,
+      "truck": 1.115,
+      "pickup": 1.032,
+      "suv": 0.992,
+      "sport": 0.982,
+      "mx": 0.982,
+      "rally": 0.951,
+      "buggy": 0.941,
+      "sportbike": 0.895,
+      "super": 0.856,
+      "f1": 0.731
+    }
+  },
+  "la-madeleine": {
+    "base": 47.61,
+    "ratio": {
+      "starter": 1,
+      "kart": 0.975,
+      "trail": 1.01,
+      "truck": 1.064,
+      "pickup": 0.959,
+      "suv": 0.915,
+      "sport": 0.898,
+      "mx": 0.943,
+      "rally": 0.865,
+      "buggy": 0.859,
+      "sportbike": 0.85,
+      "super": 0.765,
+      "f1": 0.623
+    }
   }
 }

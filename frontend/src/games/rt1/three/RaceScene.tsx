@@ -16,7 +16,7 @@ import type { Livery } from "../livery";
 import { bungee } from "../meta";
 import type { Game } from "../sim/game";
 import { BotsView, buildFlora, buildLevel, buildWater, type CamMode, CarView, cullFlora, GhostView, Rig } from "./kit";
-import { clock, FOG, skyMaterial } from "./materials";
+import { clock, FOG, type Palette, paletteOf, skyMaterial } from "./materials";
 
 export type { CamMode };
 
@@ -49,6 +49,8 @@ export default function RaceScene(props: Props) {
   const spec = TIERS[tier];
   const device = typeof window === "undefined" ? 1 : window.devicePixelRatio || 1;
   const [dpr, setDpr] = useState(() => Math.min(device, spec.dpr[0]));
+  // ciel, brouillard et eau de la région du circuit
+  const palette = useMemo(() => paletteOf(props.assets.level.meta.palette), [props.assets]);
   return (
     <Canvas
       dpr={dpr}
@@ -63,8 +65,8 @@ export default function RaceScene(props: Props) {
       // et far ramené à la fin du brouillard : profondeur précise au loin
       camera={{ fov: 62, near: 0.4, far: 2400, position: [0, 5, -10] }}
     >
-      <fog attach="fog" args={[FOG.color, FOG.near, FOG.far]} />
-      <Contents {...props} tier={tier} dpr={dpr} setDpr={setDpr} />
+      <fog attach="fog" args={[palette.horizon, FOG.near, FOG.far]} />
+      <Contents {...props} tier={tier} dpr={dpr} setDpr={setDpr} palette={palette} />
     </Canvas>
   );
 }
@@ -85,7 +87,8 @@ function Contents({
   tier,
   dpr,
   setDpr,
-}: Props & { tier: Tier; dpr: number; setDpr: (d: number) => void }) {
+  palette,
+}: Props & { tier: Tier; dpr: number; setDpr: (d: number) => void; palette: Palette }) {
   const { camera, gl, scene, advance } = useThree();
   /* la carte des reflets est refaite après une perte de contexte (sinon noire) */
   const [envKey, setEnvKey] = useState(0);
@@ -239,9 +242,9 @@ function Contents({
 
   return (
     <>
-      <Sky sun={sun} />
+      <Sky sun={sun} palette={palette} />
       <Environment key={envKey} resolution={64} frames={1}>
-        <EnvSky sun={sun} />
+        <EnvSky sun={sun} palette={palette} />
       </Environment>
       <hemisphereLight args={[new Color(0.42, 0.62, 0.95), new Color(0.35, 0.3, 0.22), 1.7]} />
       <directionalLight ref={sunLight} position={sun.clone().multiplyScalar(200)} intensity={3.2} color="#FFEDD1" />
@@ -258,8 +261,8 @@ function Contents({
   );
 }
 
-function Sky({ sun }: { sun: Vector3 }) {
-  const mat = useMemo(() => skyMaterial(sun, BackSide), [sun]);
+function Sky({ sun, palette }: { sun: Vector3; palette: Palette }) {
+  const mat = useMemo(() => skyMaterial(sun, BackSide, palette), [sun, palette]);
   const geo = useMemo(() => new SphereGeometry(2800, 32, 16), []);
   const ref = useRef<Mesh>(null);
   useFrame(({ camera }) => ref.current?.position.copy(camera.position));
@@ -267,8 +270,8 @@ function Sky({ sun }: { sun: Vector3 }) {
 }
 
 /* Reflets de la carrosserie : le ciel, un sol chaud, le soleil. */
-function EnvSky({ sun }: { sun: Vector3 }) {
-  const mat = useMemo(() => skyMaterial(sun, BackSide), [sun]);
+function EnvSky({ sun, palette }: { sun: Vector3; palette: Palette }) {
+  const mat = useMemo(() => skyMaterial(sun, BackSide, palette), [sun, palette]);
   const ground = useMemo(() => new Color("#8C8B6A").multiplyScalar(0.55), []);
   return (
     <>

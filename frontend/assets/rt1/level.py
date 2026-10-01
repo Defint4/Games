@@ -1,7 +1,8 @@
-"""Un circuit de RT1 sur l'île : terrain, route, ville, végétation, lumière cuite.
+"""Un circuit de RT1 : terrain, route, décor, végétation, lumière cuite.
 
 blender -b -P level.py -- --circuit <slug> --out <dossier> [--samples 128] [--lm 2048]
-(tracés et blocs dans circuits.py)
+(tracés et blocs dans circuits.py ; relief, couleurs, décor et végétation de la région dans
+world_<région>.py, qui reçoit ce module en `L`)
 
 Sorties (dans --out) :
   level.glb          terrain (en tuiles), route, décor, collision de la route (col_road)
@@ -17,6 +18,7 @@ Repère Blender : Z en haut, la mer au sud (-Y). Le glTF passe en Y en haut :
 (x, y, z) Blender → (x, z, -y) three.
 """
 
+import importlib
 import json
 import math
 import os
@@ -26,12 +28,13 @@ import sys
 
 import bpy
 import numpy as np
-from mathutils import Vector, kdtree, noise
+from mathutils import Vector, kdtree
 
 sys.path.insert(0, os.path.dirname(__file__))
 from circuits import CIRCUITS  # noqa: E402
 from common import (Builder, args, bake_material, finalize_colors, mix, reset, shade,  # noqa: E402
                     smoothstep, srgb, use_gpu)
+from palette import C  # noqa: E402
 
 A = args()
 OUT = os.path.abspath(A.get("out", "out"))
@@ -40,79 +43,18 @@ LM = int(A.get("lm", "2048"))
 LM_SCALE = 2.0
 SLUG = A.get("circuit", "noumea")
 CIRCUIT = CIRCUITS[SLUG]
+REGION = CIRCUIT.get("region", "noumea")
+# la région : relief, couleurs du sol, décor, végétation, lumière (world_<région>.py)
+WORLD = importlib.import_module("world_" + REGION.replace("-", "_"))
+# ce module, passé à la région pour qu'elle pose son décor avec les outils d'ici
+L = sys.modules[__name__]
 # murs ou non (--walls 0/1 force, pour essayer une variante)
 WALLS = CIRCUIT["walls"] if "walls" not in A else A["walls"] != "0"
 os.makedirs(OUT, exist_ok=True)
 rng = random.Random(1853)
 
-# ---------------------------------------------------------------- palette
-C = {k: srgb(v) for k, v in {
-    "sand": "#DDC48F", "wet": "#BFA374", "grass": "#6F9444", "dry": "#A39A5B",
-    "maquis": "#56693F", "laterite": "#B5532F", "laterite2": "#93432A", "urban": "#BDB5A3",
-    "earth": "#8B6A4F", "seabed": "#D8C79A",
-    "asphalt": "#FFFFFF", "shoulder": "#5C5D62", "gravel": "#B9AC92",
-    "wall": "#ECEAE4", "wall_red": "#D8392B", "curb_red": "#D8392B", "curb_white": "#F3F1EC",
-    "gate_dark": "#23272E", "gate_orange": "#FF7A2F", "white": "#F4F2EC", "black": "#1B1D22",
-    "promenade": "#D9D2C3", "wood": "#9A7552", "wood_dark": "#6E5238",
-    "glass": "#34424D", "roof_red": "#B5452C", "roof_green": "#3E7C59", "roof_zinc": "#9AA3A6",
-    "shutter": "#2E86AB", "thatch": "#C8A96A", "hull": "#F6F6F2", "boat_blue": "#1F5F8B",
-    "trunk": "#8C7355", "trunk2": "#76614A", "frond": "#5E9E3A", "frond2": "#437F2E",
-    "pine": "#35664A", "pine2": "#3F744D", "bark_pine": "#5E4A38", "niaouli_bark": "#D6CCBA",
-    "niaouli": "#7E9460", "niaouli2": "#6A8452", "bush": "#55803A", "bush2": "#6C8F45",
-    "rock": "#8D8A84", "rock2": "#6F6C67", "lamp": "#3A3F47", "lamp_glass": "#FFF3D1",
-    "coconut": "#6B4F2A",
-}.items()}
-FACADES = [srgb(h) for h in ("#F2EDE4", "#F4E1C1", "#CFE7E3", "#F2C9B0", "#E4E6EE", "#FFF3D6", "#DDEBD3")]
-AWNINGS = [srgb(h) for h in ("#FF7A2F", "#2E86AB", "#E63946", "#2A9D8F", "#F4B942")]
-
-
-def fbm(x, y, octaves=4):
-    s, a, f = 0.0, 1.0, 1.0
-    for _ in range(octaves):
-        s += a * noise.noise(Vector((x * f, y * f, 0.37 * f)))
-        a *= 0.5
-        f *= 2.03
-    return s / 1.875
-
-
-# ---------------------------------------------------------------- terrain naturel
+# ---------------------------------------------------------------- emprise du terrain
 X0, X1, Y0, Y1, STEP = -640.0, 640.0, -420.0, 520.0, 4.0
-ISLET = Vector((150.0, -250.0))
-CITY = (-310.0, 200.0, 22.0, 116.0)
-
-
-def shore_y(x):
-    return -26 + 5 * math.sin(x / 61) + 3 * math.sin(x / 23 + 1.3)
-
-
-def city_weight(x, y):
-    x0, x1, y0, y1 = CITY
-    return (smoothstep(x0 - 30, x0, x) * (1 - smoothstep(x1, x1 + 30, x))
-            * smoothstep(y0 - 12, y0, y) * (1 - smoothstep(y1, y1 + 25, y)))
-
-
-def natural(x, y):
-    d = y - shore_y(x)
-    n = fbm(x * 0.006, y * 0.006)
-    if d < 0:
-        h = max(d * 0.09, -7.5 + 1.5 * n)
-        reef = math.exp(-((y + 360 + 8 * math.sin(x / 90)) / 12) ** 2)
-        h = h * (1 - reef) + (-0.5 + 0.3 * n) * reef
-    else:
-        beach = min(d * 0.075, 2.3)
-        inland = smoothstep(110, 380, y) * (32 + 24 * fbm(x * 0.004 + 3, y * 0.004))
-        # falaises des extrémités : montent depuis la plage sur 60 m, pas d'un seul coup
-        side = smoothstep(390, 620, abs(x)) * (26 + 10 * n) * smoothstep(0, 60, d)
-        bumps = 3.2 * fbm(x * 0.021, y * 0.021) * smoothstep(20, 90, d)
-        h = beach + inland + side + bumps
-        cw = city_weight(x, y)
-        if cw > 0:
-            h = h * (1 - cw) + (2.4 + (y - 22) * 0.025) * cw
-    di = (Vector((x, y)) - ISLET).length
-    if di < 60:
-        isl = max(0.0, 1 - (di / 46) ** 2)
-        h = max(h, -2.5 + 5.0 * isl ** 0.5 + 0.4 * n)
-    return h
 
 
 # ---------------------------------------------------------------- tracé
@@ -178,7 +120,7 @@ for i in range(N):
 SIDE = [Vector((-t.y, t.x)) for t in TAN]  # à gauche
 
 # Hauteur : terrain lissé le long du tracé, pente bornée
-z = [natural(p.x, p.y) for p in XY]
+z = [WORLD.natural(p.x, p.y) for p in XY]
 for _ in range(3):
     w = int(70 / DS)
     z = [sum(z[(i + k) % N] for k in range(-w, w + 1)) / (2 * w + 1) for i in range(N)]
@@ -249,7 +191,7 @@ for j in range(ny):
     y = Y0 + j * STEP
     for i in range(nx):
         x = X0 + i * STEP
-        h = natural(x, y)
+        h = WORLD.natural(x, y)
         NAT[j, i] = h
         ti, dist, lat = track_info(x, y)
         if dist < 40:
@@ -270,33 +212,6 @@ def height_at(x, y):
             + H[j + 1, i] * (1 - tx) * ty + H[j + 1, i + 1] * tx * ty)
 
 
-def terrain_color(x, y, h, slope):
-    n = fbm(x * 0.03 + 11, y * 0.03)
-    n2 = fbm(x * 0.009 - 5, y * 0.009 + 2)
-    d = y - shore_y(x)
-    if h < 0:
-        return mix(C["wet"], C["seabed"], min(1, -h / 3))
-    if d < 34 and h < 3.2:
-        c = mix(C["wet"], C["sand"], smoothstep(0.1, 0.9, h))
-        return shade(c, 1 + 0.04 * n)
-    grass = mix(C["grass"], C["dry"], smoothstep(-0.2, 0.5, n2))
-    grass = shade(grass, 1 + 0.14 * n)
-    n3 = fbm(x * 0.05 - 17, y * 0.05 + 9)
-    grass = mix(grass, shade(C["maquis"], 1.1), smoothstep(0.25, 0.6, n3) * 0.5)
-    hill = smoothstep(10, 26, h)
-    c = mix(grass, C["maquis"], hill * 0.8)
-    lat = smoothstep(0.25, 0.55, n2 + 0.3 * n) * hill
-    c = mix(c, C["laterite"], lat)
-    c = mix(c, mix(C["laterite"], C["laterite2"], 0.5 + 0.5 * n), smoothstep(0.45, 0.8, slope))
-    cw = city_weight(x, y)
-    if cw > 0:
-        urb = mix(C["urban"], C["grass"], smoothstep(0.2, 0.6, n))
-        c = mix(c, urb, cw)
-    if d < 50:
-        c = mix(C["sand"], c, smoothstep(34, 50, d))
-    return c
-
-
 def build_terrain():
     verts = []
     cols = []
@@ -309,7 +224,7 @@ def build_terrain():
             hy = H[min(ny - 1, j + 1), i] - H[max(0, j - 1), i]
             slope = math.hypot(hx, hy) / (2 * STEP)
             verts.append((x, y, h))
-            c = terrain_color(x, y, h, slope)
+            c = WORLD.terrain_color(x, y, h, slope)
             _, dist, _ = track_info(x, y)
             c = mix(c, C["earth"], 0.7 * (1 - smoothstep(8, 14, dist)))
             cols.extend(c)
@@ -336,7 +251,7 @@ def build_terrain():
             continue
         low[(j, i)] = len(verts)
         verts.append((X0 + i * STEP, Y0 + j * STEP, -12.0))
-        cols.extend(shade(terrain_color(X0 + i * STEP, Y0 + j * STEP, H[j, i], 0.6), 0.8))
+        cols.extend(shade(WORLD.terrain_color(X0 + i * STEP, Y0 + j * STEP, H[j, i], 0.6), 0.8))
         lms.append(((i * STEP) / (X1 - X0), (j * STEP) / (Y1 - Y0)))
     for (a, b) in edges:
         if max(H[a], H[b]) < -2.6:
@@ -548,168 +463,6 @@ def boost_pads():
     return ob
 
 
-def building(x, y, w, d, floors, facade, rz=0.0):
-    fh = 3.1
-    h = floors * fh + 0.6
-    zg = height_at(x, y) - 0.3
-    ca, sa = math.cos(rz), math.sin(rz)
-
-    def P(lx, ly, lz):
-        return (x + lx * ca - ly * sa, y + lx * sa + ly * ca, zg + lz)
-
-    props.box(P(0, 0, h / 2), (w, d, h), facade, rz)
-    # rez-de-chaussée : vitrines et auvent
-    aw = rng.choice(AWNINGS)
-    props.box(P(0, -d / 2 - 0.02, 1.5), (w * 0.86, 0.1, 2.4), C["glass"], rz)
-    props.box(P(0, -d / 2 - 1.0, 3.0), (w * 0.9, 2.0, 0.12), aw, rz)
-    # étages : fenêtres et balcons côté mer
-    nwin = max(2, int(w / 3.2))
-    for f in range(1, floors):
-        zf = f * fh
-        for k in range(nwin):
-            lx = -w / 2 + (k + 0.5) * w / nwin
-            props.box(P(lx, -d / 2 - 0.03, zf + 1.5), (1.7, 0.08, 1.6), C["glass"], rz)
-        if f % 1 == 0:
-            props.box(P(0, -d / 2 - 0.7, zf + 0.1), (w * 0.84, 1.4, 0.18), shade(facade, 0.96), rz)
-            props.box(P(0, -d / 2 - 1.35, zf + 0.6), (w * 0.84, 0.06, 0.9), C["white"], rz)
-        # côtés
-        for side in (-1, 1):
-            props.box(P(side * (w / 2 + 0.03), 0, zf + 1.5), (0.08, 1.6, 1.5), C["glass"], rz)
-    # toit : acrotère, clim, chauffe-eau
-    props.box(P(0, 0, h + 0.1), (w + 0.3, d + 0.3, 0.2), shade(facade, 0.9), rz)
-    for _ in range(rng.randint(1, 3)):
-        props.box(P(rng.uniform(-w / 3, w / 3), rng.uniform(-d / 3, d / 3), h + 0.7), (1.2, 0.8, 0.8), C["roof_zinc"], rz)
-    if rng.random() < 0.7:
-        cx, cy = rng.uniform(-w / 3, w / 3), rng.uniform(0, d / 3)
-        props.cylinder(P(cx, cy, h + 0.4), P(cx, cy, h + 1.6), 0.5, 0.5, 8, C["white"])
-
-
-def colonial(x, y, rz=0.0):
-    w, d = rng.uniform(9, 12), rng.uniform(8, 10)
-    zg = height_at(x, y) - 0.2
-    ca, sa = math.cos(rz), math.sin(rz)
-
-    def P(lx, ly, lz):
-        return (x + lx * ca - ly * sa, y + lx * sa + ly * ca, zg + lz)
-
-    wall = rng.choice(FACADES)
-    roof = rng.choice([C["roof_red"], C["roof_green"], C["roof_zinc"]])
-    props.box(P(0, 0, 0.4), (w + 0.4, d + 3.2, 0.8), shade(wall, 0.8), rz)
-    props.box(P(0, 0.8, 2.3), (w, d - 1.6, 3.0), wall, rz)
-    for k in range(4):
-        lx = -w / 2 + 1 + k * (w - 2) / 3
-        props.box(P(lx, -d / 2 + 0.2, 0.8 + 0.3), (0.35, 0.35 * 0 + 1.0, 0.6), C["wood"], rz)
-        props.box(P(lx - 0.9, 0.8 - (d - 1.6) / 2 - 0.05, 2.3), (0.6, 0.08, 1.5), C["shutter"], rz)
-    for k in range(5):
-        lx = -w / 2 + 0.3 + k * (w - 0.6) / 4
-        props.box(P(lx, -d / 2 - 0.9, 2.3), (0.18, 0.18, 3.0), C["white"], rz)
-    props.box(P(0, -d / 2 - 0.9, 1.25), (w - 0.4, 0.06, 0.8), C["white"], rz)
-    # toit à quatre pans
-    hw, hd, rh = w / 2 + 1.0, (d + 1.6) / 2 + 1.0, 2.6
-    cy = -0.1
-    corners = [P(-hw, cy - hd, 3.8), P(hw, cy - hd, 3.8), P(hw, cy + hd, 3.8), P(-hw, cy + hd, 3.8)]
-    ridge = [P(-hw * 0.35, cy, 3.8 + rh), P(hw * 0.35, cy, 3.8 + rh)]
-    V = [Vector(v) for v in corners + ridge]
-    props.face((V[0], V[1], V[5], V[4]), roof)
-    props.face((V[2], V[3], V[4], V[5]), shade(roof, 0.92))
-    props.face((V[1], V[2], V[5]), shade(roof, 0.96))
-    props.face((V[3], V[0], V[4]), shade(roof, 0.96))
-    props.face((V[3], V[2], V[1], V[0]), shade(roof, 0.6))
-
-
-def city():
-    x0, x1, y0, y1 = CITY
-    rows = [(40.0, (3, 6), 24), (70.0, (2, 4), 22), (99.0, None, 16)]
-    for yrow, floors, pitch in rows:
-        x = x0 + 10
-        while x < x1 - 8:
-            y = yrow + rng.uniform(-2, 2)
-            _, dist, _ = track_info(x, y)
-            if dist > 24:
-                if floors:
-                    w = rng.uniform(14, pitch - 3)
-                    building(x, y, w, rng.uniform(12, 16), rng.randint(*floors), rng.choice(FACADES))
-                else:
-                    colonial(x, y)
-            x += pitch + rng.uniform(0, 6)
-
-
-def promenade():
-    """Trottoir côté mer le long du front de mer (échantillons au sud de y=30)."""
-    for i in range(N):
-        if XY[i].y > 30 or not (-330 < XY[i].x < 215):
-            continue
-        j = (i + 1) % N
-        a, bb = road_point(i, -9.6, -0.05), road_point(j, -9.6, -0.05)
-        c, d = road_point(j, -15.0, -0.05), road_point(i, -15.0, -0.05)
-        props.face((a, bb, c, d), C["promenade"], flip=True)
-        a2, b2 = road_point(i, -15.0, -0.05), road_point(j, -15.0, -0.05)
-        c2, d2 = road_point(j, -15.3, -0.9), road_point(i, -15.3, -0.9)
-        props.face((a2, b2, c2, d2), shade(C["promenade"], 0.85), flip=True)
-
-
-def pier(x, y_start, length):
-    zd = 1.6
-    props.box((x, y_start - length / 2, zd), (3.2, length, 0.25), C["wood"])
-    for k in range(int(length / 6) + 1):
-        yy = y_start - k * 6
-        for sx in (-1.4, 1.4):
-            props.cylinder((x + sx, yy, -3), (x + sx, yy, zd), 0.16, 0.16, 6, C["wood_dark"])
-            props.box((x + sx, yy, zd + 0.55), (0.12, 0.12, 1.0), C["wood_dark"])
-    for sx in (-1.45, 1.45):
-        props.box((x + sx, y_start - length / 2, zd + 1.0), (0.08, length, 0.08), C["wood_dark"])
-
-
-def boat(x, y, rz, col):
-    ca, sa = math.cos(rz), math.sin(rz)
-
-    def P(lx, ly, lz):
-        return Vector((x + lx * ca - ly * sa, y + lx * sa + ly * ca, lz))
-
-    L, Wb = 7.0, 2.4
-    top = [P(-L / 2, -Wb / 2, 0.9), P(L / 2 - 1.2, -Wb / 2, 0.9), P(L / 2 + 0.6, 0, 1.1), P(L / 2 - 1.2, Wb / 2, 0.9), P(-L / 2, Wb / 2, 0.9)]
-    bot = [P(-L / 2 + 0.3, -Wb / 2 + 0.5, -0.3), P(L / 2 - 1.4, -Wb / 2 + 0.5, -0.3), P(L / 2 - 0.2, 0, 0.2), P(L / 2 - 1.4, Wb / 2 - 0.5, -0.3), P(-L / 2 + 0.3, Wb / 2 - 0.5, -0.3)]
-    for k in range(5):
-        k2 = (k + 1) % 5
-        props.face((bot[k], bot[k2], top[k2], top[k]), C["hull"] if k != 4 else shade(C["hull"], 0.9))
-    props.face(list(reversed(top)), shade(C["hull"], 0.95))
-    props.face((top[0], top[1], P(L / 2 - 1.2, -Wb / 2, 1.1), P(-L / 2, -Wb / 2, 1.1)), col)
-    props.face((P(-L / 2, Wb / 2, 1.1), P(L / 2 - 1.2, Wb / 2, 1.1), top[3], top[4]), col)
-    props.box(tuple(P(-0.6, 0, 1.8)), (2.4, 1.7, 1.4), C["white"], rz)
-    props.box(tuple(P(0.62, 0, 1.9)), (0.05, 1.5, 0.7), C["glass"], rz)
-
-
-def parasol(x, y, col):
-    zg = height_at(x, y)
-    props.cylinder((x, y, zg), (x, y, zg + 2.3), 0.04, 0.04, 5, C["white"], cap=False)
-    segs = 8
-    top = Vector((x, y, zg + 2.7))
-    for k in range(segs):
-        a0, a1 = k / segs * math.tau, (k + 1) / segs * math.tau
-        p0 = Vector((x + 1.4 * math.cos(a0), y + 1.4 * math.sin(a0), zg + 2.1))
-        p1 = Vector((x + 1.4 * math.cos(a1), y + 1.4 * math.sin(a1), zg + 2.1))
-        props.face((p0, p1, top), col if k % 2 else C["white"])
-
-
-def paillote(x, y):
-    zg = height_at(x, y)
-    for a in range(6):
-        ang = a / 6 * math.tau
-        props.cylinder((x + 2.2 * math.cos(ang), y + 2.2 * math.sin(ang), zg), (x + 2.2 * math.cos(ang), y + 2.2 * math.sin(ang), zg + 2.4), 0.1, 0.1, 5, C["wood_dark"], cap=False)
-    props.cylinder((x, y, zg + 2.2), (x, y, zg + 5.0), 3.4, 0.05, 10, C["thatch"])
-    props.cylinder((x, y, zg), (x, y, zg + 0.9), 0.5, 0.5, 8, C["wood"])
-
-
-def lighthouse(x, y):
-    zg = height_at(x, y)
-    props.cylinder((x, y, zg), (x, y, zg + 30), 2.6, 1.7, 12, C["white"])
-    props.cylinder((x, y, zg + 30), (x, y, zg + 30.6), 2.4, 2.4, 12, C["gate_dark"])
-    props.cylinder((x, y, zg + 30.6), (x, y, zg + 32.6), 1.4, 1.4, 10, C["lamp_glass"])
-    props.cylinder((x, y, zg + 32.6), (x, y, zg + 34.0), 1.7, 0.2, 10, C["gate_dark"])
-    props.box((x + 5, y, zg + 1.8), (7, 5, 3.6), C["white"])
-    props.box((x + 5, y, zg + 3.9), (7.6, 5.6, 0.5), C["roof_red"])
-
-
 def backdrop():
     """La Chaîne au loin : silhouettes derrière l'emprise, non cuites."""
     b = Builder()
@@ -721,7 +474,7 @@ def backdrop():
         if y < -150:
             continue
         rad, hgt = r.uniform(140, 260), r.uniform(90, 220)
-        col = mix(srgb("#4F6B5B"), srgb("#6D8497"), r.random())
+        col = mix(srgb(WORLD.BACKDROP[0]), srgb(WORLD.BACKDROP[1]), r.random())
         b.cylinder((x, y, -5), (x + r.uniform(-30, 30), y + r.uniform(-30, 30), hgt), rad, r.uniform(8, 30), 7, col)
     ob = b.to_object("backdrop")
     finalize_colors(ob)
@@ -753,116 +506,13 @@ def clouds():
     return ob
 
 
-# ---------------------------------------------------------------- flore (prototypes)
+# ---------------------------------------------------------------- flore
+# collection des prototypes (flora.py), instanciés par la région
 PROTO = None
 
 
-def proto_palm():
-    b = Builder()
-    Hh, lean = 9.0, 1.3
-    segs, sides = 7, 6
-    rings = []
-    for k in range(segs + 1):
-        t = k / segs
-        c = Vector((lean * t * t, 0, Hh * t))
-        r = 0.24 - 0.09 * t
-        rings.append([c + Vector((r * math.cos(a / sides * math.tau), r * math.sin(a / sides * math.tau), 0)) for a in range(sides)])
-    for k in range(segs):
-        col = C["trunk"] if k % 2 else C["trunk2"]
-        for a in range(sides):
-            a2 = (a + 1) % sides
-            b.quad(rings[k][a], rings[k][a2], rings[k + 1][a2], rings[k + 1][a], col)
-    top = Vector((lean, 0, Hh))
-    fr = random.Random(7)
-    for f in range(10):
-        ang = f / 10 * math.tau + fr.uniform(-0.15, 0.15)
-        dirh = Vector((math.cos(ang), math.sin(ang), 0))
-        side = Vector((-dirh.y, dirh.x, 0))
-        L = fr.uniform(3.6, 4.4)
-        rise = fr.uniform(0.6, 1.2)
-        n = 7
-        spine = []
-        for k in range(n + 1):
-            t = k / n
-            spine.append(top + dirh * (L * t) + Vector((0, 0, rise * math.sin(t * math.pi * 0.6) - 1.9 * t * t)))
-        for k in range(n):
-            t = (k + 0.5) / n
-            wdt = 0.95 * math.sin(math.pi * min(1, t * 1.15)) + 0.1
-            droop = Vector((0, 0, -0.35 * wdt))
-            col = mix(C["frond"], C["frond2"], t)
-            for s in (1, -1):
-                a0, a1 = spine[k], spine[k + 1]
-                e0 = a0 + side * (s * wdt) + droop
-                e1 = a1 + side * (s * wdt * 0.8) + droop + dirh * 0.15
-                b.quad(a0, a1, e1, e0, col)
-    for k in range(4):
-        ang = k / 4 * math.tau
-        b.icosphere(top + Vector((0.3 * math.cos(ang), 0.3 * math.sin(ang), -0.35)), 0.2, C["coconut"], subdiv=1)
-    return b.to_object("palm", PROTO, weld=True)
-
-
-def proto_pine():
-    b = Builder()
-    Hh = 19.0
-    b.cylinder((0, 0, 0), (0, 0, Hh), 0.28, 0.08, 6, C["bark_pine"])
-    levels = 18
-    r = random.Random(3)
-    for k in range(levels):
-        t = k / (levels - 1)
-        zc = 2.2 + t * (Hh - 2.6)
-        rad = (1.85 - 1.05 * t) * r.uniform(0.85, 1.1)
-        col = C["pine"] if k % 2 else C["pine2"]
-        segs = 6
-        rot = r.uniform(0, math.tau)
-        ring_lo = [Vector((rad * math.cos(rot + a / segs * math.tau), rad * math.sin(rot + a / segs * math.tau), zc - 0.35)) for a in range(segs)]
-        ring_hi = [Vector((rad * 0.55 * math.cos(rot + (a + 0.5) / segs * math.tau), rad * 0.55 * math.sin(rot + (a + 0.5) / segs * math.tau), zc + 0.3)) for a in range(segs)]
-        for a in range(segs):
-            a2 = (a + 1) % segs
-            b.face((ring_lo[a], ring_lo[a2], ring_hi[a]), col)
-            b.face((ring_lo[a2], ring_hi[a2], ring_hi[a]), shade(col, 0.95))
-        b.face(list(reversed(ring_lo)), shade(col, 0.7))
-        b.face(ring_hi, shade(col, 1.08))
-    b.icosphere((0, 0, Hh + 0.2), 0.5, C["pine2"], scale=(1, 1, 1.6), subdiv=0)
-    return b.to_object("pine", PROTO, weld=True)
-
-
-def proto_niaouli():
-    b = Builder()
-    r = random.Random(11)
-    b.cylinder((0, 0, 0), (0.3, 0.2, 2.6), 0.26, 0.18, 6, C["niaouli_bark"])
-    b.cylinder((0.3, 0.2, 2.6), (1.3, 0.6, 4.2), 0.16, 0.1, 5, C["niaouli_bark"])
-    b.cylinder((0.3, 0.2, 2.6), (-0.8, -0.3, 4.0), 0.15, 0.1, 5, C["niaouli_bark"])
-    for cx, cy, cz, s in ((1.3, 0.6, 4.6, 1.6), (-0.8, -0.3, 4.4, 1.5), (0.2, 0.1, 5.3, 1.8), (0.6, -0.9, 4.2, 1.1)):
-        b.icosphere((cx, cy, cz), s, C["niaouli"] if r.random() < 0.5 else C["niaouli2"], scale=(1.1, 1.1, 0.72), subdiv=0, jitter=0.18, rng=r)
-    return b.to_object("niaouli", PROTO, weld=True)
-
-
-def proto_bush():
-    b = Builder()
-    r = random.Random(5)
-    b.icosphere((0, 0, 0.5), 1.0, C["bush"], scale=(1.2, 1.0, 0.75), subdiv=0, jitter=0.2, rng=r)
-    b.icosphere((0.7, 0.3, 0.4), 0.7, C["bush2"], scale=(1, 1, 0.8), subdiv=0, jitter=0.2, rng=r)
-    return b.to_object("bush", PROTO, weld=True)
-
-
-def proto_rock():
-    b = Builder()
-    r = random.Random(9)
-    b.icosphere((0, 0, 0.3), 1.2, C["rock"], scale=(1.3, 1.0, 0.7), subdiv=1, jitter=0.16, rng=r)
-    return b.to_object("rock", PROTO, weld=True)
-
-
-def proto_lamp():
-    b = Builder()
-    b.cylinder((0, 0, 0), (0, 0, 6.5), 0.1, 0.07, 6, C["lamp"])
-    b.cylinder((0, 0, 6.5), (1.2, 0, 6.9), 0.06, 0.05, 5, C["lamp"])
-    b.box((1.35, 0, 6.8), (0.7, 0.3, 0.18), C["lamp"])
-    b.box((1.35, 0, 6.68), (0.55, 0.22, 0.06), C["lamp_glass"])
-    return b.to_object("lamp", PROTO, weld=True)
-
-
 # ---------------------------------------------------------------- placement
-INST: dict[str, list] = {k: [] for k in ("palm", "pine", "niaouli", "bush", "rock", "lamp")}
+INST: dict[str, list] = {k: [] for k in WORLD.KINDS}
 
 
 def place(kind, x, y, rot=None, scale=None, sink=0.1):
@@ -885,69 +535,14 @@ def scatter(kind, count, cond, clear, tries=40):
         n += 1
 
 
-def plant():
-    # front de mer : palmiers et lampadaires alternés, des deux côtés
-    for i in range(0, N, max(1, int(16 / DS))):
-        if XY[i].y > 30 or not (-320 < XY[i].x < 205):
-            continue
-        p = road_point(i, -12.3)
-        place("palm", p.x, p.y, sink=0.05)
-        q = road_point(i + int(8 / DS), 11.5)
-        if city_weight(q.x, q.y) > 0.3 or q.y > 8:
-            place("palm", q.x, q.y, sink=0.05)
-    for i in range(0, N, max(1, int(30 / DS))):
-        if XY[i].y > 30 or not (-320 < XY[i].x < 205):
-            continue
-        p = road_point(i + int(4 / DS), -9.9)
-        place("lamp", p.x, p.y, rot=heading(i) + math.pi / 2, scale=1.0, sink=0.0)
-    beach = lambda x, y, h: 0.4 < h < 2.6 and y - shore_y(x) < 30  # noqa: E731
-    land = lambda x, y, h: h > 1.0 and city_weight(x, y) < 0.2  # noqa: E731
-    scatter("palm", 60, beach, 11)
-    scatter("palm", 40, lambda x, y, h: city_weight(x, y) > 0.6, 14)
-    scatter("pine", 170, lambda x, y, h: h > 3 and (abs(x) > 330 or h > 18 or y - shore_y(x) < 45) and city_weight(x, y) < 0.1, 13)
-    scatter("niaouli", 380, lambda x, y, h: land(x, y, h) and 3 < h < 34, 11)
-    scatter("bush", 650, land, 9.5)
-    scatter("rock", 90, lambda x, y, h: -0.8 < h < 1.2 and abs(x) > 280, 10)
-    scatter("rock", 50, lambda x, y, h: h > 12, 12)
-    # îlot du phare
-    for k in range(14):
-        a = k / 14 * math.tau
-        rr = rng.uniform(14, 30)
-        x, y = ISLET.x + rr * math.cos(a), ISLET.y + rr * math.sin(a)
-        if height_at(x, y) > 0.5:
-            place("palm", x, y)
-
-
-def dress():
-    city()
-    promenade()
-    pier(-120.0, shore_y(-120.0) + 4, 90.0)
-    for k in range(6):
-        x = rng.uniform(-420, 350)
-        y = rng.uniform(-200, -80)
-        boat(x, y, rng.uniform(0, math.tau), rng.choice([C["boat_blue"], srgb("#E63946"), srgb("#2A9D8F")]))
-    for k in range(24):
-        x = rng.uniform(-330, 200)
-        y = shore_y(x) + rng.uniform(5, 16)
-        _, dist, _ = track_info(x, y)
-        if dist > 17:
-            parasol(x, y, rng.choice(AWNINGS))
-    for x in (-230.0, -30.0, 140.0):
-        y = shore_y(x) + 12
-        _, dist, _ = track_info(x, y)
-        if dist > 17:
-            paillote(x, y)
-    lighthouse(ISLET.x - 6, ISLET.y + 4)
-
-
 # ---------------------------------------------------------------- éclairage et cuisson
-SUN = Vector((-0.557, 0.557, 0.616)).normalized()
+SUN = WORLD.SUN
 
 
 def lights():
     sun = bpy.data.lights.new("sun", "SUN")
     sun.energy = 3.2
-    sun.color = (1.0, 0.93, 0.82)
+    sun.color = WORLD.SUN_COLOR
     sun.angle = math.radians(2.5)
     ob = bpy.data.objects.new("sun", sun)
     ob.rotation_euler = SUN.to_track_quat("Z", "Y").to_euler()
@@ -955,8 +550,8 @@ def lights():
     world = bpy.data.worlds.new("sky")
     world.use_nodes = True
     bg = world.node_tree.nodes["Background"]
-    bg.inputs["Color"].default_value = (0.42, 0.62, 0.95, 1)
-    bg.inputs["Strength"].default_value = 0.55
+    bg.inputs["Color"].default_value = WORLD.SKY[0]
+    bg.inputs["Strength"].default_value = WORLD.SKY[1]
     bpy.context.scene.world = world
 
 
@@ -1031,8 +626,15 @@ def bake(ob, name, size, margin=6, hidden=()):
 def preview(protos, statics, path):
     """Rendu Cycles d'un point de vue (contrôle du décor sans passer par le client)."""
     vc = bake_material("preview")
+    # la chaussée est blanche en couleur de sommet (texturée par le client) : un gris ici
+    grey = bpy.data.materials.new("preview_asphalt")
+    grey.use_nodes = True
+    grey.node_tree.nodes["Principled BSDF"].inputs["Base Color"].default_value = (0.09, 0.09, 0.1, 1)
+    grey.node_tree.nodes["Principled BSDF"].inputs["Roughness"].default_value = 0.85
     for o in list(statics) + list(protos.values()):
         o.data.materials.clear()
+        if o.name == "road":
+            o.data.materials.append(grey)
         o.data.materials.append(vc)
     # le lagon (dans le jeu c'est un shader) : un plan turquoise suffit ici
     bpy.ops.mesh.primitive_plane_add(size=6000, location=(0, 0, 0))
@@ -1052,6 +654,10 @@ def preview(protos, statics, path):
     ob = bpy.data.objects.new("cam", cam)
     ob.location = (p.x - t.x * back, p.y - t.y * back, p.z + up)
     target = Vector((p.x + t.x * 40, p.y + t.y * 40, p.z + 0.8))
+    if "look" in A:
+        # --look x,y : regarder un point du décor plutôt que la route
+        lx, ly = (float(v) for v in A["look"].split(","))
+        target = Vector((lx, ly, height_at(lx, ly) + 4))
     ob.rotation_euler = (target - ob.location).to_track_quat("-Z", "Y").to_euler()
     bpy.context.scene.collection.objects.link(ob)
     sc = bpy.context.scene
@@ -1166,7 +772,7 @@ def main():
     gate(START, start=True)
     for i in CPS:
         gate(i)
-    dress()
+    WORLD.dress(L)
     props_ob = props.to_object("props", weld=True)
     finalize_colors(props_ob)
     props_ob.data.uv_layers.new(name="Lightmap") if "Lightmap" not in props_ob.data.uv_layers else None
@@ -1183,9 +789,8 @@ def main():
     back = backdrop()
     sky = clouds()
     pads = boost_pads()
-    plant()
-    protos = {"palm": proto_palm(), "pine": proto_pine(), "niaouli": proto_niaouli(),
-              "bush": proto_bush(), "rock": proto_rock(), "lamp": proto_lamp()}
+    WORLD.plant(L)
+    protos = WORLD.protos(L)
     for o in protos.values():
         finalize_colors(o)
         o.hide_render = True
@@ -1216,6 +821,7 @@ def main():
     spawn = int(18 / DS)
     meta = {
         "name": SLUG,
+        "region": REGION,
         "laps": CIRCUIT["laps"],
         "boosts": [{**gate_info(int(f * N)), "half": 4.2, "len": BOOST_LEN} for f in CIRCUIT["boosts"]],
         "length": round(LENGTH, 1),
@@ -1233,6 +839,9 @@ def main():
         "instances": {k: [[round(x, 2), round(zz, 2), round(-y, 2), round(r, 3), round(s, 3)] for (x, y, zz, r, s) in v]
                       for k, v in INST.items()},
     }
+    if WORLD.PALETTE:
+        # ciel, brouillard et eau propres à la région (three/materials.ts)
+        meta["palette"] = WORLD.PALETTE
     with open(os.path.join(OUT, "level.json"), "w") as f:
         json.dump(meta, f, separators=(",", ":"))
 

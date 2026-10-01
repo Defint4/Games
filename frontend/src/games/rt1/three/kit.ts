@@ -29,7 +29,7 @@ import { groundLight } from "../sim/level";
 import { groundY, type Vehicle } from "../sim/vehicles";
 import type { Livery } from "../livery";
 import { carSpace, decals, glassTint, paintMaterial, rimColor } from "./livery";
-import { clock, detailTexture, roadTexture, waterMaterial, withFlora, withGroundDetail } from "./materials";
+import { clock, detailTexture, paletteOf, roadTexture, waterMaterial, withFlora, withGroundDetail } from "./materials";
 
 export type CamMode = "chase" | "cockpit";
 
@@ -91,7 +91,7 @@ export function buildLevel(assets: RaceAssets, anisotropy: number): Object3D {
 
 export function buildWater(assets: RaceAssets, sun: Vector3): Mesh {
   const t = assets.level.meta.terrain;
-  const mat = waterMaterial(assets.water, new Vector4(t.x0, t.y0, t.x1, t.y1), sun);
+  const mat = waterMaterial(assets.water, new Vector4(t.x0, t.y0, t.x1, t.y1), sun, paletteOf(assets.level.meta.palette));
   mat.uniforms.uTime = clock;
   const mesh = new Mesh(new PlaneGeometry(7000, 7000, 1, 1).rotateX(-Math.PI / 2), mat);
   mesh.position.set((t.x0 + t.x1) / 2, 0, -(t.y0 + t.y1) / 2);
@@ -105,6 +105,9 @@ const WIND: Record<string, [number, number]> = {
   palm: [0.0045, 2.5],
   pine: [0.0007, 3],
   niaouli: [0.004, 2.2],
+  kaori: [0.0006, 5],
+  fern: [0.006, 1.5],
+  maquis: [0.004, 0.3],
 };
 
 /* Cases de 320 m : chaque case est un InstancedMesh, écarté hors du champ de vue. */

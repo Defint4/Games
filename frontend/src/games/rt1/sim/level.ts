@@ -9,8 +9,14 @@ export type Gate = { pos: V3; dir: V3; half: number };
 /* x, y, z, rotation autour de Y, échelle */
 export type Placement = [number, number, number, number, number];
 
+/* Couleurs du ciel, du brouillard (horizon) et de l'eau d'une région (three/materials.ts
+   PALETTE) ; absentes, celles de Nouméa. */
+export type LevelPalette = Partial<Record<"zenith" | "horizon" | "sun" | "shallow" | "lagoon" | "deep" | "ocean", string>>;
+
 export type LevelMeta = {
   name: string;
+  region?: string;
+  palette?: LevelPalette;
   length: number;
   sun: V3;
   lmScale: number;

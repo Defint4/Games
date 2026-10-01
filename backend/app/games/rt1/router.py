@@ -43,6 +43,7 @@ async def get_pilot(
 
 
 UNKNOWN_CIRCUIT = "Circuit inconnu."
+REGION_LOCKED = "Cette région n'est pas encore ouverte."
 NO_GHOST = "Pas de fantôme pour ce temps."
 BAD_GHOST = "Fantôme illisible."
 UNKNOWN_VEHICLE = "Véhicule inconnu."
@@ -69,6 +70,7 @@ class MissionOut(BaseModel):
     progress: int
     target: int
     done: bool
+    region: str
 
 
 class StateOut(BaseModel):
@@ -81,6 +83,8 @@ class StateOut(BaseModel):
     finishes: int
     records: dict[str, RecordOut]
     missions: list[MissionOut]
+    # Régions de la campagne ouvertes (rules.unlocked_regions), dans l'ordre.
+    regions: list[str]
     vehicles: list[str]
     vehicle: str
     # {véhicule: {"levels": {pièce: niveau}, "tune": {réglage: valeur}, "livery": {…}}}
@@ -108,9 +112,11 @@ def _state_out(s: service.State) -> StateOut:
                 progress=m.progress(bests, s.finishes, s.workshop),
                 target=m.count,
                 done=m.id in s.missions,
+                region=m.region,
             )
             for m in rules.MISSIONS
         ],
+        regions=rules.unlocked_regions(bests),
         vehicles=s.vehicles,
         vehicle=s.vehicle,
         workshop=s.workshop,
@@ -169,6 +175,8 @@ async def start(
         )
     except service.NotOwned:
         raise HTTPException(status_code=422, detail=NOT_OWNED) from None
+    except service.RegionLocked:
+        raise HTTPException(status_code=403, detail=REGION_LOCKED) from None
     return StartOut(race_id=race.id)
 
 

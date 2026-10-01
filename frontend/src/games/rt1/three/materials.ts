@@ -18,6 +18,7 @@ import {
   Vector4,
 } from "three";
 
+/* Ciel, brouillard et eau de Nouméa ; une région peut en changer (level.json `palette`). */
 export const PALETTE = {
   zenith: "#3F8ED6",
   horizon: "#CFE4EE",
@@ -28,7 +29,14 @@ export const PALETTE = {
   ocean: "#0A4C6E",
 };
 
-export const FOG = { color: PALETTE.horizon, near: 170, far: 1500 };
+export type Palette = typeof PALETTE;
+
+export function paletteOf(overrides: Partial<Palette> | undefined): Palette {
+  return { ...PALETTE, ...overrides };
+}
+
+/* Le brouillard prend la couleur de l'horizon de la palette. */
+export const FOG = { near: 170, far: 1500 };
 
 /* Temps partagé par les matières animées (eau, vent). */
 export const clock = { value: 0 };
@@ -198,13 +206,13 @@ function lin(hex: string): Color {
   return new Color(hex);
 }
 
-export function skyMaterial(sun: Vector3, side: Side = FrontSide): ShaderMaterial {
+export function skyMaterial(sun: Vector3, side: Side = FrontSide, palette: Palette = PALETTE): ShaderMaterial {
   return new ShaderMaterial({
     side,
     uniforms: {
-      uZenith: { value: lin(PALETTE.zenith) },
-      uHorizon: { value: lin(PALETTE.horizon) },
-      uSunCol: { value: lin(PALETTE.sun) },
+      uZenith: { value: lin(palette.zenith) },
+      uHorizon: { value: lin(palette.horizon) },
+      uSunCol: { value: lin(palette.sun) },
       uSun: { value: sun.clone().normalize() },
     },
     vertexShader: `
@@ -236,7 +244,7 @@ export function skyMaterial(sun: Vector3, side: Side = FrontSide): ShaderMateria
 /* Le lagon : couleur selon la profondeur (texture cuite), écume sur le rivage et sur le
    récif, vaguelettes, reflets du ciel et scintillement du soleil. Opaque : le fond est
    « dans » la couleur, pas de rendu de transparence. */
-export function waterMaterial(depth: Texture, bounds: Vector4, sun: Vector3): ShaderMaterial {
+export function waterMaterial(depth: Texture, bounds: Vector4, sun: Vector3, palette: Palette = PALETTE): ShaderMaterial {
   return new ShaderMaterial({
     uniforms: UniformsUtils.merge([
       UniformsLib.fog,
@@ -244,12 +252,12 @@ export function waterMaterial(depth: Texture, bounds: Vector4, sun: Vector3): Sh
         uDepth: { value: depth },
         uBounds: { value: bounds },
         uSun: { value: sun.clone().normalize() },
-        uShallow: { value: lin(PALETTE.shallow) },
-        uLagoon: { value: lin(PALETTE.lagoon) },
-        uDeep: { value: lin(PALETTE.deep) },
-        uOcean: { value: lin(PALETTE.ocean) },
-        uSky: { value: lin(PALETTE.horizon) },
-        uSunCol: { value: lin(PALETTE.sun) },
+        uShallow: { value: lin(palette.shallow) },
+        uLagoon: { value: lin(palette.lagoon) },
+        uDeep: { value: lin(palette.deep) },
+        uOcean: { value: lin(palette.ocean) },
+        uSky: { value: lin(palette.horizon) },
+        uSunCol: { value: lin(palette.sun) },
       },
     ]),
     vertexShader: `

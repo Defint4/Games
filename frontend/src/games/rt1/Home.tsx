@@ -1,7 +1,8 @@
 "use client";
 
-/* Onglet Course : les circuits de la région en contre-la-montre, leurs médailles, et les
-   modes à venir. Le circuit choisi est retenu et préchargé (décor et fantôme). */
+/* Onglet Course : les circuits en contre-la-montre, région par région, leurs médailles,
+   et les modes. Une région fermée montre ses circuits, verrouillés, avec ce qu'il faut
+   pour l'ouvrir. Le circuit choisi est retenu et préchargé (décor et fantôme). */
 
 import { useQueryClient } from "@tanstack/react-query";
 import Image from "next/image";
@@ -11,7 +12,20 @@ import { TransitionOverlay } from "@/components/Loading";
 import { tr, useLang, useT } from "@/lib/i18n";
 import { fetchRival, readVehicle, useProfile, useRt1State } from "./api";
 import { preloadAssets } from "./assets";
-import { type Circuit, CIRCUITS, circuitBySlug, MEDALS, medalFor, medalsFor, readCircuit, saveCircuit } from "./circuits";
+import {
+  type Circuit,
+  CIRCUITS,
+  circuitBySlug,
+  circuitsOf,
+  DEFAULT_CIRCUIT,
+  MEDALS,
+  medalFor,
+  medalsFor,
+  readCircuit,
+  regionBefore,
+  REGIONS,
+  saveCircuit,
+} from "./circuits";
 import { T } from "./i18n";
 import { enterImmersive } from "./immersive";
 import MedalIcon from "./MedalIcon";
@@ -34,6 +48,8 @@ export default function Home() {
   for (const [c, r] of Object.entries(records ?? {})) bests[c] = r.time_ms / 1000;
   // Temps pas encore arrivés : ni tiret ni record, un chargement.
   const pending = !records && !state.isError;
+  // régions ouvertes : la première tant que l'état n'est pas là
+  const unlocked = state.data?.regions ?? [REGIONS[0].slug];
   const [slug, setSlug] = useState(CIRCUITS[0].slug);
   const [leaving, setLeaving] = useState<string | null>(null);
   const [botsOpen, setBotsOpen] = useState(false);
@@ -49,6 +65,14 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setSlug(circuitBySlug(readCircuit()).slug);
   }, []);
+  // un circuit retenu dans une région qui n'est pas (ou plus) ouverte : retour au premier
+  useEffect(() => {
+    if (state.data && !state.data.regions.includes(circuitBySlug(slug).region)) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setSlug(DEFAULT_CIRCUIT);
+      saveCircuit(DEFAULT_CIRCUIT);
+    }
+  }, [state.data, slug]);
 
   // Le fantôme du record se télécharge avec le décor : la course part sans attente.
   const mine = records?.[slug];
@@ -128,30 +152,53 @@ export default function Home() {
         </div>
       </section>
 
-      <h2 className={`${bungee.className} mb-2 text-sm text-[#8CE6D2]`}>{t.circuits}</h2>
-      <div className="mb-5 flex flex-col gap-2">
-        {CIRCUITS.map((c) => {
-          const medal = medalFor(c, bests[c.slug], records?.[c.slug]?.vehicle ?? vehicle);
-          const active = c.slug === slug;
-          return (
-            <button
-              key={c.slug}
-              type="button"
-              onClick={() => choose(c)}
-              className={`${card} flex items-center gap-3 p-3 text-left transition-colors ${active ? "ring-2 ring-[#2EC4C6]" : ""}`}
-            >
-              <MedalIcon medal={medal ?? "bronze"} earned={medal !== null} className="size-8 shrink-0" />
-              <span className="min-w-0 grow">
-                <span className={`${bungee.className} block truncate text-sm`}>{c.name[lang]}</span>
-                <span className="block truncate text-xs text-white/60">{c.note[lang]}</span>
-              </span>
-              <span className={`${bungee.className} shrink-0 text-sm tabular-nums ${bests[c.slug] != null ? "text-[#8CE6D2]" : "text-white/35"}`}>
-                {pending ? <Pending /> : bests[c.slug] != null ? formatTime(bests[c.slug]) : "—"}
-              </span>
-            </button>
-          );
-        })}
-      </div>
+      {REGIONS.map((region) => {
+        const open = unlocked.includes(region.slug);
+        const before = regionBefore(region.slug);
+        return (
+          <div key={region.slug} className="mb-5">
+            <h2 className={`${bungee.className} mb-2 flex items-center gap-1.5 text-sm text-[#8CE6D2]`}>
+              {!open && <LockIcon className="size-4 text-white/50" />}
+              {t.circuits(region.name[lang])}
+            </h2>
+            {!open && before && <p className="mb-2 text-xs text-white/55">{t.locked(region.name[lang], before.name[lang])}</p>}
+            <div className="flex flex-col gap-2">
+              {circuitsOf(region.slug).map((c) => {
+                const medal = medalFor(c, bests[c.slug], records?.[c.slug]?.vehicle ?? vehicle);
+                const active = c.slug === slug;
+                return (
+                  <button
+                    key={c.slug}
+                    type="button"
+                    onClick={() => choose(c)}
+                    disabled={!open}
+                    className={`${card} flex items-center gap-3 p-3 text-left transition-colors ${active ? "ring-2 ring-[#2EC4C6]" : ""} ${
+                      open ? "" : "opacity-60"
+                    }`}
+                  >
+                    {open ? (
+                      <MedalIcon medal={medal ?? "bronze"} earned={medal !== null} className="size-8 shrink-0" />
+                    ) : (
+                      <span className="grid size-8 shrink-0 place-items-center rounded-full bg-white/10">
+                        <LockIcon className="size-4 text-white/60" />
+                      </span>
+                    )}
+                    <span className="min-w-0 grow">
+                      <span className={`${bungee.className} block truncate text-sm`}>{c.name[lang]}</span>
+                      <span className="block truncate text-xs text-white/60">{c.note[lang]}</span>
+                    </span>
+                    {open && (
+                      <span className={`${bungee.className} shrink-0 text-sm tabular-nums ${bests[c.slug] != null ? "text-[#8CE6D2]" : "text-white/35"}`}>
+                        {pending ? <Pending /> : bests[c.slug] != null ? formatTime(bests[c.slug]) : "—"}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
 
       <h2 className={`${bungee.className} mb-2 text-sm text-[#8CE6D2]`}>{t.modes}</h2>
       <div className="grid grid-cols-2 gap-3">

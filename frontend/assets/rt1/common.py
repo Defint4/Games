@@ -5,7 +5,7 @@ import sys
 
 import bmesh
 import bpy
-from mathutils import Vector
+from mathutils import Vector, noise
 
 
 def args() -> dict[str, str]:
@@ -42,6 +42,16 @@ def mix(a: tuple, b: tuple, t: float) -> tuple:
 def smoothstep(e0: float, e1: float, x: float) -> float:
     t = min(1.0, max(0.0, (x - e0) / (e1 - e0)))
     return t * t * (3 - 2 * t)
+
+
+def fbm(x: float, y: float, octaves: int = 4) -> float:
+    """Bruit fractal (−1 à 1 environ) : relief et couleurs des régions."""
+    s, a, f = 0.0, 1.0, 1.0
+    for _ in range(octaves):
+        s += a * noise.noise(Vector((x * f, y * f, 0.37 * f)))
+        a *= 0.5
+        f *= 2.03
+    return s / 1.875
 
 
 class Builder:

@@ -116,6 +116,20 @@ class RaceError(Exception):
     """Ticket inconnu, périmé, déjà consommé, ou arrivée impossible : message au joueur."""
 
 
+class RegionLocked(Exception):
+    """Le circuit est dans une région que le pilote n'a pas encore ouverte."""
+
+
+async def _bests(db: AsyncSession, player_id: uuid.UUID) -> dict[str, tuple[int, str]]:
+    """Par circuit, le record (ms) et le véhicule qui l'a fait."""
+    rows = await db.execute(
+        select(Rt1Record.circuit, Rt1Record.time_ms, Rt1Record.vehicle).where(
+            Rt1Record.player_id == player_id
+        )
+    )
+    return {c: (t, v) for c, t, v in rows.all()}
+
+
 async def start_race(
     db: AsyncSession, player_id: uuid.UUID, circuit: str, vehicle: str, bots: BotsResult | None
 ) -> Rt1Race:
@@ -123,6 +137,8 @@ async def start_race(
     profile = await _locked_profile(db, player_id)
     if vehicle not in profile.vehicles:
         raise NotOwned
+    if rules.REGION_OF.get(circuit) not in rules.unlocked_regions(await _bests(db, player_id)):
+        raise RegionLocked
     await db.execute(
         delete(Rt1Race).where(
             Rt1Race.player_id == player_id,
@@ -279,16 +295,7 @@ async def _pay_missions(
     db: AsyncSession, profile: Rt1Profile, bots: BotsResult | None = None, pi: int | None = None
 ) -> list[Gain]:
     """Paie les missions nouvellement accomplies (une fois chacune)."""
-    bests = {
-        c: (t, v)
-        for c, t, v in (
-            await db.execute(
-                select(Rt1Record.circuit, Rt1Record.time_ms, Rt1Record.vehicle).where(
-                    Rt1Record.player_id == profile.player_id
-                )
-            )
-        ).all()
-    }
+    bests = await _bests(db, profile.player_id)
     gains = []
     done = list(profile.missions)
     for mission in rules.MISSIONS:

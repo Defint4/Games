@@ -5,7 +5,8 @@ Nouvelle-Calédonie. Le nom vient de la route territoriale 1, de Nouméa à Poum
 
 Slug : `rt1` · Production : https://games.matthieuguiot.dev/rt1
 
-État (1er oct 2026, après l'audit `AUDIT_RT1.md`) : étapes 2 à 9 faites, 4 circuits jouables sur `/rt1`, progression
+État (1er oct 2026, après l'audit `AUDIT_RT1.md`) : étapes 2 à 10 faites, 8 circuits jouables sur `/rt1`
+dans deux régions (Nouméa, Grand Sud), progression
 sur le serveur, courses contre les bots, garage de 13 véhicules (dont 3 motos), atelier,
 peinture, courses en direct jusqu'à 8 pilotes (à tester sur téléphone). Le jeu
 est « en développement » (`available: "dev"`) : ouvert au seul compte admin, « Bientôt »
@@ -40,11 +41,13 @@ Downhill : formes simples, matières et lumière soignées. Jamais des boîtes n
 ## Le monde : la campagne de Nouméa à Poum
 
 Une région = un environnement (décor, surfaces, ambiance) et une série de circuits.
-Ordre de déblocage :
+Une région s'ouvre avec le bronze sur tous les circuits de la précédente (contrôlé au
+ticket de départ, `rules.unlocked_regions`) ; en ligne, tous les circuits restent
+ouverts. Ordre de déblocage :
 
-1. **Nouméa** : stade d'entraînement (apprentissage), front de mer, la ville la nuit
+1. **Nouméa** (fait) : stade d'entraînement (apprentissage), front de mer, la ville la nuit
    (ambiance néon).
-2. **Grand Sud** : terre rouge, lacs, maquis minier.
+2. **Grand Sud** (fait) : terre rouge, lacs, maquis minier.
 3. **Côte Ouest** : savane à niaoulis, stations d'élevage, longues lignes droites de la RT1.
 4. **La mine** : gradins, pistes, camions, poussière.
 5. **La Chaîne** : cols en lacets, forêt humide, brouillard.
@@ -87,6 +90,16 @@ Ordre de déblocage :
 - Région de Nouméa : **Front de mer** (1 tour), **Centre-ville** (2 tours, virages
   serrés, boosts), **Le col** (sans murs, lacets, saut), **La corniche** (2 tours,
   rapide, boosts, saut).
+- Région du Grand Sud (toute sans murs, fin d'après-midi dorée, ciel voilé) : **Plaine
+  des Lacs** (2 tours, rapide, boosts, autour du Grand Lac), **Yaté** (1 tour, le lac et
+  son barrage, montée sur la cuirasse, saut sur la crête), **Baie de Prony** (1 tour, le
+  tour de la baie par la côte, les ruines du bagne, saut), **La Madeleine** (2 tours, court
+  et technique entre deux lacs, une épingle). Un saut se place sur une ligne droite avec
+  de la marge avant le virage suivant, sinon les motos du pilote automatique retombent
+  trop vite et sortent (`pnpm rt1:bots` refuse alors le circuit). Décor : terre rouge, gravier de fer, cuirasses
+  tabulaires, lacs (l'eau est à 0 partout), ligne haute tension du barrage, cases, farés,
+  belvédère ; flore : pins colonnaires, niaoulis, kaoris, maquis, blocs de cuirasse,
+  fougères arborescentes.
 
 ## Missions
 
@@ -95,7 +108,10 @@ médaille, finir dans les N premiers contre des bots, relier deux points, épreu
 (véhicule, type ou niveau d'amélioration maximum), défi de glisse ou de saut.
 
 Accomplies d'elles-mêmes à l'arrivée d'une course, payées une fois, sans bouton à
-réclamer. Nouméa en a 16 (`rules.py`, textes dans `i18n.ts`) : finir 1 puis 25 courses,
+réclamer. Chaque mission appartient à une région ; les missions « médailles sur N
+circuits » ne comptent que les circuits de leur région. Le Grand Sud en a 8 (bronze sur
+Plaine des Lacs, bronze partout, argent à Yaté, gagner face à 5 bots Difficile, or à
+Prony, 60 courses, auteur à La Madeleine, or partout). Nouméa en a 16 (`rules.py`, textes dans `i18n.ts`) : finir 1 puis 25 courses,
 médailles sur un circuit donné, bronze partout, trois ors, temps de l'auteur, or partout ;
 contre les bots : gagner face à 3 (Facile ou plus), podium face à 7 Normal, gagner face à
 7 Difficile, puis 7 Expert, et « Petit budget » (gagner face à 5 Normal avec un indice de
@@ -284,7 +300,12 @@ backend/app/rooms/router.py  action `ping` (horloge) et chemin court GameSpec.re
                                communs à tous les jeux
 frontend/assets/rt1/         sources des modèles (Blender 4.5 en script, sans interface)
   build.sh                     régénère tout dans public/rt1/ (Blender + gltf-transform)
-  level.py                     circuit : tracé, terrain, route, ville, flore, lumière cuite
+  level.py                     circuit : tracé, route, cuisson, export ; le relief, les
+                               couleurs, le décor et la végétation viennent de la région
+  world_noumea.py              région 1 : baie, ville, îlot du phare
+  world_grand_sud.py           région 2 : terre rouge, lacs, barrage, pylônes, ruines
+  circuits.py                  tracés, murs, tours, blocs, région de chaque circuit
+  palette.py, flora.py         couleurs communes ; prototypes de flore et de mobilier
   car.py                       voiture de départ, roue, ombre de contact cuite
   vehicles.py                  les 12 autres véhicules (sections, tubes), motos et
                                pilotes compris, leurs roues, ombres et vignettes du
@@ -358,9 +379,19 @@ sa voix dans `engineSound.ts`, ses textes dans `i18n.ts`, puis `build.sh` et
 
 **Régénérer les modèles.** `frontend/assets/rt1/build.sh` (Blender 4.5 et KTX-Software
 4.4 portables dans `~/.local/opt/`, ou `BLENDER=…`, `TOKTX=…`). `SAMPLES=128` pour aller
-vite, `SKIP_CARS=1` pour ne refaire que les circuits, `SKIP_BLENDER=1` pour ne refaire que
-l'optimisation. Le build s'arrête si Blender échoue et finit par `pnpm rt1:check` (route
-sous le terrain, sens du collider). La couverture (`cover.webp`) est une capture du jeu.
+vite, `SKIP_CARS=1` pour ne refaire que les circuits, `CIRCUITS="yate prony"` pour une
+partie, `SKIP_BLENDER=1` pour ne refaire que l'optimisation. Le build s'arrête si Blender
+échoue et finit par `pnpm rt1:check` (route sous le terrain, sens du collider ; un tracé
+qui repasse sur lui-même se voit là). Aperçu sans cuisson : `blender -b -P level.py --
+--circuit yate --preview out.png --at 200 [--look x,y] [--cover 1]` ; les couvertures
+du Grand Sud (`cover.webp`) sont ces rendus Cycles (`--cover 1`), celles de Nouméa des
+captures du jeu.
+
+**Ajouter une région.** Un `world_<slug>.py` sur le modèle de `world_grand_sud.py`
+(relief `natural`, `terrain_color`, `dress`, `plant`, `protos`, `KINDS`, soleil, ciel,
+`PALETTE` du client), ses circuits dans `circuits.py` avec `"region"`, la liste dans
+`load.ts`, `REGIONS` et les circuits dans `circuits.ts`, `GATES`, `REGIONS` et les
+missions dans `rules.py`, les textes dans `i18n.ts`, puis `build.sh` et `pnpm rt1:bots`.
 
 **Tests.** `/rt1/play?debug` affiche cadence, appels de dessin, triangles et résolution.
 `&autopilot` fait rouler le pilote automatique, `&speedup=n` accélère le temps,
@@ -394,7 +425,7 @@ Chaque étape se joue sur téléphone avant la suivante.
 7. Atelier : améliorations et réglages (fait).
 8. Personnalisation (faite ; modèles de jantes plus tard).
 9. En ligne en direct (fait ; à jouer à deux téléphones avant l'étape suivante).
-10. Régions suivantes.
+10. Régions suivantes (Grand Sud fait le 1er oct 2026 ; Côte Ouest ensuite).
 
 ## Points ouverts
 
