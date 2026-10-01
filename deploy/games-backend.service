@@ -16,7 +16,7 @@ Environment=OPENBLAS_NUM_THREADS=1
 # Le binaire du venv directement, pas `uv run` : uv voudrait écrire dans ~/.cache/uv, ce
 # que le durcissement ci-dessous interdit. Le venv est construit par `uv sync` (deploy.sh).
 # Un seul worker, obligatoire : les tables vivent en mémoire du processus.
-ExecStart=/var/www/games/backend/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8003 --proxy-headers
+ExecStart=/var/www/games/backend/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8003 --proxy-headers --ws-max-size 1048576
 Restart=always
 RestartSec=5
 # Les réflexions du bot Difficile passent après les autres sites du serveur.

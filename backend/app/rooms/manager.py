@@ -23,7 +23,7 @@ from typing import Any
 from fastapi import WebSocket
 
 from app.core.config import settings
-from app.games.base import GameSpec, GameStatus
+from app.games.base import GameError, GameSpec, GameStatus
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +32,8 @@ logger = logging.getLogger(__name__)
 MAINTENANCE_GRACE_SECONDS = 10
 
 CHAT_HISTORY_SIZE = 100
+# Tables en RAM au plus (les codes sont à 4 chiffres).
+MAX_ROOMS = 2000
 
 
 @dataclass
@@ -180,10 +182,15 @@ class RoomManager:
         ]
 
     def _unique_code(self) -> str:
-        while True:
+        # Dix mille codes : passé un certain remplissage, on refuse plutôt que de boucler
+        # (le worker est unique, une boucle le figerait pour tous les jeux).
+        if len(self.rooms) >= MAX_ROOMS:
+            raise GameError("Trop de tables ouvertes, réessaie dans quelques minutes.")
+        for _ in range(100):
             code = f"{random.randint(0, 9999):04d}"
             if code not in self.rooms:
                 return code
+        raise GameError("Trop de tables ouvertes, réessaie dans quelques minutes.")
 
     async def cleanup_loop(self, on_delete: Callable[[str], Awaitable[None]] | None = None) -> None:
         """Supprime les tables fantômes (0 connecté depuis empty_room_ttl_minutes).

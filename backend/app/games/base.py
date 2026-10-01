@@ -34,6 +34,15 @@ class GameError(Exception):
     """Erreur de règle ou d'action invalide : renvoyée telle quelle au client."""
 
 
+# Jeux en développement : ouverts au seul compte admin (miroir de `available: "dev"` dans
+# frontend/src/lib/games.ts), 404 pour les autres, et sans stats dans le classement du hub.
+DEV_GAMES = frozenset({"rt1"})
+
+
+def is_open(slug: str, admin: bool) -> bool:
+    return slug not in DEV_GAMES or admin
+
+
 class GameSpec(ABC):
     """Ce qu'un jeu doit fournir pour être servi par la plateforme.
 

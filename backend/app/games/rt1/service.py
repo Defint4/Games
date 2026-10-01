@@ -1,13 +1,13 @@
 import uuid
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from app.games.rt1 import rules
-from app.games.rt1.models import Rt1Profile, Rt1Record
+from app.games.rt1.models import Rt1Profile, Rt1Race, Rt1Record
 from app.players.models import Player
 
 
@@ -105,6 +105,102 @@ class Arrival:
     state: State
 
 
+# Un ticket de départ non consommé ne vaut que ce temps : au-delà, la course est perdue.
+RACE_TTL = timedelta(hours=1)
+# Marge entre le temps déclaré et le temps réellement écoulé depuis le ticket (horloges,
+# réseau, chargement) : le temps ne peut pas dépasser ce qu'a vu le serveur.
+ELAPSED_SLACK = timedelta(seconds=2)
+
+
+class RaceError(Exception):
+    """Ticket inconnu, périmé, déjà consommé, ou arrivée impossible : message au joueur."""
+
+
+async def start_race(
+    db: AsyncSession, player_id: uuid.UUID, circuit: str, vehicle: str, bots: BotsResult | None
+) -> Rt1Race:
+    """Un ticket de départ, daté par le serveur ; les tickets périmés du joueur sont jetés."""
+    profile = await _locked_profile(db, player_id)
+    if vehicle not in profile.vehicles:
+        raise NotOwned
+    await db.execute(
+        delete(Rt1Race).where(
+            Rt1Race.player_id == player_id,
+            Rt1Race.finished_at.is_(None),
+            Rt1Race.started_at < datetime.now(UTC) - RACE_TTL,
+        )
+    )
+    race = Rt1Race(
+        player_id=player_id,
+        circuit=circuit,
+        vehicle=vehicle,
+        bots_level=None if bots is None else bots.level,
+        bots_count=None if bots is None else bots.count,
+    )
+    db.add(race)
+    await db.commit()
+    return race
+
+
+async def finish_race(
+    db: AsyncSession,
+    player_id: uuid.UUID,
+    race_id: uuid.UUID,
+    time_ms: int,
+    splits: list[int],
+    ghost: bytes | None,
+    place: int | None,
+    pi: int | None,
+) -> Arrival:
+    """L'arrivée d'une course lancée par `start_race` : le ticket dit le circuit, le
+    véhicule et les bots ; le serveur vérifie que le temps tient dans ce qu'il a vu
+    s'écouler. Une arrivée renvoyée (réponse perdue) rend le même résultat sans repayer."""
+    await _locked_profile(db, player_id)
+    race = await db.get(Rt1Race, race_id)
+    if race is None or race.player_id != player_id:
+        raise RaceError("Course inconnue.")
+    now = datetime.now(UTC)
+    if race.finished_at is not None:
+        if race.result is None or race.result.get("time_ms") != time_ms:
+            raise RaceError("Course déjà comptée.")
+        r = race.result
+        return Arrival(
+            record=r["record"],
+            best_ms=r["best_ms"],
+            gains=[Gain(g["kind"], g["money"], g["id"]) for g in r["gains"]],
+            level_before=r["level_before"],
+            state=await state(db, player_id),
+        )
+    if now - race.started_at > RACE_TTL:
+        raise RaceError("Course périmée.")
+    if not rules.plausible_time(race.circuit, time_ms):
+        raise RaceError("Temps impossible.")
+    if timedelta(milliseconds=time_ms) > now - race.started_at + ELAPSED_SLACK:
+        raise RaceError("Temps impossible.")
+    if not rules.plausible_splits(race.circuit, time_ms, splits):
+        raise RaceError("Temps de passage impossibles.")
+    if ghost is not None and not rules.plausible_ghost(time_ms, ghost):
+        raise RaceError("Fantôme illisible.")
+    bots = None
+    if race.bots_level is not None and race.bots_count is not None:
+        if place is None or not 1 <= place <= race.bots_count + 1:
+            raise RaceError("Place impossible.")
+        bots = BotsResult(race.bots_level, race.bots_count, place)
+    arrival = await finish(
+        db, player_id, race.circuit, time_ms, splits, ghost, bots, race.vehicle, pi, commit=False
+    )
+    race.finished_at = now
+    race.result = {
+        "time_ms": time_ms,
+        "record": arrival.record,
+        "best_ms": arrival.best_ms,
+        "gains": [{"kind": g.kind, "money": g.money, "id": g.id} for g in arrival.gains],
+        "level_before": arrival.level_before,
+    }
+    await db.commit()
+    return arrival
+
+
 async def finish(
     db: AsyncSession,
     player_id: uuid.UUID,
@@ -116,10 +212,11 @@ async def finish(
     vehicle: str = rules.STARTER,
     pi: int | None = None,
     online: OnlineResult | None = None,
+    commit: bool = True,
 ) -> Arrival:
     """Une course finie : gain de base, place contre les bots ou en ligne, médailles
-    nouvelles, record, missions accomplies. Temps et place sont ceux de l'appareil, pris
-    tels quels."""
+    nouvelles, record, missions accomplies. En solo, `finish_race` a vérifié le temps
+    contre son ticket ; en direct, c'est la table (spec.py) qui l'a mesuré."""
     # Verrou sur le joueur : deux arrivées simultanées ne paient pas deux fois la même
     # médaille ni la même mission.
     profile = await _locked_profile(db, player_id)
@@ -158,13 +255,16 @@ async def finish(
         rec.time_ms = time_ms
         rec.vehicle = vehicle
         rec.splits = splits
-        # Le fantôme d'un ancien record ne correspond plus au temps affiché.
-        rec.ghost = ghost
+        # Sans fantôme pour ce temps, l'ancien reste : mieux qu'aucun fantôme à défier,
+        # même s'il finit un peu après le record affiché.
+        if ghost is not None:
+            rec.ghost = ghost
         rec.set_at = datetime.now(UTC)
         await db.flush()
 
     gains += await _pay_missions(db, profile, bots, pi)
-    await db.commit()
+    if commit:
+        await db.commit()
     return Arrival(
         record=is_record,
         best_ms=time_ms if is_record else old,
@@ -179,11 +279,13 @@ async def _pay_missions(
 ) -> list[Gain]:
     """Paie les missions nouvellement accomplies (une fois chacune)."""
     bests = dict(
-        (await db.execute(
-            select(Rt1Record.circuit, Rt1Record.time_ms).where(
-                Rt1Record.player_id == profile.player_id
+        (
+            await db.execute(
+                select(Rt1Record.circuit, Rt1Record.time_ms).where(
+                    Rt1Record.player_id == profile.player_id
+                )
             )
-        )).all()
+        ).all()
     )
     gains = []
     done = list(profile.missions)
@@ -215,8 +317,14 @@ async def _locked_profile(db: AsyncSession, player_id: uuid.UUID) -> Rt1Profile:
     profile = await db.get(Rt1Profile, player_id)
     if profile is None:
         profile = Rt1Profile(
-            player_id=player_id, money=0, xp=0, finishes=0, missions=[],
-            vehicles=[rules.STARTER], vehicle=rules.STARTER, workshop={},
+            player_id=player_id,
+            money=0,
+            xp=0,
+            finishes=0,
+            missions=[],
+            vehicles=[rules.STARTER],
+            vehicle=rules.STARTER,
+            workshop={},
         )
         db.add(profile)
     return profile

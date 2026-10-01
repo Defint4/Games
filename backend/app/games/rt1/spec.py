@@ -14,6 +14,7 @@ import asyncio
 import base64
 import binascii
 import logging
+import math
 import re
 import time
 import uuid
@@ -21,7 +22,7 @@ from dataclasses import dataclass, field
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.games.base import AfterMove, Event, GameError, GameSpec, GameStatus
+from app.games.base import DEV_GAMES, AfterMove, Event, GameError, GameSpec, GameStatus
 from app.games.rt1 import rules, service
 from app.players import service as players_service
 from app.rooms.manager import Room, manager
@@ -39,6 +40,9 @@ WAIT_AFTER_FIRST = 30.0
 MAX_RACE = 600.0
 MAX_TIME_MS = 600_000
 MAX_GHOST_CHARS = 520_000
+# Le temps mesuré par le serveur fait foi ; celui du téléphone est gardé s'il en est
+# proche (il est plus précis, au centième), sinon c'est celui du serveur.
+TIME_TOLERANCE_MS = 1500
 HEX = re.compile(r"^#[0-9A-Fa-f]{6}$")
 
 ALREADY_STARTED = "La partie a déjà commencé."
@@ -63,6 +67,8 @@ class Pilot:
     splits: list[int] = field(default_factory=list)
     ghost: bytes | None = None
     dnf: bool = False
+    # Heure (monotone) de l'arrivée vue par le serveur : départage les temps égaux.
+    finished_at: float | None = None
     # Après la course : ce que le serveur a payé (service.Arrival), pour l'écran de fin.
     gains: list[dict] | None = None
     record: bool = False
@@ -77,6 +83,7 @@ class Pilot:
         self.splits = []
         self.ghost = None
         self.dnf = False
+        self.finished_at = None
         self.gains = None
         self.record = False
         self.level_before = None
@@ -110,9 +117,13 @@ def add_player(state: RaceState, pseudo: str) -> None:
     state.players.append(Pilot(pseudo))
 
 
-def set_ready(state: RaceState, seat: int, ready: bool) -> list[Event]:
+def set_ready(state: RaceState, seat: int, ready: bool, circuit: str | None = None) -> list[Event]:
     if state.status is not GameStatus.LOBBY:
         raise GameError(ALREADY_STARTED)
+    # Un « prêt » parti pour un autre circuit (le créateur vient d'en changer) ne compte pas :
+    # ce pilote n'a pas encore chargé le bon décor.
+    if ready and circuit is not None and circuit != state.circuit:
+        return []
     state.players[seat].ready = ready
     if len(state.players) >= MIN_PILOTS and all(p.ready for p in state.players):
         return _start(state)
@@ -165,15 +176,34 @@ def choose_circuit(state: RaceState, seat: int, circuit: str) -> list[Event]:
 
 
 def finish(state: RaceState, seat: int, message: dict, now: float) -> list[Event]:
-    if state.status is not GameStatus.PLAYING:
+    if state.status is not GameStatus.PLAYING or state.start_mono is None:
         raise GameError(NOT_RACING)
     pilot = state.players[seat]
+    claimed = int(message["time_ms"])
     if pilot.done():
+        # Arrivée renvoyée (reconnexion) : la même, sans erreur ; une autre, refusée.
+        if pilot.time_ms == claimed:
+            return []
         raise GameError(ALREADY_FINISHED)
-    time_ms = int(message["time_ms"])
-    if not 0 < time_ms <= MAX_TIME_MS:
+    if not 0 < claimed <= MAX_TIME_MS:
+        raise ValueError(claimed)
+    elapsed_ms = round((now - state.start_mono) * 1000)
+    if elapsed_ms <= 0:
+        raise GameError(NOT_RACING)
+    # Le serveur a vu s'écouler elapsed_ms depuis le top départ (moins le trajet du
+    # message) : le temps du téléphone est gardé s'il en est proche, sinon remplacé.
+    time_ms = claimed if abs(claimed - elapsed_ms) <= TIME_TOLERANCE_MS else elapsed_ms
+    if not rules.plausible_time(state.circuit, time_ms):
         raise ValueError(time_ms)
-    splits = [int(s) for s in message.get("splits", [])][:64]
+    raw_splits = message.get("splits", [])
+    if not isinstance(raw_splits, list):
+        raise ValueError("splits")
+    splits = [int(s) for s in raw_splits[:64]]
+    if time_ms != claimed:
+        # Les passages datés par le téléphone sont recalés sur le temps retenu.
+        splits = [s + (time_ms - claimed) for s in splits]
+    if not rules.plausible_splits(state.circuit, time_ms, splits):
+        raise ValueError("splits")
     ghost = message.get("ghost")
     if ghost is not None:
         ghost = str(ghost)
@@ -183,9 +213,12 @@ def finish(state: RaceState, seat: int, message: dict, now: float) -> list[Event
             ghost = base64.b64decode(ghost, validate=True)
         except binascii.Error:
             raise ValueError("ghost") from None
+        if not rules.plausible_ghost(claimed, ghost):
+            ghost = None
     pilot.time_ms = time_ms
     pilot.splits = splits
     pilot.ghost = ghost
+    pilot.finished_at = now
     if state.first_finish is None:
         state.first_finish = now
     return [{"type": "pilot_finished", "seat": seat, "time_ms": time_ms}, *_maybe_end(state)]
@@ -239,6 +272,7 @@ def places(state: RaceState) -> list[int]:
         key=lambda i: (
             state.players[i].time_ms is None,
             state.players[i].time_ms or 0,
+            state.players[i].finished_at or 0.0,
             i,
         ),
     )
@@ -350,7 +384,13 @@ class Rt1Race(GameSpec):
     ) -> list[Event] | None:
         state: RaceState = room.state
         if action == "ready":
-            return set_ready(state, seat, bool(message.get("ready", True)))
+            circuit = message.get("circuit")
+            return set_ready(
+                state,
+                seat,
+                bool(message.get("ready", True)),
+                None if circuit is None else str(circuit),
+            )
         if action == "setup":
             return setup(state, seat, message)
         if action == "circuit":
@@ -372,7 +412,14 @@ class Rt1Race(GameSpec):
         if not isinstance(d, list) or len(d) != 9:
             raise ValueError("pose")
         nums = [float(x) for x in d]
-        return {"d": [round(x, 3) for x in nums[:8]] + [int(nums[8])]}
+        if not all(math.isfinite(x) for x in nums):
+            raise ValueError("pose")
+        t, x, y, z, qx, qy, qz, qw, gate = nums
+        if not (0 <= t <= MAX_RACE and abs(x) < 5000 and abs(y) < 500 and abs(z) < 5000):
+            raise ValueError("pose")
+        if abs(qx * qx + qy * qy + qz * qz + qw * qw - 1) > 0.05 or not 0 <= gate <= 64:
+            raise ValueError("pose")
+        return {"d": [round(v, 3) for v in nums[:8]] + [int(gate)]}
 
     def auto_play(self, room: Room, seat: int) -> list[Event]:
         return []
@@ -417,7 +464,9 @@ class Rt1Race(GameSpec):
             pilot.level_before = arrival.level_before
             pilot.level = rules.level_for(arrival.state.xp)
         results = self.results(room)
-        if results is not None:
+        # Tant que le jeu est en développement, rien dans les stats du hub (ses essais ne
+        # doivent pas peser dans le classement général).
+        if results is not None and self.slug not in DEV_GAMES:
             winner, loser = results
             await players_service.record_game_results(
                 db,

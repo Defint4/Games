@@ -110,7 +110,12 @@ export function useRoomSocket<V extends BaseRoomView>(
 
       socket.onmessage = (raw) => {
         clearTimeout(probeTimer);
-        const msg = JSON.parse(raw.data) as ServerMessage<V>;
+        let msg: ServerMessage<V>;
+        try {
+          msg = JSON.parse(raw.data) as ServerMessage<V>;
+        } catch {
+          return; // trame illisible : on l'ignore, le socket reste ouvert
+        }
         if (msg.type === "state") {
           retryRef.current = 0;
           setView(msg.view);

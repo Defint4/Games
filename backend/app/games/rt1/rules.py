@@ -4,6 +4,8 @@ Les médailles sont le miroir de frontend/src/games/rt1/circuits.ts (en millisec
 les textes des missions sont côté client (i18n.ts), rangés par identifiant.
 """
 
+import math
+import struct
 from dataclasses import dataclass
 
 MEDALS = ("bronze", "silver", "gold", "author")
@@ -15,6 +17,50 @@ CIRCUITS: dict[str, dict[str, int]] = {
     "le-col": {"author": 50_000, "gold": 52_500, "silver": 58_000, "bronze": 66_000},
     "la-corniche": {"author": 51_000, "gold": 53_500, "silver": 59_000, "bronze": 67_000},
 }
+
+# Portes par course (checkpoints et ligne, par tour) : la longueur des temps de passage.
+GATES: dict[str, int] = {"noumea": 4, "centre-ville": 8, "le-col": 4, "la-corniche": 8}
+
+# En deçà de cette part du temps auteur, aucun véhicule ne passe (la F1 est à 0,61 au
+# pilote automatique) : un temps plus bas est inventé.
+MIN_TIME_RATIO = 0.5
+
+
+def plausible_time(circuit: str, time_ms: int) -> bool:
+    return time_ms >= CIRCUITS[circuit]["author"] * MIN_TIME_RATIO
+
+
+def plausible_splits(circuit: str, time_ms: int, splits: list[int]) -> bool:
+    """Un passage par porte, dans l'ordre, le dernier à l'arrivée."""
+    if len(splits) != GATES[circuit]:
+        return False
+    if any(b <= a for a, b in zip(splits, splits[1:], strict=False)):
+        return False
+    return 0 < splits[0] and abs(splits[-1] - time_ms) <= 1
+
+
+GHOST_HZ = 20
+GHOST_STRIDE = 32  # 8 flottants de 4 octets : t, x, y, z, qx, qy, qz, qw
+
+
+def plausible_ghost(time_ms: int, ghost: bytes) -> bool:
+    """Des poses complètes, finies, dans l'ordre, qui couvrent le tour sans le dépasser,
+    et pas plus que la cadence d'enregistrement n'en produit."""
+    if len(ghost) % GHOST_STRIDE != 0 or len(ghost) < 2 * GHOST_STRIDE:
+        return False
+    if len(ghost) > (time_ms / 1000 * GHOST_HZ + 3) * GHOST_STRIDE:
+        return False
+    last_t = -1.0
+    for pose in struct.iter_unpack("<8f", ghost):
+        if not all(math.isfinite(v) for v in pose):
+            return False
+        t = pose[0]
+        if t < last_t or abs(pose[1]) > 5000 or abs(pose[2]) > 500 or abs(pose[3]) > 5000:
+            return False
+        last_t = t
+    first_t = struct.unpack_from("<f", ghost, 0)[0]
+    return first_t <= 0.2 and last_t <= time_ms / 1000 + 0.1
+
 
 # Le garage : prix (F) et niveau de pilote requis, miroir de
 # frontend/src/games/rt1/sim/vehicles.ts. La citadine est offerte.
@@ -38,7 +84,15 @@ STARTER = "starter"
 # L'atelier : neuf pièces du niveau 1 (d'origine) au niveau 5 ; au niveau 5 d'une pièce,
 # ses réglages fins (-1 à +1). Effets sur la physique : frontend sim/tuning.ts.
 PARTS = (
-    "engine", "turbo", "gearbox", "drivetrain", "tyres", "suspension", "brakes", "aero", "weight",
+    "engine",
+    "turbo",
+    "gearbox",
+    "drivetrain",
+    "tyres",
+    "suspension",
+    "brakes",
+    "aero",
+    "weight",
 )
 MAX_LEVEL = 5
 TUNES = {
@@ -58,6 +112,7 @@ def upgrade_cost(vehicle: str, level: int) -> int:
     ref = max(VEHICLES[vehicle][0], 6000)
     return round(ref * UPGRADE_STEP[level] / 50) * 50
 
+
 # Chaque course finie rapporte un peu : jouer beaucoup rend plus fort (voulu).
 FINISH_MONEY = 50
 FINISH_XP = 10
@@ -75,9 +130,15 @@ PLACE_SHARE = (1.0, 0.6, 0.4)
 OTHER_SHARE = 0.15
 
 
+def _round10(x: float) -> int:
+    """Arrondi à la dizaine, les 5 vers le haut (comme Math.round côté client, alors que
+    round() de Python arrondit au pair)."""
+    return int(x / 10 + 0.5) * 10
+
+
 def bots_money(level: str, count: int, place: int) -> int:
     share = PLACE_SHARE[place - 1] if place <= len(PLACE_SHARE) else OTHER_SHARE
-    return round(BOT_MONEY[level] * share * count / MAX_BOTS / 10) * 10
+    return _round10(BOT_MONEY[level] * share * count / MAX_BOTS)
 
 
 # En ligne : prime du vainqueur d'une course à 8 pilotes ; mêmes parts pour les suivants
@@ -88,7 +149,7 @@ ONLINE_MONEY = 600
 
 def online_money(count: int, place: int) -> int:
     share = PLACE_SHARE[place - 1] if place <= len(PLACE_SHARE) else OTHER_SHARE
-    return round(ONLINE_MONEY * share * count / MAX_PILOTS / 10) * 10
+    return _round10(ONLINE_MONEY * share * count / MAX_PILOTS)
 
 
 def medals_for(circuit: str, time_ms: int | None) -> list[str]:

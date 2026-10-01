@@ -8,7 +8,8 @@ import type { RaceRoomView } from "./types";
    `pose` (relais serveur, hors état) dix fois par seconde. */
 
 export type RaceSocket = RoomSocket<RaceRoomView> & {
-  setReady: (ready: boolean) => void;
+  /* « prêt » pour un circuit donné : le serveur ignore un prêt parti pour un autre */
+  setReady: (ready: boolean, circuit: string) => void;
   setup: (vehicle: string, color: string, pi: number) => void;
   setCircuit: (circuit: string) => void;
   finish: (timeMs: number, splits: number[], ghost?: string) => void;
@@ -22,7 +23,7 @@ export function useRaceSocket(code: string, token: string | null): RaceSocket {
   const { send } = socket;
   return {
     ...socket,
-    setReady: useCallback((ready) => send({ action: "ready", ready }), [send]),
+    setReady: useCallback((ready, circuit) => send({ action: "ready", ready, circuit }), [send]),
     setup: useCallback((vehicle, color, pi) => send({ action: "setup", vehicle, color, pi }), [send]),
     setCircuit: useCallback((circuit) => send({ action: "circuit", circuit }), [send]),
     finish: useCallback((time_ms, splits, ghost) => send({ action: "finish", time_ms, splits, ghost }), [send]),

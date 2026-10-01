@@ -5,7 +5,7 @@ import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { currentProfile } from "@/lib/identity";
-import { loadRaceSetup, readVehicle } from "./api";
+import { loadRaceSetup, readVehicle, type StartBody, startRace } from "./api";
 import { type CarModel, loadCar, onLoadProgress, preloadAssets, type RaceAssets } from "./assets";
 import { exitImmersive, setThemeColor } from "./immersive";
 import { circuitBySlug, readCircuit } from "./circuits";
@@ -19,6 +19,10 @@ import { type Vehicle, vehicleById } from "./sim/vehicles";
 
 type GhostCar = { model: CarModel; vehicle: Vehicle } | null;
 
+/* Le ticket de départ de la course en cours (null : hors ligne, la course ne comptera
+   pas), et de quoi en reprendre un à chaque « Recommencer ». */
+export type Ticket = { id: string | null; renew: () => Promise<string | null> };
+
 const Race = dynamic(() => import("./Race"), { ssr: false, loading: () => null });
 
 /* La page de course : écran de chargement jusqu'à la première image de la course (décor,
@@ -29,7 +33,7 @@ const Race = dynamic(() => import("./Race"), { ssr: false, loading: () => null }
 export default function PlayPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
-  const [loaded, setLoaded] = useState<{ assets: RaceAssets; setup: RaceSetup; ghostCar: GhostCar; livery: Livery } | null>(null);
+  const [loaded, setLoaded] = useState<{ assets: RaceAssets; setup: RaceSetup; ghostCar: GhostCar; livery: Livery; ticket: Ticket } | null>(null);
   const [failed, setFailed] = useState(false);
   const [progress, setProgress] = useState(0);
   const [ready, setReady] = useState(false);
@@ -67,15 +71,18 @@ export default function PlayPage() {
         // la physique suit l'atelier ; le modèle, lui, est celui d'origine
         const vehicle = tunedVehicle(vehicleById(vid), workshop);
         const other = !count && ghostVehicle && ghostVehicle !== vehicle.id ? vehicleById(ghostVehicle) : null;
+        const start: StartBody = { circuit: slug, vehicle: vehicle.id, bots: count ? { level, count } : undefined };
+        const renew = () => startRace(profile.token, start).catch(() => null);
         return Promise.all([
           preloadAssets(slug, vehicle.id),
           count ? loadBotRuns(slug, vehicle.id) : null,
           other ? loadCar(other.id).then((model) => ({ model, vehicle: other })) : null,
-        ]).then(([assets, runs, ghostCar]) => {
+          renew(),
+        ]).then(([assets, runs, ghostCar, id]) => {
           // Contre les bots : pas de fantôme, seulement eux.
           const bots = runs ? pickBots(runs, circuit.medals, level, count) : [];
           const full: RaceSetup = runs ? { ...setup, vehicle, ghost: null, rival: null, bots, level } : { ...setup, vehicle };
-          return { assets, setup: full, ghostCar, livery: liveryOf(workshop?.livery) };
+          return { assets, setup: full, ghostCar, livery: liveryOf(workshop?.livery), ticket: { id, renew } };
         });
       })
       .then(
@@ -120,7 +127,7 @@ export default function PlayPage() {
 
   return (
     <>
-      {loaded && <Race assets={loaded.assets} setup={loaded.setup} ghostCar={loaded.ghostCar} livery={loaded.livery} onReady={onReady} />}
+      {loaded && <Race assets={loaded.assets} setup={loaded.setup} ghostCar={loaded.ghostCar} livery={loaded.livery} ticket={loaded.ticket} onReady={onReady} />}
       {!ready && <Loader progress={progress} portrait={portrait} failed={failed} />}
     </>
   );

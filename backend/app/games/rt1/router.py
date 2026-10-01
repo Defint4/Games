@@ -1,6 +1,7 @@
 """RT1 : la progression du pilote et les classements par circuit.
 
 GET  /api/rt1/me                          argent, niveau, missions, records et places
+POST /api/rt1/start                       ticket de départ d'une course (daté par le serveur)
 POST /api/rt1/finish                      une course finie → gains, record, missions
 GET  /api/rt1/leaderboard/{circuit}       meilleur temps de chacun sur un circuit
 GET  /api/rt1/ghost/{circuit}/{pseudo}    le fantôme d'un pilote, pour le défier
@@ -13,24 +14,37 @@ POST /api/rt1/workshop/livery             enregistrer la livrée d'un véhicule
 
 import base64
 import binascii
+import uuid
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.admin.service import is_admin
 from app.core.database import get_db
 from app.core.rate_limit import limiter
+from app.games.registry import is_open
 from app.games.rt1 import rules, service
 from app.players.dependencies import get_current_player
 from app.players.models import Player
 
 router = APIRouter(prefix="/api/rt1", tags=["rt1"])
 
+
+async def get_pilot(
+    player: Player = Depends(get_current_player), db: AsyncSession = Depends(get_db)
+) -> Player:
+    """Le joueur connecté, si le jeu lui est ouvert (en développement : l'admin seul,
+    404 pour les autres comme une route qui n'existe pas)."""
+    if not is_open("rt1", await is_admin(db, player.id)):
+        raise HTTPException(status_code=404, detail="Not Found")
+    return player
+
+
 UNKNOWN_CIRCUIT = "Circuit inconnu."
 NO_GHOST = "Pas de fantôme pour ce temps."
 BAD_GHOST = "Fantôme illisible."
-BAD_PLACE = "Place impossible."
 UNKNOWN_VEHICLE = "Véhicule inconnu."
 NOT_OWNED = "Ce véhicule n'est pas au garage."
 UNKNOWN_PART = "Pièce inconnue."
@@ -114,27 +128,59 @@ def _check_vehicle(vehicle: str) -> None:
 
 
 @router.get("/me", response_model=StateOut)
-async def me(
-    player: Player = Depends(get_current_player), db: AsyncSession = Depends(get_db)
-) -> StateOut:
+async def me(player: Player = Depends(get_pilot), db: AsyncSession = Depends(get_db)) -> StateOut:
     return _state_out(await service.state(db, player.id))
 
 
-class BotsRequest(BaseModel):
+class BotsSetup(BaseModel):
     level: str = Field(pattern="^(easy|normal|hard|expert)$")
     count: int = Field(ge=1, le=rules.MAX_BOTS)
-    place: int = Field(ge=1, le=rules.MAX_BOTS + 1)
+
+
+class StartRequest(BaseModel):
+    circuit: str = Field(max_length=40)
+    vehicle: str = Field(default=rules.STARTER, max_length=20)
+    # Course contre les bots : leur niveau et leur nombre, fixés au départ.
+    bots: BotsSetup | None = None
+
+
+class StartOut(BaseModel):
+    race_id: uuid.UUID
+
+
+@router.post("/start", response_model=StartOut)
+@limiter.limit("30/minute")
+async def start(
+    request: Request,
+    payload: StartRequest,
+    player: Player = Depends(get_pilot),
+    db: AsyncSession = Depends(get_db),
+) -> StartOut:
+    _check_circuit(payload.circuit)
+    _check_vehicle(payload.vehicle)
+    bots = payload.bots
+    try:
+        race = await service.start_race(
+            db,
+            player.id,
+            payload.circuit,
+            payload.vehicle,
+            None if bots is None else service.BotsResult(bots.level, bots.count, 0),
+        )
+    except service.NotOwned:
+        raise HTTPException(status_code=422, detail=NOT_OWNED) from None
+    return StartOut(race_id=race.id)
 
 
 class FinishRequest(BaseModel):
-    circuit: str = Field(max_length=40)
+    # Le ticket de départ (circuit, véhicule et bots sont les siens).
+    race_id: uuid.UUID
     time_ms: int = Field(gt=0, le=MAX_TIME_MS)
     splits: list[int] = Field(max_length=64)
-    # Envoyé seulement quand l'appareil pense tenir un record.
+    # Envoyé quand l'appareil pense tenir un record.
     ghost: str | None = Field(default=None, max_length=MAX_GHOST_CHARS)
-    # Course contre les bots : leur niveau, leur nombre, la place obtenue.
-    bots: BotsRequest | None = None
-    vehicle: str = Field(default=rules.STARTER, max_length=20)
+    # Contre les bots : la place obtenue.
+    place: int | None = Field(default=None, ge=1, le=rules.MAX_BOTS + 1)
     # Indice de performance du véhicule tel qu'il a roulé (atelier compris).
     pi: int | None = Field(default=None, ge=0, le=5000)
 
@@ -158,34 +204,24 @@ class FinishOut(BaseModel):
 async def finish(
     request: Request,
     payload: FinishRequest,
-    player: Player = Depends(get_current_player),
+    player: Player = Depends(get_pilot),
     db: AsyncSession = Depends(get_db),
 ) -> FinishOut:
-    _check_circuit(payload.circuit)
-    _check_vehicle(payload.vehicle)
     ghost = None
     if payload.ghost is not None:
         try:
             ghost = base64.b64decode(payload.ghost, validate=True)
         except binascii.Error:
             raise HTTPException(status_code=422, detail=BAD_GHOST) from None
-    bots = payload.bots
-    if bots is not None and bots.place > bots.count + 1:
-        raise HTTPException(status_code=422, detail=BAD_PLACE)
     try:
-        arrival = await service.finish(
-            db,
-            player.id,
-            payload.circuit,
-            payload.time_ms,
-            payload.splits,
-            ghost,
-            None if bots is None else service.BotsResult(bots.level, bots.count, bots.place),
-            payload.vehicle,
-            payload.pi,
+        p = payload
+        arrival = await service.finish_race(
+            db, player.id, p.race_id, p.time_ms, p.splits, ghost, p.place, p.pi
         )
     except service.NotOwned:
         raise HTTPException(status_code=422, detail=NOT_OWNED) from None
+    except service.RaceError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
     return FinishOut(
         record=arrival.record,
         best_ms=arrival.best_ms,
@@ -260,7 +296,7 @@ class VehicleRequest(BaseModel):
 async def buy(
     request: Request,
     payload: VehicleRequest,
-    player: Player = Depends(get_current_player),
+    player: Player = Depends(get_pilot),
     db: AsyncSession = Depends(get_db),
 ) -> StateOut:
     _check_vehicle(payload.vehicle)
@@ -280,7 +316,7 @@ class UpgradeRequest(BaseModel):
 async def upgrade(
     request: Request,
     payload: UpgradeRequest,
-    player: Player = Depends(get_current_player),
+    player: Player = Depends(get_pilot),
     db: AsyncSession = Depends(get_db),
 ) -> StateOut:
     _check_vehicle(payload.vehicle)
@@ -305,7 +341,7 @@ class TuneRequest(BaseModel):
 async def tune(
     request: Request,
     payload: TuneRequest,
-    player: Player = Depends(get_current_player),
+    player: Player = Depends(get_pilot),
     db: AsyncSession = Depends(get_db),
 ) -> StateOut:
     _check_vehicle(payload.vehicle)
@@ -359,7 +395,7 @@ class LiveryRequest(BaseModel):
 async def livery(
     request: Request,
     payload: LiveryRequest,
-    player: Player = Depends(get_current_player),
+    player: Player = Depends(get_pilot),
     db: AsyncSession = Depends(get_db),
 ) -> StateOut:
     _check_vehicle(payload.vehicle)
@@ -376,7 +412,7 @@ async def livery(
 async def select(
     request: Request,
     payload: VehicleRequest,
-    player: Player = Depends(get_current_player),
+    player: Player = Depends(get_pilot),
     db: AsyncSession = Depends(get_db),
 ) -> StateOut:
     _check_vehicle(payload.vehicle)

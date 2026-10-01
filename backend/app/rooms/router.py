@@ -19,12 +19,14 @@ import uuid
 import jwt
 from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket, WebSocketDisconnect
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.database import async_session_maker
+from app.admin.service import is_admin
+from app.core.database import async_session_maker, get_db
 from app.core.rate_limit import limiter
 from app.core.security import decode_player_token
 from app.games.base import GameError, GameSpec, GameStatus
-from app.games.registry import get_game
+from app.games.registry import get_game, is_open
 from app.players import service as players_service
 from app.players.dependencies import get_current_player
 from app.players.models import Player
@@ -54,6 +56,8 @@ MAINTENANCE = "Mise à jour imminente : les nouvelles parties reviennent dans qu
 LOBBY_ACTIONS_IN_MAINTENANCE = {"sync", "leave", "chat", "emote"}
 # Délai maximum d'un envoi WebSocket (voir send_bounded).
 SEND_TIMEOUT = 5.0
+WS_RATE = 30.0
+WS_BURST = 60
 
 
 # ---------------------------------------------------------------------------
@@ -73,10 +77,13 @@ def _seat(player: Player, spec: GameSpec) -> Seat:
 @router.post("", response_model=RoomOut)
 @limiter.limit("10/minute")
 async def create_room(
-    request: Request, payload: CreateRoomRequest, player: Player = Depends(get_current_player)
+    request: Request,
+    payload: CreateRoomRequest,
+    player: Player = Depends(get_current_player),
+    db: AsyncSession = Depends(get_db),
 ) -> RoomOut:
     spec = get_game(payload.game)
-    if spec is None:
+    if spec is None or not is_open(spec.slug, await is_admin(db, player.id)):
         raise HTTPException(status_code=404, detail="Jeu inconnu.")
     if manager.maintenance:
         raise HTTPException(status_code=503, detail=MAINTENANCE)
@@ -91,10 +98,13 @@ async def create_room(
 @router.post("/{code}/join", response_model=RoomOut)
 @limiter.limit("30/minute")
 async def join_room(
-    request: Request, code: str, player: Player = Depends(get_current_player)
+    request: Request,
+    code: str,
+    player: Player = Depends(get_current_player),
+    db: AsyncSession = Depends(get_db),
 ) -> RoomOut:
     room = manager.get(code)
-    if room is None:
+    if room is None or not is_open(room.game, await is_admin(db, player.id)):
         raise HTTPException(status_code=404, detail="Partie introuvable.")
     async with room.lock:
         if room.seat_of(player.id) is not None:
@@ -203,9 +213,20 @@ async def room_ws(websocket: WebSocket, code: str) -> None:
         await _send_view(room, seat_index)
         await _broadcast_state(room, [])
 
+    # Débit par connexion : un seau de WS_BURST messages, rempli à WS_RATE par seconde (les
+    # poses de RT1 en font 10). Au-delà, le client est coupé (1008) : il se reconnecte.
+    tokens = float(WS_BURST)
+    last = time.monotonic()
     try:
         while True:
             message = await websocket.receive_json()
+            now = time.monotonic()
+            tokens = min(WS_BURST, tokens + (now - last) * WS_RATE)
+            last = now
+            if tokens < 1:
+                await websocket.close(code=1008)
+                break
+            tokens -= 1
             await _handle_message(room, player_id, websocket, message)
     except WebSocketDisconnect:
         pass
@@ -277,7 +298,7 @@ async def _handle_message(
         return
     try:
         relayed = room.spec.relay(room, seat_index, action, message)
-    except (KeyError, TypeError, ValueError):
+    except (KeyError, TypeError, ValueError, OverflowError):
         return
     if relayed is not None:
         # Chemin court, hors verrou : rien ne change dans l'état, pas de vue à recalculer.
@@ -376,7 +397,7 @@ async def _handle_message(
                     await _after_move(room, events)
         except GameError as exc:
             await _send_error(websocket, str(exc))
-        except (KeyError, TypeError, ValueError):
+        except (KeyError, TypeError, ValueError, OverflowError):
             await _send_error(websocket, "Message mal formé.")
 
 
@@ -514,13 +535,20 @@ async def _handle_rematch(room: Room, websocket: WebSocket) -> None:
         await _send_error(websocket, "Il faut au moins deux joueurs connectés pour une revanche.")
         return
     first = connected[0]
-    new_room = manager.create(
-        room.spec,
-        Seat(
-            player_id=first.player_id, pseudo=first.pseudo, avatar=first.avatar, rating=first.rating
-        ),
-        {**room.options, **room.spec.rematch_options(room)},
-    )
+    try:
+        new_room = manager.create(
+            room.spec,
+            Seat(
+                player_id=first.player_id,
+                pseudo=first.pseudo,
+                avatar=first.avatar,
+                rating=first.rating,
+            ),
+            {**room.options, **room.spec.rematch_options(room)},
+        )
+    except GameError as exc:
+        await _send_error(websocket, str(exc))
+        return
     for seat in connected[1:]:
         # Les sièges d'abord : un jeu qui démarre dès que la table est pleine (échecs)
         # doit trouver tout le monde assis.

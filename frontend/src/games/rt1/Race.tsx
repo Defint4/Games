@@ -12,6 +12,7 @@ import { ApiError } from "@/lib/api";
 import { tr, useLang, useT } from "@/lib/i18n";
 import { currentProfile } from "@/lib/identity";
 import { type Arrival, boardKey, formatMoney, type Gain, sendFinish, stateKey } from "./api";
+import type { Ticket } from "./PlayPage";
 import type { CarModel, RaceAssets } from "./assets";
 import type { RaceRoomView } from "./online/types";
 import { EngineSound, raceSfx } from "./engineSound";
@@ -63,6 +64,8 @@ type Banner = { key: number; text: string } | null;
    En direct, c'est la table qui paie à la fin de la course. */
 type Server =
   | { status: "off" }
+  /* pas de ticket de départ (hors ligne au lancement) : la course ne compte pas */
+  | { status: "uncounted" }
   | { status: "sending" }
   | { status: "done"; arrival: Arrival }
   | { status: "later" }
@@ -98,6 +101,7 @@ export default function Race({
   ghostCar,
   livery,
   online,
+  ticket,
   onReady,
 }: {
   assets: RaceAssets;
@@ -105,6 +109,7 @@ export default function Race({
   ghostCar: GhostCar;
   livery: Livery;
   online?: OnlineRace;
+  ticket?: Ticket;
   onReady: () => void;
 }) {
   const [game, setGame] = useState<Game | null>(null);
@@ -125,7 +130,7 @@ export default function Race({
   }, [assets, colliders, setup]);
 
   if (!game) return <main className="fixed inset-0 bg-black" />;
-  return <RaceView key={game.id} game={game} assets={assets} ghostCar={ghostCar} livery={livery} online={online} onSceneReady={onReady} />;
+  return <RaceView key={game.id} game={game} assets={assets} ghostCar={ghostCar} livery={livery} online={online} ticket={ticket} onSceneReady={onReady} />;
 }
 
 function RaceView({
@@ -134,6 +139,7 @@ function RaceView({
   ghostCar,
   livery,
   online,
+  ticket,
   onSceneReady,
 }: {
   game: Game;
@@ -141,6 +147,7 @@ function RaceView({
   ghostCar: GhostCar;
   livery: Livery;
   online?: OnlineRace;
+  ticket?: Ticket;
   onSceneReady: () => void;
 }) {
   const router = useRouter();
@@ -179,6 +186,10 @@ function RaceView({
     debug.current = stats;
   }, [stats]);
   const frames = useRef({ n: 0, t: 0 });
+  /* ticket de départ de la course en cours, repris à chaque « Recommencer » */
+  const raceId = useRef<string | null>(ticket?.id ?? null);
+  /* le record connu du serveur : un tour plus rapide part avec son fantôme */
+  const serverBest = useRef<number | null>(game.race.best?.time ?? null);
 
   useEffect(() => {
     const q = new URLSearchParams(window.location.search);
@@ -190,7 +201,8 @@ function RaceView({
     }
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setStats(q.has("debug") || saved);
-    game.testMode(q.has("autopilot"), Math.min(8, Number(q.get("speedup")) || 1));
+    // paramètres de test : la course ne compte alors pas (speedup < 1 serait un ralenti)
+    game.testMode(q.has("autopilot"), Math.max(1, Math.min(8, Number(q.get("speedup")) || 1)));
     setPhoto(q.has("photo"));
     if (q.has("debug")) (window as unknown as { rt1?: Game }).rt1 = game;
   }, [game]);
@@ -228,18 +240,21 @@ function RaceView({
       const server = (next: Server) => setFinish((f) => (f && f.id === id ? { ...f, server: next } : f));
       const profile = currentProfile();
       if (!profile) return server({ status: "error", message: tr(T).race.sendFailed });
+      const race = raceId.current;
+      if (!race) return server({ status: "uncounted" });
       const ms = (s: number) => Math.round(s * 1000);
+      const record = serverBest.current === null || time < serverBest.current;
       sendFinish(profile, {
-        circuit: circuit.slug,
+        race_id: race,
         time_ms: ms(time),
         splits: game.race.splits.map(ms),
-        ghost: best && game.lastLap ? encodeGhost(game.lastLap) : undefined,
-        bots: game.botLevel ? { level: game.botLevel, count: game.bots.length, place: game.position } : undefined,
-        vehicle: game.vehicle.id,
+        ghost: (best || record) && game.lastLap ? encodeGhost(game.lastLap) : undefined,
+        place: game.botLevel ? game.position : undefined,
         pi: performanceIndex(game.vehicle.spec),
       }).then(
         (arrival) => {
           if (!arrival) return server({ status: "later" });
+          serverBest.current = arrival.best_ms / 1000;
           queryClient.setQueryData(stateKey(profile.pseudo), arrival.state);
           void queryClient.invalidateQueries({ queryKey: boardKey(circuit.slug) });
           server({ status: "done", arrival });
@@ -273,7 +288,14 @@ function RaceView({
     // un tap : l'occasion de revenir en plein écran si on en est sorti
     enterImmersive();
     game.restart();
-  }, [game]);
+    // nouvelle course, nouveau ticket de départ (sans réseau : elle ne comptera pas)
+    raceId.current = null;
+    if (ticket) {
+      void ticket.renew().then((id) => {
+        raceId.current = id;
+      });
+    }
+  }, [game, ticket]);
 
   /* En direct : quitter, c'est abandonner si on n'est pas arrivé. */
   const quit = useCallback(() => {
@@ -329,10 +351,11 @@ function RaceView({
             medal: MEDALS.find((m) => e.time <= circuit.medals[m]) ?? null,
             server: online ? { status: "live" } : game.testing ? { status: "off" } : { status: "sending" },
           });
+          if (game.testing) break;
           if (online) {
             const ms = (s: number) => Math.round(s * 1000);
             online.finish(ms(e.time), game.race.splits.map(ms), e.best && game.lastLap ? encodeGhost(game.lastLap) : undefined);
-          } else if (!game.testing) submit(id, e.time, e.best);
+          } else submit(id, e.time, e.best);
           break;
         }
         case "boost":
@@ -743,6 +766,7 @@ function LiveOutcome({ online }: { online: OnlineRace }) {
 function FinishServer({ server, circuit }: { server: Server; circuit: string }) {
   const t = useT(T).race;
   if (server.status === "off" || server.status === "live") return null;
+  if (server.status === "uncounted") return <p className="text-sm text-[#FFB47F]">{t.notCounted}</p>;
   if (server.status === "sending") {
     return (
       <p className="flex items-center gap-2 text-sm text-white/70">

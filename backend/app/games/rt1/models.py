@@ -50,3 +50,29 @@ class Rt1Record(Base):
     set_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), default=lambda: datetime.now(UTC)
     )
+
+
+class Rt1Race(Base):
+    """Un ticket de départ : demandé au lancement d'une course, consommé par son arrivée.
+    Le serveur sait ainsi qu'une course a bien été lancée, depuis quand, avec quels bots,
+    et ne compte chaque course qu'une fois (l'arrivée est rejouable à l'identique)."""
+
+    __tablename__ = "rt1_races"
+    __table_args__ = (Index("ix_rt1_races_player_started", "player_id", "started_at"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    player_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("players.id", ondelete="CASCADE")
+    )
+    circuit: Mapped[str] = mapped_column(String(40))
+    vehicle: Mapped[str] = mapped_column(String(20))
+    # Course contre les bots : niveau et nombre, fixés au départ (la place vient à l'arrivée).
+    bots_level: Mapped[str | None] = mapped_column(String(10), default=None)
+    bots_count: Mapped[int | None] = mapped_column(Integer, default=None)
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), default=lambda: datetime.now(UTC)
+    )
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+    # Ce que l'arrivée a rapporté (router.FinishOut sans l'état), renvoyé tel quel si
+    # l'arrivée est renvoyée (réponse perdue en route).
+    result: Mapped[dict | None] = mapped_column(JSON, default=None)

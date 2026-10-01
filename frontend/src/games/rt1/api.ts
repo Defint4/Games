@@ -46,16 +46,18 @@ export type BoardEntry = { rank: number; pseudo: string; avatar: string; time_ms
 
 export type Board = { total: number; entries: BoardEntry[]; me: BoardEntry | null };
 
-/* Course contre les bots : leur niveau, leur nombre et la place obtenue. */
-export type BotsResult = { level: BotLevel; count: number; place: number };
+/* Un ticket de départ, demandé au lancement de la course : le serveur date la course et
+   n'en compte l'arrivée qu'une fois. Sans ticket (hors ligne au départ), la course ne
+   compte pas. */
+export type StartBody = { circuit: string; vehicle: string; bots?: { level: BotLevel; count: number } };
 
 export type FinishBody = {
-  circuit: string;
+  race_id: string;
   time_ms: number;
   splits: number[];
   ghost?: string;
-  bots?: BotsResult;
-  vehicle: string;
+  /* contre les bots : la place obtenue */
+  place?: number;
   /* indice de performance, atelier compris (missions plafonnées) */
   pi: number;
 };
@@ -81,6 +83,15 @@ export function useProfile(): StoredProfile | null {
     setProfile(currentProfile());
   }, []);
   return profile;
+}
+
+export async function startRace(token: string, body: StartBody): Promise<string> {
+  const out = await request<{ race_id: string }>("/api/rt1/start", {
+    method: "POST",
+    headers: authed(token),
+    body: JSON.stringify(body),
+  });
+  return out.race_id;
 }
 
 export async function fetchState(token: string): Promise<Rt1State> {
@@ -229,9 +240,17 @@ export async function loadRaceSetup(
   }
 }
 
-/* Arrivées pas encore reçues par le serveur (réseau coupé) : renvoyées au prochain
-   chargement de la progression. Seuls les records valent la peine d'être gardés. */
+/* Arrivées pas encore reçues par le serveur (réseau coupé, serveur en redéploiement,
+   session à renouveler) : renvoyées au prochain chargement de la progression. Le ticket
+   de départ rend l'envoi rejouable sans double paiement. */
 const PENDING_KEY = "games:rt1:pending";
+
+/* Une erreur qui vaut la peine de réessayer plus tard : réseau, serveur indisponible,
+   trop de requêtes, session à renouveler. Un refus franc (422…) n'est pas gardé. */
+function retryLater(e: unknown): boolean {
+  if (!(e instanceof ApiError)) return true;
+  return e.status === 401 || e.status === 429 || e.status >= 500;
+}
 
 function readPending(): { pseudo: string; body: FinishBody }[] {
   try {
@@ -254,66 +273,45 @@ function postFinish(token: string, body: FinishBody) {
   return request<Arrival>("/api/rt1/finish", { method: "POST", headers: authed(token), body: JSON.stringify(body) });
 }
 
-/* Envoie une arrivée. Réseau absent : un record est gardé pour plus tard (null). */
+/* Envoie une arrivée. Serveur injoignable : elle est gardée pour plus tard (null). */
 export async function sendFinish(profile: StoredProfile, body: FinishBody): Promise<Arrival | null> {
   try {
     return await postFinish(profile.token, body);
   } catch (e) {
-    if (e instanceof ApiError || !body.ghost) throw e;
-    // Un seul record en attente par circuit : le plus rapide.
-    const others = readPending().filter((p) => !(p.pseudo === profile.pseudo && p.body.circuit === body.circuit));
-    const same = readPending().find((p) => p.pseudo === profile.pseudo && p.body.circuit === body.circuit);
-    writePending([...others, same && same.body.time_ms < body.time_ms ? same : { pseudo: profile.pseudo, body }]);
+    if (!retryLater(e)) throw e;
+    writePending([...readPending().filter((p) => p.body.race_id !== body.race_id), { pseudo: profile.pseudo, body }]);
     return null;
   }
 }
 
+/* Vide la file, une arrivée après l'autre ; celles qui échouent encore restent. La file
+   est relue avant d'écrire : une arrivée ajoutée pendant l'envoi n'est pas perdue. */
 async function flushPending(token: string) {
   const profile = currentProfile();
   if (!profile || profile.token !== token) return;
-  importLocalRecords(profile.pseudo);
-  const list = readPending();
-  const left = [];
-  for (const p of list) {
-    if (p.pseudo !== profile.pseudo) {
-      left.push(p);
-      continue;
-    }
+  const sent = new Set<string>();
+  for (const p of readPending()) {
+    if (p.pseudo !== profile.pseudo) continue;
     try {
       await postFinish(token, p.body);
+      sent.add(p.body.race_id);
     } catch (e) {
-      // Refusée par le serveur : inutile d'insister. Réseau : on réessaiera.
-      if (!(e instanceof ApiError)) left.push(p);
+      // Refusée par le serveur : inutile d'insister. Sinon on réessaiera.
+      if (!retryLater(e)) sent.add(p.body.race_id);
     }
   }
-  if (list.length !== left.length) writePending(left);
+  if (sent.size) writePending(readPending().filter((p) => !sent.has(p.body.race_id)));
+  forgetLocalRecords();
 }
 
-/* Les records faits avant la progression en ligne (gardés dans le téléphone) passent une
-   fois dans la file d'envoi du pilote connecté, avec leur fantôme. */
-function importLocalRecords(pseudo: string) {
+/* Les records d'avant la progression en ligne, gardés dans le téléphone : sans ticket de
+   départ, le serveur ne peut plus les prendre ; on les efface une fois. */
+function forgetLocalRecords() {
   try {
-    const found: { pseudo: string; body: FinishBody }[] = [];
     for (const c of CIRCUITS) {
-      const raw = localStorage.getItem(`games:rt1:best:${c.slug}`);
-      if (!raw) continue;
-      const best = JSON.parse(raw) as Best;
-      const ghost = localStorage.getItem(`games:rt1:ghost:${c.slug}`) ?? undefined;
-      found.push({
-        pseudo,
-        body: {
-          circuit: c.slug,
-          time_ms: Math.round(best.time * 1000),
-          splits: best.splits.map((s) => Math.round(s * 1000)),
-          ghost,
-          vehicle: DEFAULT_VEHICLE,
-          pi: 0,
-        },
-      });
       localStorage.removeItem(`games:rt1:best:${c.slug}`);
       localStorage.removeItem(`games:rt1:ghost:${c.slug}`);
     }
-    if (found.length) writePending([...readPending(), ...found]);
   } catch {
     /* stockage indisponible */
   }

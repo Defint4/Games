@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from app.games.base import GameSpec
+from app.games.base import DEV_GAMES, GameSpec, is_open
 from app.games.chess.spec import Chess
 from app.games.goulag import Goulag
 from app.games.nine_to_one import NineToOne
@@ -18,6 +18,9 @@ GAMES: dict[str, GameSpec] = {
 # Jeux solo, sans table : ils ont leurs propres routes et pas de GameSpec, mais des
 # stats et un classement comme les autres.
 SOLO_GAMES = frozenset({SOLITAIRE})
+
+
+__all__ = ["DEV_GAMES", "GAMES", "SOLO_GAMES", "get_game", "is_game", "is_open"]
 
 
 def get_game(slug: str) -> GameSpec | None:

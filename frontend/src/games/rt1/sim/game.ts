@@ -231,9 +231,9 @@ export class Game {
     return this.ghost !== null && ghostPose(this.ghost, t, p, q, q2);
   }
 
-  /* pilote automatique : ses temps ne partent pas au serveur */
+  /* pilote automatique ou temps accéléré : ses temps ne partent pas au serveur */
   get testing(): boolean {
-    return this.autopilot !== null;
+    return this.autopilot !== null || this.speedup !== 1;
   }
 
   testMode(autopilot: boolean, speedup: number, style?: DriveStyle) {

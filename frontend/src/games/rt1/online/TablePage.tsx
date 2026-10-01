@@ -246,9 +246,9 @@ export default function TablePage() {
     (r: boolean) => {
       // le tap : l'occasion de passer en plein écran et en paysage avant le départ
       if (r) enterImmersive();
-      setReady(r);
+      if (circuit) setReady(r, circuit);
     },
-    [setReady],
+    [setReady, circuit],
   );
 
   const online: OnlineRace | null = useMemo(
