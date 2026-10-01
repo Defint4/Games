@@ -56,7 +56,7 @@ export default function Profile() {
           {CIRCUITS.map((c) => {
             const rec = state?.records[c.slug];
             const time = rec ? rec.time_ms / 1000 : null;
-            const medal = medalFor(c, time);
+            const medal = medalFor(c, time, rec?.vehicle ?? "starter");
             return (
               <li key={c.slug} className="flex items-center gap-2 text-sm">
                 <MedalIcon medal={medal ?? "bronze"} earned={medal !== null} className="size-5" />

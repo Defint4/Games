@@ -4,19 +4,29 @@ Les médailles sont le miroir de frontend/src/games/rt1/circuits.ts (en millisec
 les textes des missions sont côté client (i18n.ts), rangés par identifiant.
 """
 
+import json
 import math
 import struct
 from dataclasses import dataclass
+from pathlib import Path
 
 MEDALS = ("bronze", "silver", "gold", "author")
 
-# Temps à battre (ms, bornes incluses), par circuit.
-CIRCUITS: dict[str, dict[str, int]] = {
-    "noumea": {"author": 47_000, "gold": 49_500, "silver": 54_500, "bronze": 62_000},
-    "centre-ville": {"author": 73_500, "gold": 77_500, "silver": 85_000, "bronze": 97_000},
-    "le-col": {"author": 50_000, "gold": 52_500, "silver": 58_000, "bronze": 66_000},
-    "la-corniche": {"author": 51_000, "gold": 53_500, "silver": 59_000, "bronze": 67_000},
-}
+# Le rythme du pilote automatique par circuit et par véhicule (pace.json, écrit par
+# frontend/assets/rt1/bots.ts avec les tours des bots) : `base` = meilleur tour de la
+# citadine (s), `ratio` par véhicule. Les médailles en découlent : chaque véhicule a les
+# siennes (la F1 va 40 % plus vite que la citadine), miroir de frontend circuits.ts.
+PACE: dict[str, dict] = json.loads((Path(__file__).parent / "pace.json").read_text("utf8"))
+CIRCUITS = frozenset(PACE)
+MEDAL_FACTORS = {"author": 0.985, "gold": 1.03, "silver": 1.13, "bronze": 1.28}
+
+
+def medal_times(circuit: str, vehicle: str) -> dict[str, int]:
+    """Temps à battre (ms, bornes incluses) sur un circuit, pour un véhicule."""
+    p = PACE[circuit]
+    ref = p["base"] * p["ratio"].get(vehicle, 1.0)
+    return {m: round(round(ref * f, 2) * 1000) for m, f in MEDAL_FACTORS.items()}
+
 
 # Portes par course (checkpoints et ligne, par tour) : la longueur des temps de passage.
 GATES: dict[str, int] = {"noumea": 4, "centre-ville": 8, "le-col": 4, "la-corniche": 8}
@@ -27,7 +37,7 @@ MIN_TIME_RATIO = 0.5
 
 
 def plausible_time(circuit: str, time_ms: int) -> bool:
-    return time_ms >= CIRCUITS[circuit]["author"] * MIN_TIME_RATIO
+    return time_ms >= PACE[circuit]["base"] * 1000 * MIN_TIME_RATIO
 
 
 def plausible_splits(circuit: str, time_ms: int, splits: list[int]) -> bool:
@@ -152,11 +162,12 @@ def online_money(count: int, place: int) -> int:
     return _round10(ONLINE_MONEY * share * count / MAX_PILOTS)
 
 
-def medals_for(circuit: str, time_ms: int | None) -> list[str]:
-    """Médailles obtenues avec ce temps, de la bronze à la meilleure."""
+def medals_for(circuit: str, time_ms: int | None, vehicle: str = STARTER) -> list[str]:
+    """Médailles obtenues avec ce temps dans ce véhicule, de la bronze à la meilleure."""
     if time_ms is None:
         return []
-    return [m for m in MEDALS if time_ms <= CIRCUITS[circuit][m]]
+    limits = medal_times(circuit, vehicle)
+    return [m for m in MEDALS if time_ms <= limits[m]]
 
 
 def level_floor(level: int) -> int:
@@ -193,7 +204,10 @@ class Mission:
     def xp(self) -> int:
         return self.reward // 10
 
-    def progress(self, bests: dict[str, int], finishes: int, workshop: dict | None = None) -> int:
+    def progress(
+        self, bests: dict[str, tuple[int, str]], finishes: int, workshop: dict | None = None
+    ) -> int:
+        """`bests` : par circuit, le record (ms) et le véhicule qui l'a fait."""
         if self.kind == "finishes":
             return min(finishes, self.count)
         if self.kind == "maxed":
@@ -207,8 +221,11 @@ class Mission:
             # Accomplie sur l'instant (voir `beaten_by`), rien à cumuler.
             return 0
         if self.kind == "medal":
-            return int(self.medal in medals_for(self.circuit, bests.get(self.circuit)))
-        return min(self.count, sum(self.medal in medals_for(c, t) for c, t in bests.items()))
+            best = bests.get(self.circuit)
+            return int(best is not None and self.medal in medals_for(self.circuit, *best))
+        return min(
+            self.count, sum(self.medal in medals_for(c, t, v) for c, (t, v) in bests.items())
+        )
 
     def beaten_by(self, level: str, count: int, place: int, pi: int | None) -> bool:
         return (

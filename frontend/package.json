@@ -10,7 +10,8 @@
     "brand": "node brand/brand.mjs",
     "rt1:bots": "jiti assets/rt1/bots.ts",
     "rt1:walls": "jiti assets/rt1/walls.ts",
-    "rt1:check": "jiti assets/rt1/check.ts"
+    "rt1:check": "jiti assets/rt1/check.ts",
+    "rt1:pace": "jiti assets/rt1/pace.ts"
   },
   "dependencies": {
     "@dimforge/rapier3d-compat": "0.21.0",

@@ -123,7 +123,7 @@ function Row({
 }) {
   const t = useT(T).online;
   const vehicles = useT(T).vehicles;
-  const medal = medalFor(circuitBySlug(slug), e.time_ms / 1000);
+  const medal = medalFor(circuitBySlug(slug), e.time_ms / 1000, e.vehicle);
   return (
     <li className={`flex items-center gap-2.5 rounded-xl px-2.5 py-1.5 ${mine ? "bg-[#2EC4C6]/12 ring-1 ring-[#2EC4C6]/40" : ""}`}>
       <span className={`${bungee.className} w-7 shrink-0 text-center text-sm tabular-nums ${e.rank <= 3 ? "text-[#FFE08A]" : "text-white/55"}`}>

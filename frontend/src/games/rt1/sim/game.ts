@@ -77,7 +77,7 @@ export type BotState = { pos: Vector3; quat: Quaternion; visible: boolean; progr
 export type GameEvent = RaceEvent | { type: "respawn" } | { type: "restart" } | { type: "boost" } | { type: "closed" };
 
 /* Troncs et rochers près de la route : de vrais obstacles (rayon au sol, à l'échelle 1). */
-const OBSTACLES: Record<string, number> = { palm: 0.3, pine: 0.4, niaouli: 0.32, lamp: 0.15, rock: 1.1 };
+const OBSTACLES: Record<string, number> = { palm: 0.3, pine: 0.4, niaouli: 0.32, lamp: 0.15, rock: 1.2 };
 
 /* Les tronçons de level.json (3 m) bout à bout tant qu'ils restent alignés : chaque pavé
    coûte à chaque pas de physique, une ligne droite n'en demande qu'un. En virage, l'écart
@@ -163,6 +163,7 @@ export class Game {
   private lineIdx = 0;
   private gateIdx: number[];
   private q2 = new Quaternion();
+  private tmpV = new Vector3();
 
   constructor(level: LevelData, road: TriMesh, setup: RaceSetup) {
     this.level = level;
@@ -229,13 +230,19 @@ export class Game {
     for (const [kind, list] of Object.entries(meta.instances)) {
       const r = OBSTACLES[kind];
       if (!r) continue;
-      for (const [x, y, z, , sc] of list) {
+      const rq = new Quaternion(), yAxis = new Vector3(0, 1, 0);
+      for (const [x, y, z, rot, sc] of list) {
         this.track.reset();
         if (this.track.locate(new Vector3(x, y, z)).lateral > 30) continue;
-        const desc =
-          kind === "rock"
-            ? RAPIER.ColliderDesc.ball(r * sc).setTranslation(x, y + 0.2, z)
-            : RAPIER.ColliderDesc.cylinder(3, r * sc).setTranslation(x, y + 3, z);
+        let desc: RapierModule.ColliderDesc;
+        if (kind === "rock") {
+          // le rocher du modèle : un ellipsoïde 1,3 × 0,7 × 1,0 (× 1,2 × échelle), tourné ;
+          // un pavé un peu plus petit, qu'on heurte au lieu d'y grimper comme sur une boule
+          rq.setFromAxisAngle(yAxis, rot);
+          desc = RAPIER.ColliderDesc.cuboid(1.3 * r * sc * 0.8, 0.7 * r * sc, 1.0 * r * sc * 0.8)
+            .setTranslation(x, y + 0.3 * sc, z)
+            .setRotation({ x: rq.x, y: rq.y, z: rq.z, w: rq.w });
+        } else desc = RAPIER.ColliderDesc.cylinder(3, r * sc).setTranslation(x, y + 3, z);
         this.world.createCollider(desc.setFriction(0.4).setCollisionGroups(WALL_GROUP), body);
       }
     }
@@ -399,6 +406,16 @@ export class Game {
       this.car.update(H, c);
       this.world.step();
       this.readPose(this.curPos, this.curQuat);
+      // contre un mur ou un obstacle : la voiture glisse et ralentit (car.ts) un court moment
+      let wall = false;
+      this.world.contactPairsWith(this.car.collider, (other) => {
+        if (!wall && other.collisionGroups() === WALL_GROUP) {
+          this.world.contactPair(this.car.collider, other, (m) => {
+            if (m.numContacts() > 0) wall = true;
+          });
+        }
+      });
+      if (wall) this.car.wallTime = 0.25;
       this.race.step(H, this.prevPos, this.curPos, this.onRace);
       if (this.curPos.y < -30) {
         // tombée hors du monde : on repart du départ (en direct, même hors course)
@@ -418,7 +435,7 @@ export class Game {
           this.online.sendPose([this.race.time, p.x, p.y, p.z, q.x, q.y, q.z, q.w, this.race.next]);
         }
         for (const b of this.boosts) {
-          const d = this.curPos.clone().sub(b.pos);
+          const d = this.tmpV.copy(this.curPos).sub(b.pos);
           const along = d.dot(b.dir);
           if (along > -1 && along < b.len + 1 && Math.abs(d.dot(b.side)) < b.half && Math.abs(d.y) < 3) {
             if (this.car.boostTime <= 0.2) this.emit({ type: "boost" });

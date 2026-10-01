@@ -238,6 +238,7 @@ export const T = dict({
     },
     race: {
       flip: "Retourner l’écran",
+      autoGas: "Accélération auto",
       quality: "Qualité",
       qualityLevels: { auto: "Auto", low: "Éco", mid: "Standard", high: "Élevée" },
       qualityNote: "Prise en compte à la prochaine course.",
@@ -523,6 +524,7 @@ export const T = dict({
     },
     race: {
       flip: "Flip the screen",
+      autoGas: "Auto throttle",
       quality: "Quality",
       qualityLevels: { auto: "Auto", low: "Eco", mid: "Standard", high: "High" },
       qualityNote: "Applied at the next race.",

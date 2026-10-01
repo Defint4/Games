@@ -1,0 +1,74 @@
+{
+  "noumea": {
+    "base": 54.31,
+    "ratio": {
+      "starter": 1,
+      "kart": 0.988,
+      "trail": 0.972,
+      "truck": 1.059,
+      "pickup": 0.956,
+      "suv": 0.912,
+      "sport": 0.885,
+      "mx": 0.907,
+      "rally": 0.857,
+      "buggy": 0.852,
+      "sportbike": 0.796,
+      "super": 0.758,
+      "f1": 0.624
+    }
+  },
+  "centre-ville": {
+    "base": 75.8,
+    "ratio": {
+      "starter": 1,
+      "kart": 0.854,
+      "trail": 1.04,
+      "truck": 1.074,
+      "pickup": 0.973,
+      "suv": 0.931,
+      "sport": 0.978,
+      "mx": 0.988,
+      "rally": 0.911,
+      "buggy": 0.909,
+      "sportbike": 0.899,
+      "super": 0.814,
+      "f1": 0.644
+    }
+  },
+  "le-col": {
+    "base": 52.57,
+    "ratio": {
+      "starter": 1,
+      "kart": 0.958,
+      "trail": 1.049,
+      "truck": 1.081,
+      "pickup": 0.998,
+      "suv": 0.956,
+      "sport": 0.973,
+      "mx": 0.999,
+      "rally": 0.922,
+      "buggy": 0.983,
+      "sportbike": 1.086,
+      "super": 0.839,
+      "f1": 0.719
+    }
+  },
+  "la-corniche": {
+    "base": 54.71,
+    "ratio": {
+      "starter": 1,
+      "kart": 1.012,
+      "trail": 1.063,
+      "truck": 1.115,
+      "pickup": 1.02,
+      "suv": 0.979,
+      "sport": 0.965,
+      "mx": 1.036,
+      "rally": 0.936,
+      "buggy": 0.933,
+      "sportbike": 0.919,
+      "super": 0.872,
+      "f1": 0.737
+    }
+  }
+}

@@ -8,7 +8,7 @@ import { currentProfile } from "@/lib/identity";
 import { loadRaceSetup, readVehicle, type StartBody, startRace } from "./api";
 import { type CarModel, loadCar, markSceneReady, onLoadProgress, preloadAssets, type RaceAssets } from "./assets";
 import { exitImmersive, setThemeColor } from "./immersive";
-import { circuitBySlug, readCircuit } from "./circuits";
+import { circuitBySlug, medalsFor, readCircuit } from "./circuits";
 import { BOT_LEVELS, type BotLevel, loadBotRuns, MAX_BOTS, pickBots } from "./sim/bots";
 import Loader from "./Loader";
 import { PLAY_PATH } from "./meta";
@@ -83,7 +83,8 @@ export default function PlayPage() {
           renew(),
         ]).then(([assets, runs, ghostCar, id]) => {
           // Contre les bots : pas de fantôme, seulement eux.
-          const bots = runs ? pickBots(runs, circuit.medals, level, count) : [];
+          // fourchettes des niveaux calées sur la citadine, ramenées au rythme du véhicule par pickBots
+          const bots = runs ? pickBots(runs, medalsFor(circuit, "starter"), level, count) : [];
           const full: RaceSetup = runs ? { ...setup, vehicle, ghost: null, rival: null, bots, level } : { ...setup, vehicle };
           return { assets, setup: full, ghostCar, livery: liveryOf(workshop?.livery), ticket: { id, renew } };
         });

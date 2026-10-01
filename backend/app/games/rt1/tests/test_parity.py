@@ -2,6 +2,7 @@
 sim/vehicles.ts, sim/tuning.ts, sim/bots.ts, online/Lobby.tsx) doivent rester identiques :
 on relit les sources TypeScript par expression régulière."""
 
+import json
 import math
 import re
 from pathlib import Path
@@ -17,19 +18,23 @@ def source(name: str) -> str:
     return (FRONT / name).read_text(encoding="utf8")
 
 
-def test_medals_match_circuits_ts():
+def test_pace_and_medal_factors_match_circuits_ts():
     src = source("circuits.ts")
     found = {}
-    for m in re.finditer(
-        r'slug:\s*"([^"]+)".*?medals:\s*\{\s*author:\s*([\d.]+),\s*gold:\s*([\d.]+),'
-        r"\s*silver:\s*([\d.]+),\s*bronze:\s*([\d.]+)\s*\}",
-        src,
-        re.S,
-    ):
-        slug, *times = m.groups()
-        ms = (round(float(t) * 1000) for t in times)
-        found[slug] = dict(zip(("author", "gold", "silver", "bronze"), ms, strict=True))
-    assert found == rules.CIRCUITS
+    for m in re.finditer(r"(author|gold|silver|bronze):\s*([\d.]+)", src.split("MEDAL_FACTORS")[1]):
+        found.setdefault(m.group(1), float(m.group(2)))
+    assert found == rules.MEDAL_FACTORS
+    assert json.loads((FRONT / "pace.json").read_text("utf8")) == rules.PACE
+    assert set(rules.PACE) == {"noumea", "centre-ville", "le-col", "la-corniche"}
+
+
+def test_medal_times_follow_the_vehicle():
+    starter = rules.medal_times("noumea", "starter")
+    f1 = rules.medal_times("noumea", "f1")
+    assert f1["gold"] < starter["gold"]
+    assert starter["author"] < starter["gold"] < starter["silver"] < starter["bronze"]
+    assert rules.medals_for("noumea", starter["gold"], "starter") == ["bronze", "silver", "gold"]
+    assert rules.medals_for("noumea", starter["gold"], "f1") == []
 
 
 def test_vehicle_prices_and_levels_match_vehicles_ts():

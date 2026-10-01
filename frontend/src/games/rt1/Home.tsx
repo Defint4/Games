@@ -11,7 +11,7 @@ import { TransitionOverlay } from "@/components/Loading";
 import { tr, useLang, useT } from "@/lib/i18n";
 import { fetchRival, readVehicle, useProfile, useRt1State } from "./api";
 import { preloadAssets } from "./assets";
-import { type Circuit, CIRCUITS, circuitBySlug, MEDALS, medalFor, readCircuit, saveCircuit } from "./circuits";
+import { type Circuit, CIRCUITS, circuitBySlug, MEDALS, medalFor, medalsFor, readCircuit, saveCircuit } from "./circuits";
 import { T } from "./i18n";
 import { enterImmersive } from "./immersive";
 import MedalIcon from "./MedalIcon";
@@ -39,6 +39,10 @@ export default function Home() {
   const [botsOpen, setBotsOpen] = useState(false);
   const circuit = circuitBySlug(slug);
   const best = bests[slug];
+  // les médailles affichées sont celles du véhicule qui roule ; le record garde le sien
+  const vehicle = state.data?.vehicle ?? readVehicle();
+  const medals = medalsFor(circuit, vehicle);
+  const recordMedals = medalsFor(circuit, records?.[slug]?.vehicle ?? vehicle);
 
   useEffect(() => {
     // Lecture localStorage impossible côté serveur : elle arrive après montage.
@@ -100,8 +104,8 @@ export default function Home() {
           <div className="mt-3 flex gap-3">
             {MEDALS.map((m) => (
               <span key={m} className="flex items-center gap-1 text-[11px] tabular-nums text-white/70">
-                <MedalIcon medal={m} earned={best != null && best <= circuit.medals[m]} className="size-5" />
-                {formatTime(circuit.medals[m]).replace(/^0:/, "")}
+                <MedalIcon medal={m} earned={best != null && Math.round(best * 1000) <= Math.round(recordMedals[m] * 1000)} className="size-5" />
+                {formatTime(medals[m]).replace(/^0:/, "")}
               </span>
             ))}
           </div>
@@ -127,7 +131,7 @@ export default function Home() {
       <h2 className={`${bungee.className} mb-2 text-sm text-[#8CE6D2]`}>{t.circuits}</h2>
       <div className="mb-5 flex flex-col gap-2">
         {CIRCUITS.map((c) => {
-          const medal = medalFor(c, bests[c.slug]);
+          const medal = medalFor(c, bests[c.slug], records?.[c.slug]?.vehicle ?? vehicle);
           const active = c.slug === slug;
           return (
             <button

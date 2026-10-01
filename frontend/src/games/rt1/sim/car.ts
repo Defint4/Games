@@ -85,6 +85,14 @@ export const WALL_GROUP = 0x0004_ffff;
 const CAR_GROUP = 0x0002_0005;
 const RAY_GROUPS = 0xffff_0001;
 
+/* angle de dérive (rad) au pic d'adhérence du pneu */
+const SLIP_PEAK = 0.13;
+/* contre un mur : part de l'adhérence latérale gardée, freinage (part de la vitesse par
+   seconde), vitesse verticale au plus */
+const WALL_GRIP = 0.35;
+const WALL_DRAG = 0.9;
+const WALL_MAX_VY = 1.0;
+
 type Wheel = {
   attach: Vector3;
   front: boolean;
@@ -135,6 +143,8 @@ export class Car {
   airTime = 0;
   /* secondes de boost restantes */
   boostTime = 0;
+  /* secondes restantes de l'état « contre un mur » (nourri par Game après chaque pas) */
+  wallTime = 0;
   /* inclinaison dans le virage (rad, positive vers la gauche), lissée : l'image des motos */
   lean = 0;
 
@@ -197,6 +207,7 @@ export class Car {
     this.gear = 1;
     this.airTime = 0;
     this.boostTime = 0;
+    this.wallTime = 0;
     this.lean = 0;
     for (const w of this.wheels) {
       w.offset = this.spec.rest;
@@ -268,8 +279,10 @@ export class Car {
         const prev = w.compression;
         w.compression = maxLen - toi;
         w.offset = toi - s.wheelRadius;
-        const rateC = (w.compression - prev) / h;
-        w.load = Math.max(0, s.spring * w.compression + (rateC > 0 ? s.bump : s.rebound) * rateC);
+        // vitesse de compression bornée : une marche (bord de route, réception) donnait
+        // un coup de bélier de l'amortisseur ; la charge est plafonnée à 4 fois le poids
+        const rateC = MathUtils.clamp((w.compression - prev) / h, -6, 6);
+        w.load = MathUtils.clamp(s.spring * w.compression + (rateC > 0 ? s.bump : s.rebound) * rateC, 0, s.mass * GRAVITY);
         grounded++;
       } else {
         w.grounded = false;
@@ -320,8 +333,15 @@ export class Car {
       } else if (drive === 0) {
         fx -= Math.sign(vLong) * Math.min(260 * (s.mass / 1150), (Math.abs(vLong) * mEff) / h);
       }
-      let fy = (-vLat * mEff) / h;
-      const mu = (w.front ? s.gripFront : s.gripRear) * w.load;
+      // Pneu latéral progressif : l'effort monte avec l'angle de dérive jusqu'au pic
+      // (SLIP_PEAK), puis plafonne, au lieu d'annuler toute dérive en un pas puis de
+      // décrocher d'un coup. Sous 3 m/s, l'ancienne règle : la voiture s'arrête net.
+      const mu = (w.front ? s.gripFront : s.gripRear) * w.load * (this.wallTime > 0 ? WALL_GRIP : 1);
+      const kill = (-vLat * mEff) / h;
+      const sa = Math.atan2(Math.abs(vLat), Math.max(Math.abs(vLong), 3));
+      const progressive = -Math.sign(vLat) * mu * Math.tanh(sa / SLIP_PEAK);
+      const low = MathUtils.smoothstep(this.speed, 2, 4);
+      let fy = MathUtils.lerp(Math.abs(kill) < Math.abs(progressive) ? kill : progressive, progressive, low);
       const mag = Math.hypot(fx, fy);
       let slip = 0;
       if (mag > mu && mag > 0) {
@@ -329,7 +349,7 @@ export class Car {
         fx *= mu / mag;
         fy *= mu / mag;
       }
-      w.slip = Math.max(slip, Math.min(1, Math.abs(vLat) / 9));
+      w.slip = Math.max(slip, Math.min(1, sa / 0.5), Math.min(1, Math.abs(vLat) / 9));
       slipSum += w.slip;
       // Appliqué à mi-hauteur entre le sol et le centre de gravité : moins de roulis.
       const px = MathUtils.lerp(w.contact.x, comX, 0.55);
@@ -341,6 +361,20 @@ export class Car {
         true,
       );
       w.spin += (vLong / s.wheelRadius) * h;
+    }
+
+    // Contre un mur : la voiture glisse (adhérence latérale réduite, voir mu), perd de la
+    // vitesse, et ne décolle ni ne bascule : vitesse verticale gagnée bornée, roulis ramené.
+    if (this.wallTime > 0) {
+      this.wallTime -= h;
+      const m = s.mass;
+      b.applyImpulse({ x: -vel.x * WALL_DRAG * m * h, y: 0, z: -vel.z * WALL_DRAG * m * h }, true);
+      if (lv.y > WALL_MAX_VY) b.applyImpulse({ x: 0, y: -(lv.y - WALL_MAX_VY) * m, z: 0 }, true);
+      const side = tmp.side.set(1, 0, 0).applyQuaternion(tmp.q);
+      const av0 = b.angvel();
+      const roll = av0.x * fwd.x + av0.y * fwd.y + av0.z * fwd.z;
+      const k = (-side.y * 25 - roll * 6) * m * h;
+      b.applyTorqueImpulse({ x: fwd.x * k, y: fwd.y * k, z: fwd.z * k }, true);
     }
 
     // Aérodynamique : traînée et appui

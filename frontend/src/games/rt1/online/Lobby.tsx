@@ -8,7 +8,7 @@
 import Image from "next/image";
 import Avatar from "@/components/Avatar";
 import { useLang, useT } from "@/lib/i18n";
-import { CIRCUITS, circuitBySlug, MEDALS } from "../circuits";
+import { CIRCUITS, circuitBySlug, MEDALS, medalsFor } from "../circuits";
 import { T } from "../i18n";
 import MedalIcon from "../MedalIcon";
 import { BackIcon } from "../menu/icons";
@@ -83,7 +83,7 @@ export default function Lobby({
               {MEDALS.map((m) => (
                 <span key={m} className="flex items-center gap-1 text-[11px] tabular-nums text-white/70">
                   <MedalIcon medal={m} earned className="size-5" />
-                  {formatTime(circuit.medals[m]).replace(/^0:/, "")}
+                  {formatTime(medalsFor(circuit, view.players[view.your_seat]?.vehicle ?? "starter")[m]).replace(/^0:/, "")}
                 </span>
               ))}
             </div>

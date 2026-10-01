@@ -22,7 +22,7 @@ import { bungee, GAME } from "./meta";
 import { trimesh } from "./sim/colliders";
 import { Game, type RaceSetup } from "./sim/game";
 import type { Input } from "./sim/input";
-import { circuitBySlug, type Medal, MEDALS } from "./circuits";
+import { circuitBySlug, type Medal, medalFor, MEDALS, medalsFor } from "./circuits";
 import MedalIcon from "./MedalIcon";
 import { encodeGhost } from "./sim/ghost";
 import { performanceIndex } from "./sim/tuning";
@@ -45,6 +45,7 @@ function progressLabel(game: Game, lapWord: string): string {
 const CAM_KEY = "games:rt1:camera";
 const FLIP_KEY = "games:rt1:flip";
 const STATS_KEY = "games:rt1:stats";
+const AUTOGAS_KEY = "games:rt1:autoGas";
 
 /* Rendu tourné quand l'écran reste en portrait : 90° (téléphone tourné vers la gauche) ou
    -90° (vers la droite). Les marges de sécurité suivent : le bord gauche du jeu est alors
@@ -161,12 +162,15 @@ function RaceView({
   const [stats, setStats] = useState(false);
   const [ghostOn, setGhostOn] = useState(true);
   const circuit = circuitBySlug(assets.slug);
+  const medals = useMemo(() => medalsFor(circuit, game.vehicle.id), [circuit, game]);
   const [fullscreen, setFullscreen] = useState(true);
   const [banner, setBanner] = useState<Banner>(null);
   const [finish, setFinish] = useState<Finish | null>(null);
   /* ?photo : sans interface, pour les captures du circuit */
   const [photo, setPhoto] = useState(false);
   const [quality, setQuality] = useState<QualityPref>("auto");
+  const [autoGas, setAutoGas] = useState(false);
+  useEffect(() => game.input.setAutoGas(autoGas), [autoGas, game]);
   const paused = menu || !ready;
 
   const chrono = useRef<HTMLDivElement>(null);
@@ -215,6 +219,7 @@ function RaceView({
       setGhostOn(localStorage.getItem(GHOST_KEY) !== "0");
       setFlip(localStorage.getItem(FLIP_KEY) === "1");
       setQuality(readQualityPref());
+      setAutoGas(localStorage.getItem(AUTOGAS_KEY) === "1");
     } catch {
       /* stockage indisponible */
     }
@@ -366,7 +371,7 @@ function RaceView({
             delta: e.delta,
             best: e.best,
             record: game.race.best?.time ?? null,
-            medal: MEDALS.find((m) => e.time <= circuit.medals[m]) ?? null,
+            medal: medalFor(circuit, e.time, game.vehicle.id),
             server: online ? { status: "live" } : game.testing ? { status: "off" } : { status: "sending" },
           });
           if (game.testing) break;
@@ -578,8 +583,8 @@ function RaceView({
             <div className="flex gap-3">
               {MEDALS.map((m) => (
                 <div key={m} className={`flex flex-col items-center gap-0.5 ${finish.medal === m ? "" : "opacity-60"}`}>
-                  <MedalIcon medal={m} earned={finish.time <= circuit.medals[m]} className={finish.medal === m ? "size-8" : "size-6"} />
-                  <span className="text-[10px] tabular-nums text-white/75">{formatTime(circuit.medals[m])}</span>
+                  <MedalIcon medal={m} earned={Math.round(finish.time * 1000) <= Math.round(medals[m] * 1000)} className={finish.medal === m ? "size-8" : "size-6"} />
+                  <span className="text-[10px] tabular-nums text-white/75">{formatTime(medals[m])}</span>
                 </div>
               ))}
             </div>
@@ -652,6 +657,23 @@ function RaceView({
             </div>
             <div className="col-span-2 flex flex-wrap items-center justify-center gap-3">
               <SoundToggle />
+              <button
+                type="button"
+                aria-pressed={autoGas}
+                onClick={() => {
+                  setAutoGas((v) => {
+                    try {
+                      localStorage.setItem(AUTOGAS_KEY, v ? "0" : "1");
+                    } catch {
+                      /* stockage indisponible */
+                    }
+                    return !v;
+                  });
+                }}
+                className={`rounded-xl px-4 py-2.5 text-sm font-bold ring-1 ring-white/15 active:translate-y-0.5 ${autoGas ? "bg-[#2EC4C6] text-[#061920]" : "bg-white/10"}`}
+              >
+                {t.autoGas}
+              </button>
               <button
                 type="button"
                 aria-pressed={ghostOn}
@@ -905,49 +927,74 @@ function HudButton({ label, onClick, children }: { label: string; onClick: () =>
   );
 }
 
-/* Commandes tactiles. À gauche une zone de direction : le doigt peut glisser d'un côté à
-   l'autre sans se relever. À droite, frein et accélérateur, utilisables ensemble. */
+/* Commandes tactiles. À gauche, une zone de direction : la position du doigt entre les deux
+   flèches dose le braquage (-1 à 1), et le doigt peut glisser d'un côté à l'autre. À droite,
+   une zone frein / accélérateur : le doigt glisse d'une pédale à l'autre sans se relever, et
+   deux doigts peuvent tenir les deux. Chaque doigt est suivi par son identifiant : en lever
+   un ne relâche pas l'autre. */
 function Pads({ input, t }: { input: Input; t: { left: string; right: string; gas: string; brake: string } }) {
-  const [side, setSide] = useState<"left" | "right" | null>(null);
+  const [steer, setSteer] = useState(0);
   const [gas, setGas] = useState(false);
   const [brake, setBrake] = useState(false);
   const leftPad = useRef<HTMLDivElement>(null);
   const rightPad = useRef<HTMLDivElement>(null);
+  const gasPad = useRef<HTMLDivElement>(null);
+  const brakePad = useRef<HTMLDivElement>(null);
+  /* doigts posés : zone de direction (valeur) et pédales (laquelle) */
+  const fingers = useRef({ steer: new Map<number, number>(), pedal: new Map<number, "gas" | "brake"> });
 
-  const steer = (e: React.PointerEvent, down: boolean) => {
-    const l = leftPad.current, r = rightPad.current;
-    if (!l || !r) return;
-    if (!down) {
-      input.set("left", false);
-      input.set("right", false);
-      setSide(null);
+  // pause ou retour d'arrière-plan : les boutons ne restent pas enfoncés à l'image
+  useEffect(
+    () =>
+      input.onClear(() => {
+        fingers.current.steer.clear();
+        fingers.current.pedal.clear();
+        setSteer(0);
+        setGas(false);
+        setBrake(false);
+      }),
+    [input],
+  );
+
+  const applySteer = () => {
+    const f = fingers.current.steer;
+    if (f.size === 0) {
+      input.setAnalog(null);
+      setSteer(0);
       return;
     }
-    const dist = (el: HTMLElement) => {
-      const b = el.getBoundingClientRect();
-      return Math.hypot(e.clientX - (b.left + b.width / 2), e.clientY - (b.top + b.height / 2));
-    };
-    const s = dist(l) <= dist(r) ? "left" : "right";
-    input.set("left", s === "left");
-    input.set("right", s === "right");
-    setSide(s);
+    // plusieurs doigts : le dernier posé commande
+    const v = [...f.values()][f.size - 1];
+    input.setAnalog(v);
+    setSteer(v);
   };
-
-  const hold = (key: "gas" | "brake", set: (v: boolean) => void) => ({
-    onPointerDown: (e: React.PointerEvent) => {
-      e.currentTarget.setPointerCapture(e.pointerId);
-      input.set(key, true);
-      set(true);
-    },
-    onPointerUp: () => {
-      input.set(key, false);
-      set(false);
-    },
-    onPointerCancel: () => {
-      input.set(key, false);
-      set(false);
-    },
-  });
+  const steerAt = (e: React.PointerEvent): number => {
+    const l = leftPad.current, r = rightPad.current;
+    if (!l || !r) return 0;
+    const lb = l.getBoundingClientRect(), rb = r.getBoundingClientRect();
+    const mid = (lb.left + lb.width / 2 + rb.left + rb.width / 2) / 2;
+    const span = (rb.left + rb.width / 2 - mid) * 0.8;
+    // pleine valeur au centre d'une flèche, dosée entre les deux, zone morte au milieu
+    const x = (e.clientX - mid) / span;
+    return Math.abs(x) < 0.12 ? 0 : Math.max(-1, Math.min(1, x));
+  };
+  const applyPedals = () => {
+    const f = fingers.current.pedal;
+    const on = (k: "gas" | "brake") => [...f.values()].includes(k);
+    input.set("gas", on("gas"));
+    input.set("brake", on("brake"));
+    setGas(on("gas"));
+    setBrake(on("brake"));
+  };
+  const pedalAt = (e: React.PointerEvent): "gas" | "brake" => {
+    const g = gasPad.current, b = brakePad.current;
+    if (!g || !b) return "gas";
+    const dist = (el: HTMLElement) => {
+      const r = el.getBoundingClientRect();
+      return Math.hypot(e.clientX - (r.left + r.width / 2), e.clientY - (r.top + r.height / 2));
+    };
+    return dist(b) < dist(g) ? "brake" : "gas";
+  };
 
   const pad = "flex items-center justify-center rounded-full ring-1 ring-white/45 transition-transform duration-75";
   return (
@@ -956,26 +1003,55 @@ function Pads({ input, t }: { input: Input; t: { left: string; right: string; ga
         className="absolute bottom-0 left-0 flex touch-none items-end gap-4 pb-[max(1rem,var(--sb))] pl-[max(1.2rem,var(--sl))] pr-10 pt-10"
         onPointerDown={(e) => {
           e.currentTarget.setPointerCapture(e.pointerId);
-          steer(e, true);
+          fingers.current.steer.set(e.pointerId, steerAt(e));
+          applySteer();
         }}
         onPointerMove={(e) => {
-          if (e.buttons || e.pointerType === "touch") steer(e, side !== null);
+          if (!fingers.current.steer.has(e.pointerId)) return;
+          fingers.current.steer.set(e.pointerId, steerAt(e));
+          applySteer();
         }}
-        onPointerUp={(e) => steer(e, false)}
-        onPointerCancel={(e) => steer(e, false)}
+        onPointerUp={(e) => {
+          fingers.current.steer.delete(e.pointerId);
+          applySteer();
+        }}
+        onPointerCancel={(e) => {
+          fingers.current.steer.delete(e.pointerId);
+          applySteer();
+        }}
       >
-        <div ref={leftPad} aria-label={t.left} className={`${pad} h-[clamp(4.2rem,calc(11*var(--u)),5.6rem)] w-[clamp(4.2rem,calc(11*var(--u)),5.6rem)] ${side === "left" ? "scale-95 bg-white/35" : "bg-white/15"}`}>
+        <div ref={leftPad} role="button" aria-label={t.left} className={`${pad} h-[clamp(4.2rem,calc(11*var(--u)),5.6rem)] w-[clamp(4.2rem,calc(11*var(--u)),5.6rem)] ${steer < 0 ? "scale-95 bg-white/35" : "bg-white/15"}`}>
           <Arrow d="M15 5l-8 7 8 7z" />
         </div>
-        <div ref={rightPad} aria-label={t.right} className={`${pad} h-[clamp(4.2rem,calc(11*var(--u)),5.6rem)] w-[clamp(4.2rem,calc(11*var(--u)),5.6rem)] ${side === "right" ? "scale-95 bg-white/35" : "bg-white/15"}`}>
+        <div ref={rightPad} role="button" aria-label={t.right} className={`${pad} h-[clamp(4.2rem,calc(11*var(--u)),5.6rem)] w-[clamp(4.2rem,calc(11*var(--u)),5.6rem)] ${steer > 0 ? "scale-95 bg-white/35" : "bg-white/15"}`}>
           <Arrow d="M9 5l8 7-8 7z" />
         </div>
       </div>
-      <div className="absolute bottom-0 right-0 flex items-end gap-4 pb-[max(1rem,var(--sb))] pr-[max(1.2rem,var(--sr))]">
-        <div aria-label={t.brake} {...hold("brake", setBrake)} className={`${pad} h-[clamp(3.6rem,calc(9*var(--u)),4.6rem)] w-[clamp(3.6rem,calc(9*var(--u)),4.6rem)] touch-none ${brake ? "scale-95 bg-white/35" : "bg-white/15"}`}>
+      <div
+        className="absolute bottom-0 right-0 flex touch-none items-end gap-4 pb-[max(1rem,var(--sb))] pl-10 pr-[max(1.2rem,var(--sr))] pt-10"
+        onPointerDown={(e) => {
+          e.currentTarget.setPointerCapture(e.pointerId);
+          fingers.current.pedal.set(e.pointerId, pedalAt(e));
+          applyPedals();
+        }}
+        onPointerMove={(e) => {
+          if (!fingers.current.pedal.has(e.pointerId)) return;
+          fingers.current.pedal.set(e.pointerId, pedalAt(e));
+          applyPedals();
+        }}
+        onPointerUp={(e) => {
+          fingers.current.pedal.delete(e.pointerId);
+          applyPedals();
+        }}
+        onPointerCancel={(e) => {
+          fingers.current.pedal.delete(e.pointerId);
+          applyPedals();
+        }}
+      >
+        <div ref={brakePad} role="button" aria-label={t.brake} className={`${pad} h-[clamp(3.6rem,calc(9*var(--u)),4.6rem)] w-[clamp(3.6rem,calc(9*var(--u)),4.6rem)] ${brake ? "scale-95 bg-white/35" : "bg-white/15"}`}>
           <Arrow d="M7 7h10v10H7z" />
         </div>
-        <div aria-label={t.gas} {...hold("gas", setGas)} className={`${pad} h-[clamp(5rem,calc(13*var(--u)),6.6rem)] w-[clamp(5rem,calc(13*var(--u)),6.6rem)] touch-none ${gas ? "scale-95 bg-[#2EC4C6]/60" : "bg-[#2EC4C6]/25"}`}>
+        <div ref={gasPad} role="button" aria-label={t.gas} className={`${pad} h-[clamp(5rem,calc(13*var(--u)),6.6rem)] w-[clamp(5rem,calc(13*var(--u)),6.6rem)] ${gas ? "scale-95 bg-[#2EC4C6]/60" : "bg-[#2EC4C6]/25"}`}>
           <Arrow d="M12 4l7 9h-4v7H9v-7H5z" />
         </div>
       </div>

@@ -74,9 +74,11 @@ for (const slug of wanted) {
           loc.reset(i);
           const pos = new Vector3();
           let prevRel = 0, hmax = 0, flipped = false;
+          // toute la boucle du jeu (contact mur compris), plein gaz
+          game.race.phase = "racing";
+          game.input.set("gas", true);
           for (let s = 0; s < 120 * 4; s++) {
-            game.car.update(H, { steer: 0, throttle: 1, brake: 0 });
-            game.world.step();
+            game.update(H);
             const tr = game.car.body.translation();
             pos.set(tr.x, tr.y, tr.z);
             const { i: bi, lateral } = loc.locate(pos);
@@ -92,6 +94,7 @@ for (const slug of wanted) {
           }
           r.hmax = Math.max(r.hmax, hmax);
           if (flipped) r.tonneaux++;
+          game.input.clear();
         }
       }
     }
