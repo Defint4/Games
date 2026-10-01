@@ -17,6 +17,7 @@ import { Game } from "../../src/games/rt1/sim/game";
 import { ghostPose } from "../../src/games/rt1/sim/ghost";
 import { type Vehicle, VEHICLES } from "../../src/games/rt1/sim/vehicles";
 import { type Circuit, CIRCUITS, loadCircuit, PUBLIC } from "./load";
+import { writeAssetVersion } from "./version";
 
 const HZ = 10;
 
@@ -107,3 +108,5 @@ for (const slug of process.argv.slice(2).length ? process.argv.slice(2) : CIRCUI
   }
   console.log(`${slug} : ${sizes.join(", ")}`);
 }
+// les .bin ont changé : nouvelle version des fichiers servis
+console.log("version", writeAssetVersion());

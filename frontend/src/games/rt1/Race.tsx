@@ -232,6 +232,24 @@ function RaceView({
     return () => document.removeEventListener("fullscreenchange", sync);
   }, []);
 
+  // Appel, verrouillage, autre app : en solo la course se met en pause plutôt que de
+  // repartir seule au retour (en direct le chrono court, le menu ne fait que recouvrir).
+  useEffect(() => {
+    const hidden = () => {
+      if (document.visibilityState === "hidden" && !game.live && game.race.phase === "racing") setMenu(true);
+    };
+    document.addEventListener("visibilitychange", hidden);
+    return () => document.removeEventListener("visibilitychange", hidden);
+  }, [game]);
+  const onContextLost = useCallback(() => setMenu(true), []);
+
+  // En direct, la table peut clore la course avant qu'on arrive (30 s après le premier,
+  // 10 min) : on s'arrête là, la course n'est pas comptée.
+  const closed = online?.view.status === "finished";
+  useEffect(() => {
+    if (closed) game.closeLive();
+  }, [closed, game]);
+
   const showBanner = useCallback((text: string) => setBanner({ key: Date.now(), text }), []);
 
   /* Envoie l'arrivée ; la réponse ne s'affiche que si le panneau est toujours le sien. */
@@ -358,6 +376,9 @@ function RaceView({
           } else submit(id, e.time, e.best);
           break;
         }
+        case "closed":
+          setFinish({ id: Date.now(), time: game.race.time, delta: null, best: false, record: null, medal: null, server: { status: "live" } });
+          break;
         case "boost":
           raceSfx.boost();
           break;
@@ -449,6 +470,7 @@ function RaceView({
           rivalCars={online?.rivalCars}
           onFrame={onFrame}
           onReady={onReady}
+          onContextLost={onContextLost}
         />
       </div>
 
@@ -749,17 +771,30 @@ function LiveOutcome({ online }: { online: OnlineRace }) {
   const t = useT(T).race;
   const { view, mySeat } = online;
   const me = view.players[mySeat];
+  // le délai laissé aux autres, reçu avec la vue, décompté ici entre deux vues
   if (view.status !== "finished") {
     return (
       <p className="flex items-center gap-2 text-sm text-white/70">
         <span aria-hidden className="size-4 animate-spin rounded-full border-2 border-white/25 border-t-[#2EC4C6]" />
         {t.waitingOthers}
-        {view.finish_deadline !== null && <span className="tabular-nums text-white/50">{Math.ceil(view.finish_deadline)} s</span>}
+        {view.finish_deadline !== null && <Countdown key={view.finish_deadline} seconds={view.finish_deadline} />}
       </p>
     );
   }
   if (!me?.gains) return <p className="text-sm text-[#FFB47F]">{t.notCounted}</p>;
   return <Gains gains={me.gains} levelBefore={me.level_before ?? 1} level={me.level ?? 1} rank={null} />;
+}
+
+/* Le délai laissé aux autres, reçu avec la vue, décompté ici entre deux vues (remonté à
+   chaque nouvelle valeur). */
+function Countdown({ seconds }: { seconds: number }) {
+  const [left, setLeft] = useState(seconds);
+  useEffect(() => {
+    const at = Date.now();
+    const timer = setInterval(() => setLeft(Math.max(0, seconds - (Date.now() - at) / 1000)), 250);
+    return () => clearInterval(timer);
+  }, [seconds]);
+  return <span className="tabular-nums text-white/50">{Math.ceil(left)} s</span>;
 }
 
 /* Sous le chrono d'arrivée : l'envoi, puis les gains un par un, la place, le niveau. */

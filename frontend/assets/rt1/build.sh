@@ -53,10 +53,8 @@ for glb in "$OUT"/cars/*.glb; do
 done
 cp "$OUT"/cars/*_shadow.png "$OUT"/cars/*.webp "$PUB/cars/"
 
-# Version des fichiers (cache navigateur d'une semaine sur /rt1)
-V=$(cat "$PUB"/*/* | sha1sum | cut -c1-10)
-printf '/* Généré par assets/rt1/build.sh : change quand les modèles changent. */\nexport const ASSET_VERSION = "%s";\n' "$V" \
-  > ../../src/games/rt1/assetVersion.ts
+# Version des fichiers (cache d'un an sur /rt1, adresses en ?v=)
+../../node_modules/.bin/jiti version.ts
 du -sh "$PUB"/*
 
 # Contrôles : route sous le terrain, sens des colliders (voir check.ts)

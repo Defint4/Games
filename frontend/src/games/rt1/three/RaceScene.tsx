@@ -34,6 +34,8 @@ type Props = {
   rivalCars?: Record<string, CarModel>;
   onFrame: (dt: number) => void;
   onReady: () => void;
+  /* contexte WebGL perdu (mémoire, retour d'arrière-plan) : la course se met en pause */
+  onContextLost?: () => void;
 };
 
 export default function RaceScene(props: Props) {
@@ -62,8 +64,10 @@ export default function RaceScene(props: Props) {
   );
 }
 
-function Contents({ game, assets, camMode, livery, paused, ghost, ghostCar, rivalCars, onFrame, onReady }: Props) {
+function Contents({ game, assets, camMode, livery, paused, ghost, ghostCar, rivalCars, onFrame, onReady, onContextLost }: Props) {
   const { camera, gl, scene } = useThree();
+  /* la carte des reflets est refaite après une perte de contexte (sinon noire) */
+  const [envKey, setEnvKey] = useState(0);
   const sun = useMemo(() => new Vector3(...assets.level.meta.sun).normalize(), [assets]);
   const level = useMemo(() => buildLevel(assets, gl.capabilities.getMaxAnisotropy()), [assets, gl]);
   const water = useMemo(() => buildWater(assets, sun), [assets, sun]);
@@ -95,11 +99,19 @@ function Contents({ game, assets, camMode, livery, paused, ghost, ghostCar, riva
   }, [assets, game, rivalCars]);
   const pausedRef = useRef(paused);
   const ghostRef = useRef(ghost);
+  // callbacks lus par les effets et la boucle sans en être des dépendances : un parent qui
+  // se redessine (vue de table reçue) ne doit pas relancer l'initialisation de la scène
+  const onReadyRef = useRef(onReady);
+  const onLostRef = useRef(onContextLost);
+  const onFrameRef = useRef(onFrame);
 
   useEffect(() => {
     pausedRef.current = paused;
     ghostRef.current = ghost;
-  }, [paused, ghost]);
+    onReadyRef.current = onReady;
+    onLostRef.current = onContextLost;
+    onFrameRef.current = onFrame;
+  }, [paused, ghost, onReady, onContextLost, onFrame]);
 
   useEffect(() => {
     rig.snap(game);
@@ -107,11 +119,19 @@ function Contents({ game, assets, camMode, livery, paused, ghost, ghostCar, riva
     rig.update(game, camera as PerspectiveCamera, 0);
     // shaders compilés avant la première image : pas d'à-coup au départ
     gl.compile(scene, camera);
-    onReady();
-    const restored = () => rig.snap(game);
+    onReadyRef.current();
+    const lost = () => onLostRef.current?.();
+    const restored = () => {
+      rig.snap(game);
+      setEnvKey((k) => k + 1);
+    };
+    gl.domElement.addEventListener("webglcontextlost", lost);
     gl.domElement.addEventListener("webglcontextrestored", restored);
-    return () => gl.domElement.removeEventListener("webglcontextrestored", restored);
-  }, [game, gl, scene, camera, car, rig, onReady]);
+    return () => {
+      gl.domElement.removeEventListener("webglcontextlost", lost);
+      gl.domElement.removeEventListener("webglcontextrestored", restored);
+    };
+  }, [game, gl, scene, camera, car, rig]);
 
   useEffect(() => {
     rig.setMode(camMode);
@@ -119,7 +139,8 @@ function Contents({ game, assets, camMode, livery, paused, ghost, ghostCar, riva
   }, [camMode, car, rig]);
 
   useFrame((_, dt) => {
-    if (!pausedRef.current) game.update(dt);
+    // en direct, le menu ne suspend rien : le chrono est celui de tous
+    if (!pausedRef.current || (game.live && game.race.phase === "racing")) game.update(dt);
     clock.value += Math.min(dt, 0.1);
     car.update(game);
     ghostView.update(game, ghostRef.current);
@@ -129,13 +150,13 @@ function Contents({ game, assets, camMode, livery, paused, ghost, ghostCar, riva
     renderStats.calls = gl.info.render.calls;
     renderStats.triangles = gl.info.render.triangles;
     renderStats.dpr = gl.getPixelRatio();
-    onFrame(dt);
+    onFrameRef.current(dt);
   });
 
   return (
     <>
       <Sky sun={sun} />
-      <Environment resolution={64} frames={1}>
+      <Environment key={envKey} resolution={64} frames={1}>
         <EnvSky sun={sun} />
       </Environment>
       <hemisphereLight args={[new Color(0.42, 0.62, 0.95), new Color(0.35, 0.3, 0.22), 1.7]} />

@@ -58,7 +58,7 @@ export type RaceSetup = {
    dans la course. */
 export type BotState = { pos: Vector3; quat: Quaternion; visible: boolean; progress: number; locator: TrackLocator };
 
-export type GameEvent = RaceEvent | { type: "respawn" } | { type: "restart" } | { type: "boost" };
+export type GameEvent = RaceEvent | { type: "respawn" } | { type: "restart" } | { type: "boost" } | { type: "closed" };
 
 /* Troncs et rochers près de la route : de vrais obstacles (rayon au sol, à l'échelle 1). */
 const OBSTACLES: Record<string, number> = { palm: 0.3, pine: 0.4, niaouli: 0.32, lamp: 0.15, rock: 1.1 };
@@ -225,6 +225,15 @@ export class Game {
     }
     this.emit(e);
   };
+
+  /* En direct : la table a clos la course (30 s après le premier arrivé, 10 min) avant
+     qu'on passe la ligne. On s'arrête là, la course n'est pas comptée. */
+  closeLive() {
+    if (!this.live || this.race.phase !== "racing") return;
+    this.race.phase = "finished";
+    this.input.clear();
+    this.emit({ type: "closed" });
+  }
 
   /* Pose du fantôme au temps de course t (faux s'il n'y en a pas). */
   ghostAt(t: number, p: Vector3, q: Quaternion, q2: Quaternion): boolean {

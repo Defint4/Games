@@ -50,9 +50,11 @@ const T = dict({
 const POLL_OPEN_MS = 20000;
 const POLL_MAINTENANCE_MS = 5000;
 
-/* Une table (partie à plusieurs) : un rechargement en pleine main ferait décrocher le
-   joueur, la nouvelle version attend qu'il change de page. */
-const isTablePath = (pathname: string) => pathname.includes("/table/");
+/* Une table (partie à plusieurs), une course de RT1 ou sa peinture en cours : un
+   rechargement en pleine main ferait décrocher le joueur ou perdre son travail, la
+   nouvelle version attend qu'il change de page. */
+const holdsUpdate = (pathname: string) =>
+  pathname.includes("/table/") || pathname.startsWith("/rt1/play") || pathname.startsWith("/rt1/garage/peinture");
 
 /* Le passage de l'app en maintenance, autour de toutes les pages. Fermée (« locked »),
    l'app laisse place à l'écran de maintenance, sauf pour l'admin (qui doit pouvoir la
@@ -120,7 +122,7 @@ export default function MaintenanceGate({ children }: { children: React.ReactNod
   // gardés sur l'appareil) : seules les tables attendent.
   const outdated = useOutdated();
   useEffect(() => {
-    if (!outdated || isTablePath(pathname)) return;
+    if (!outdated || holdsUpdate(pathname)) return;
     const wait = reloadForUpdate();
     if (!wait) return;
     const timer = setTimeout(reloadForUpdate, wait);

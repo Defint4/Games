@@ -31,6 +31,8 @@ const nextConfig: NextConfig = {
   // pas d'empreinte dans leur nom : Next les sert sans cache navigateur, revalidés à
   // chaque visite. Une semaine de cache, puis un mois de reprise en arrière-plan : les
   // parties suivantes partent du cache, et un fichier modifié finit par être repris.
+  // Les fichiers de RT1 (18 Mo) sont demandés avec leur version (?v=, assetVersion.ts) :
+  // cache d'un an, un fichier modifié change d'adresse.
   async headers() {
     const cached = [
       {
@@ -38,11 +40,12 @@ const nextConfig: NextConfig = {
         value: "public, max-age=604800, stale-while-revalidate=2592000",
       },
     ];
-    const paths = ["/cards/:path*", "/sounds/:path*", "/chess/:path*", "/stockfish/:path*", "/rt1/noumea/:path*", "/rt1/cars/:path*"];
-    return [...paths, "/logo.svg"].map((source) => ({
-      source,
-      headers: cached,
-    }));
+    const immutable = [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }];
+    const paths = ["/cards/:path*", "/sounds/:path*", "/chess/:path*", "/stockfish/:path*"];
+    return [
+      ...[...paths, "/logo.svg"].map((source) => ({ source, headers: cached })),
+      { source: "/rt1/:path*", headers: immutable },
+    ];
   },
 };
 

@@ -1,2 +1,2 @@
-/* Généré par assets/rt1/build.sh : change quand les modèles changent. */
-export const ASSET_VERSION = "e3bb36dde9";
+/* Généré par assets/rt1/version.ts (build.sh, bots.ts) : change quand les fichiers changent. */
+export const ASSET_VERSION = "6294ca1f75";

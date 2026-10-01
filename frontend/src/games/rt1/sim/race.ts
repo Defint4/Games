@@ -73,7 +73,9 @@ export class Race {
     this.lastCheckpoint = -1;
   }
 
-  /* Avance le chrono d'un pas ; `from` → `to` est le déplacement de la voiture. */
+  /* Avance le chrono d'un pas ; `from` → `to` est le déplacement de la voiture. En direct,
+     le chrono est l'horloge commune (top départ du serveur) : une pause, un passage en
+     arrière-plan ou un rechargement ne le suspendent pas, ils coûtent du temps. */
   step(h: number, from: Vector3, to: Vector3, emit: (e: RaceEvent) => void) {
     if (this.phase === "countdown") {
       const beat = this.startAt === null ? BEAT : ONLINE_BEAT;
@@ -82,13 +84,14 @@ export class Race {
       const after = Math.ceil(this.countdown / beat);
       if (this.countdown <= 0) {
         this.phase = "racing";
-        this.time = 0;
+        this.time = this.startAt === null ? 0 : -this.countdown;
         emit({ type: "go" });
       } else if (after !== before && after <= 3) emit({ type: "beat", n: after });
       return;
     }
     if (this.phase !== "racing") return;
-    this.time += h;
+    const before = this.time;
+    this.time = this.startAt === null ? this.time + h : Math.max(this.time, (Date.now() - this.startAt) / 1000);
     const g = this.gates[this.next];
     const a = from.clone().sub(g.pos);
     const b = to.clone().sub(g.pos);
@@ -96,7 +99,7 @@ export class Race {
     const db = b.dot(g.dir);
     if (da < 0 && db >= 0 && Math.abs(b.dot(g.side)) < g.half + 1.5 && Math.abs(b.y) < 9) {
       // instant exact du passage, interpolé dans le pas
-      const t = this.time - h + (h * -da) / (db - da);
+      const t = before + ((this.time - before) * -da) / (db - da);
       const index = this.next;
       this.splits[index] = t;
       const ref = this.ref?.splits[index];

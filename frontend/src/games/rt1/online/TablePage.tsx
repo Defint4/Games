@@ -234,7 +234,23 @@ export default function TablePage() {
     if (rematchCode && rematchCode !== code) router.replace(tablePath(GAME.slug, rematchCode));
   }, [rematchCode, code, router]);
 
-  const { leave: leaveRoom, setReady, finish, giveUp, rematch } = socket;
+  const { leave: leaveRoom, setReady, finish: sendFinish, giveUp, rematch } = socket;
+  // L'arrivée est gardée et renvoyée à chaque vue reçue tant que la table ne l'a pas
+  // (socket en reconnexion au moment de la ligne) ; le serveur accepte le doublon.
+  const [pendingFinish, setPendingFinish] = useState<{ timeMs: number; splits: number[]; ghost?: string } | null>(null);
+  const finish = useCallback(
+    (timeMs: number, splits: number[], ghost?: string) => {
+      setPendingFinish({ timeMs, splits, ghost });
+      sendFinish(timeMs, splits, ghost);
+    },
+    [sendFinish],
+  );
+  useEffect(() => {
+    if (!view || !pendingFinish) return;
+    const me = view.players[view.your_seat];
+    if (view.status === "playing" && me && me.time_ms === null && !me.dnf) sendFinish(pendingFinish.timeMs, pendingFinish.splits, pendingFinish.ghost);
+  }, [view, pendingFinish, sendFinish]);
+  const onSceneReady = useCallback(() => setSceneReady(true), []);
   const leave = useCallback(() => {
     leaveRoom();
     forgetTable(GAME.slug);
@@ -272,7 +288,7 @@ export default function TablePage() {
   if (race && online) {
     return (
       <>
-        <Race key={race.startAt} assets={race.assets} setup={race.setup} ghostCar={null} livery={race.livery} online={online} onReady={() => setSceneReady(true)} />
+        <Race key={race.startAt} assets={race.assets} setup={race.setup} ghostCar={null} livery={race.livery} online={online} onReady={onSceneReady} />
         {!sceneReady && <Loader progress={1} portrait={portrait} />}
       </>
     );
