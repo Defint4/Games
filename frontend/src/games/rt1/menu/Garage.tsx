@@ -1,8 +1,9 @@
 "use client";
 
 /* Garage : les véhicules dans l'ordre des prix. En haut, celui qu'on regarde (vignette,
-   caractéristiques, action : rouler avec, acheter, ou ce qui manque) ; en dessous, la
-   grille. L'achat se confirme d'un second tap. */
+   caractéristiques, action : équiper, acheter, ou ce qui manque) ; en dessous, la grille.
+   Toucher une vignette la sélectionne et fait apparaître la même action dessous, pour ne
+   pas avoir à remonter. L'achat se confirme d'un second tap. */
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import Image from "next/image";
@@ -118,45 +119,59 @@ export default function Garage() {
         {VEHICLES.map((v) => {
           const owned = state?.vehicles.includes(v.id);
           const locked = state ? state.level < v.level && !owned : false;
+          const active = shown.id === v.id;
           return (
-            <button
-              key={v.id}
-              type="button"
-              onClick={() => pick(v)}
-              aria-pressed={shown.id === v.id}
-              className={`${card} relative overflow-hidden p-2 text-left transition-transform active:scale-[0.98] ${
-                shown.id === v.id ? "ring-2 ring-[#2EC4C6]" : ""
-              }`}
-            >
-              <Image
-                src={asset(`cars/${v.id}.webp`)}
-                alt=""
-                width={320}
-                height={200}
-                unoptimized
-                className={`aspect-[16/10] w-full object-contain ${locked ? "opacity-40 grayscale" : ""}`}
-              />
-              <p className={`${bungee.className} truncate text-xs`}>{names[v.id]?.name}</p>
-              <p className="mt-0.5 flex items-center gap-1 text-[11px] text-white/60">
-                {!state ? (
-                  <Pending />
-                ) : state.vehicle === v.id ? (
-                  <span className="font-bold text-[#2EC4C6]">{t.driving}</span>
-                ) : owned ? (
-                  <span className="font-bold text-[#8CE6D2]">{t.owned}</span>
-                ) : locked ? (
-                  <>
-                    <LockIcon className="size-3.5" />
-                    {t.needLevel(v.level)}
-                  </>
-                ) : (
-                  <>
-                    <CoinIcon className="size-3.5 text-[#F4B942]" />
-                    <span className="tabular-nums">{formatMoney(v.price, lang)}</span>
-                  </>
-                )}
-              </p>
-            </button>
+            <div key={v.id} className={`${card} relative overflow-hidden p-2 ${active ? "ring-2 ring-[#2EC4C6]" : ""}`}>
+              <button
+                type="button"
+                onClick={() => pick(v)}
+                aria-pressed={active}
+                className="block w-full text-left transition-transform active:scale-[0.98]"
+              >
+                <Image
+                  src={asset(`cars/${v.id}.webp`)}
+                  alt=""
+                  width={320}
+                  height={200}
+                  unoptimized
+                  className={`aspect-[16/10] w-full object-contain ${locked ? "opacity-40 grayscale" : ""}`}
+                />
+                <p className={`${bungee.className} truncate text-xs`}>{names[v.id]?.name}</p>
+                <p className="mt-0.5 flex items-center gap-1 text-[11px] text-white/60">
+                  {!state ? (
+                    <Pending />
+                  ) : state.vehicle === v.id ? (
+                    <span className="font-bold text-[#2EC4C6]">{t.driving}</span>
+                  ) : owned ? (
+                    <span className="font-bold text-[#8CE6D2]">{t.owned}</span>
+                  ) : locked ? (
+                    <>
+                      <LockIcon className="size-3.5" />
+                      {t.needLevel(v.level)}
+                    </>
+                  ) : (
+                    <>
+                      <CoinIcon className="size-3.5 text-[#F4B942]" />
+                      <span className="tabular-nums">{formatMoney(v.price, lang)}</span>
+                    </>
+                  )}
+                </p>
+              </button>
+              {active && (
+                <div className="mt-2 [animation:rt1-in_0.2s_ease-out]">
+                  <Action
+                    vehicle={v}
+                    state={state}
+                    confirm={confirm}
+                    busy={busy}
+                    small
+                    onDrive={() => select.mutate(v.id)}
+                    onBuy={() => (confirm ? buy.mutate(v.id) : setConfirm(true))}
+                  />
+                  {error && <p className="mt-1 text-center text-[11px] text-[#FF8A80]">{error}</p>}
+                </div>
+              )}
+            </div>
           );
         })}
       </div>
@@ -190,6 +205,7 @@ function Action({
   state,
   confirm,
   busy,
+  small = false,
   onDrive,
   onBuy,
 }: {
@@ -197,13 +213,17 @@ function Action({
   state: Rt1State | undefined;
   confirm: boolean;
   busy: boolean;
+  /** version compacte pour la vignette de la grille (le prix est déjà écrit au-dessus) */
+  small?: boolean;
   onDrive: () => void;
   onBuy: () => void;
 }) {
   const t = useT(T).garage;
   const lang = useLang();
-  const base = `${bungee.className} flex w-full items-center justify-center gap-2 rounded-xl px-4 py-3 text-base transition-transform`;
-  if (!state) return <div className="h-12 animate-pulse rounded-xl bg-white/5" />;
+  const base = `${bungee.className} flex w-full items-center justify-center gap-2 overflow-hidden whitespace-nowrap transition-transform ${
+    small ? "rounded-lg px-2 py-2 text-xs" : "rounded-xl px-4 py-3 text-base"
+  }`;
+  if (!state) return <div className={`${small ? "h-9 rounded-lg" : "h-12 rounded-xl"} animate-pulse bg-white/5`} />;
   if (state.vehicle === v.id) {
     return <p className={`${base} bg-[#2EC4C6]/15 text-[#8CE6D2]`}>{t.driving}</p>;
   }
@@ -218,7 +238,7 @@ function Action({
   if (state.level < v.level) {
     return (
       <p className={`${base} bg-black/25 text-white/55`}>
-        <LockIcon className="size-4" />
+        <LockIcon className="size-4 shrink-0" />
         {t.needLevel(v.level)}
       </p>
     );
@@ -232,10 +252,14 @@ function Action({
       type="button"
       disabled={busy}
       onClick={onBuy}
-      className={`${base} ${confirm ? "bg-[#F4B942]" : "bg-[#FF7A2F]"} text-[#1b0d05] shadow-[0_5px_0_#b24c14] enabled:active:translate-y-1 enabled:active:shadow-[0_2px_0_#b24c14] disabled:opacity-60`}
+      className={`${base} ${confirm ? "bg-[#F4B942]" : "bg-[#FF7A2F]"} text-[#1b0d05] ${
+        small
+          ? "shadow-[0_3px_0_#b24c14] enabled:active:translate-y-0.5 enabled:active:shadow-[0_1px_0_#b24c14]"
+          : "shadow-[0_5px_0_#b24c14] enabled:active:translate-y-1 enabled:active:shadow-[0_2px_0_#b24c14]"
+      } disabled:opacity-60`}
     >
       {busy && <Spinner />}
-      {confirm ? t.confirm(price) : t.buy(price)}
+      {small ? (confirm ? t.confirmShort : t.buyShort) : confirm ? t.confirm(price) : t.buy(price)}
     </button>
   );
 }
