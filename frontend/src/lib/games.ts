@@ -103,7 +103,7 @@ export const GAMES: GameMeta[] = [
       fr: "De Nouméa à Poum, au centième.",
       en: "Nouméa to Poum, down to the hundredth.",
     },
-    players: { fr: "1 joueur", en: "1 player" },
+    players: { fr: "1 à 8 joueurs", en: "1 to 8 players" },
     path: "/rt1",
     // Le lagon qui tourne à la terre rouge.
     mat: "radial-gradient(130% 110% at 85% 15%, #2ec4c6 0%, #0f6f8f 50%, #5a2414 100%)",

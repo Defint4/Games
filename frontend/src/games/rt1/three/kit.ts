@@ -2,15 +2,16 @@
    lagon, végétation instanciée, voiture, caméra. La scène React ne fait que les poser. */
 
 import {
+  BufferGeometry,
   Color,
   DoubleSide,
+  Float32BufferAttribute,
   Group,
   InstancedMesh,
   Matrix4,
   Mesh,
   MeshBasicMaterial,
   MeshLambertMaterial,
-  MeshPhysicalMaterial,
   MeshStandardMaterial,
   type Object3D,
   type PerspectiveCamera,
@@ -19,8 +20,12 @@ import {
   Vector3,
   Vector4,
 } from "three";
-import type { RaceAssets } from "../assets";
-import type { Game } from "../sim/game";
+import type { CarModel, RaceAssets } from "../assets";
+import { type CarSpec, GRAVITY } from "../sim/car";
+import type { BotState, Game } from "../sim/game";
+import { groundY, type Vehicle } from "../sim/vehicles";
+import type { Livery } from "../livery";
+import { carSpace, decals, glassTint, paintMaterial, rimColor } from "./livery";
 import { clock, detailTexture, roadTexture, waterMaterial, withGroundDetail, withWind } from "./materials";
 
 export type CamMode = "chase" | "cockpit";
@@ -70,6 +75,9 @@ export function buildLevel(assets: RaceAssets, anisotropy: number): Object3D {
       m.material = new MeshBasicMaterial({ vertexColors: true, lightMap: props, lightMapIntensity: k, side: DoubleSide });
     } else if (top === "backdrop") {
       m.material = new MeshBasicMaterial({ vertexColors: true });
+    } else if (top === "boosts") {
+      // plaques de boost : vives, sans lumière cuite
+      m.material = new MeshBasicMaterial({ vertexColors: true, color: new Color(1.6, 1.6, 1.6), side: DoubleSide, polygonOffset: true, polygonOffsetFactor: -1 });
     } else if (top === "clouds") {
       m.material = new MeshBasicMaterial({ vertexColors: true, fog: false, color: new Color(1.3, 1.3, 1.3) });
     }
@@ -144,21 +152,80 @@ export function buildFlora(assets: RaceAssets): Group {
 
 /* ------------------------------------------------------------------ voiture */
 
-/* Le sol du modèle sous l'origine de la caisse, suspension au repos. */
-const GROUND = -0.585;
+/* Ombre de contact : un peu plus grande que la caisse (même taille qu'à la cuisson). */
+function blobSize(s: CarSpec): [number, number] {
+  return [2 * s.half[0] + 1.0, 2 * s.half[2] + 1.16];
+}
 
-function carMaterials(paint: string): Record<string, MeshStandardMaterial | MeshBasicMaterial> {
+/* Inclinaison d'une moto dans le virage, autour de son point de contact au sol :
+   matrice locale à multiplier après la pose (rotation autour de l'axe avant). */
+const LEAN_M = { a: new Matrix4(), b: new Matrix4(), c: new Matrix4() };
+
+function leanMatrix(lean: number, ground: number, out: Matrix4): Matrix4 {
+  LEAN_M.a.makeTranslation(0, ground, 0);
+  LEAN_M.b.makeRotationZ(-lean);
+  LEAN_M.c.makeTranslation(0, -ground, 0);
+  return out.copy(LEAN_M.a).multiply(LEAN_M.b).multiply(LEAN_M.c);
+}
+
+/* Inclinaison déduite d'un mouvement enregistré (fantôme, bots) : tan = v × lacet / g. */
+export class LeanTracker {
+  lean = 0;
+  private heading = 0;
+  private pos = new Vector3();
+  private t = -1;
+  private f = new Vector3();
+
+  update(t: number, pos: Vector3, quat: Quaternion): number {
+    const heading = Math.atan2(this.f.set(0, 0, 1).applyQuaternion(quat).x, this.f.z);
+    const dt = t - this.t;
+    if (this.t >= 0 && dt > 1e-3 && dt < 0.5) {
+      let d = heading - this.heading;
+      d -= Math.round(d / (2 * Math.PI)) * 2 * Math.PI;
+      const want = Math.max(-0.85, Math.min(0.85, Math.atan(((pos.distanceTo(this.pos) / dt) * (d / dt)) / GRAVITY)));
+      this.lean += (want - this.lean) * Math.min(1, dt * 9);
+    } else if (dt <= 0 || dt >= 0.5) {
+      this.lean = 0;
+    }
+    this.t = t;
+    this.heading = heading;
+    this.pos.copy(pos);
+    return this.lean;
+  }
+}
+
+/* Caisse et quatre roues au repos, à fondre en un maillage (fantôme, bots) : chaque
+   morceau avec sa matrice monde et le nom de sa matière. */
+function carPieces(model: CarModel, s: CarSpec): { mesh: Mesh; name: string }[] {
+  const ground = groundY(s);
+  const parts = new Group();
+  const body = new Group();
+  body.position.y = ground;
+  body.add(model.gltf.scene.getObjectByName("body")!.clone(true));
+  parts.add(body);
+  const wheelSrc = model.gltf.scene.getObjectByName("wheel")!;
+  const axles = s.bike ? [[0, s.frontZ], [0, s.rearZ]] : [[s.track, s.frontZ], [-s.track, s.frontZ], [s.track, s.rearZ], [-s.track, s.rearZ]];
+  for (const [x, z] of axles) {
+    const holder = new Group();
+    holder.position.set(x, ground + s.wheelRadius, z);
+    holder.rotation.y = x >= 0 ? 0 : Math.PI;
+    holder.add(wheelSrc.clone(true));
+    parts.add(holder);
+  }
+  parts.updateMatrixWorld(true);
+  const out: { mesh: Mesh; name: string }[] = [];
+  parts.traverse((o) => {
+    const m = o as Mesh;
+    if (m.isMesh) out.push({ mesh: m, name: (m.material as { name?: string }).name ?? "" });
+  });
+  return out;
+}
+
+/* Matières du véhicule, peinture exceptée (voir livery.ts). */
+function carMaterials(): Record<string, MeshStandardMaterial | MeshBasicMaterial> {
   const std = (color: string, roughness: number, metalness = 0, extra: object = {}) =>
     new MeshStandardMaterial({ color, roughness, metalness, ...extra });
   return {
-    paint: new MeshPhysicalMaterial({
-      color: paint,
-      roughness: 0.42,
-      metalness: 0.05,
-      clearcoat: 1,
-      clearcoatRoughness: 0.08,
-      envMapIntensity: 0.85,
-    }),
     trim: std("#1E2126", 0.65),
     glass: std("#0D161D", 0.04, 0, { transparent: true, opacity: 0.9, envMapIntensity: 1.6, side: DoubleSide }),
     chrome: std("#E3E6EA", 0.12, 1),
@@ -170,6 +237,11 @@ function carMaterials(paint: string): Record<string, MeshStandardMaterial | Mesh
     rim: std("#CDD1D6", 0.28, 1),
     caliper: std("#D8392B", 0.4),
     disc: std("#6E7076", 0.35, 1),
+    helmet: std("#F2F2EC", 0.3),
+    suit: std("#1F3A5F", 0.85),
+    livery: std("#F4F4F0", 0.35),
+    beacon: new MeshBasicMaterial({ color: "#FFA238" }),
+    dirt: std("#B5482A", 0.95),
   };
 }
 
@@ -182,26 +254,45 @@ export class CarView {
   private glass: MeshStandardMaterial[] = [];
   private rear: MeshBasicMaterial | null = null;
   private shadow: MeshBasicMaterial;
+  /* moto : tout sauf l'ombre penche autour du point de contact */
+  private tilt = new Group();
+  private bike: boolean;
+  private release: (() => void)[] = [];
+  /* sol sous l'origine de la caisse (vitrine : on l'y pose) */
+  readonly ground: number;
 
-  constructor(assets: RaceAssets, paint: string) {
-    const mats = carMaterials(paint);
+  constructor(model: CarModel, spec: CarSpec, livery: Livery, font: string) {
+    this.bike = !!spec.bike;
+    this.ground = groundY(spec);
+    const mats = carMaterials();
+    const painted: Mesh[] = [];
     const apply = (o: Object3D) =>
       o.traverse((c) => {
         const m = c as Mesh;
         if (!m.isMesh) return;
         const name = (m.material as { name?: string }).name ?? "";
+        if (name === "paint") {
+          painted.push(m);
+          return;
+        }
         const mat = mats[name] ?? mats.trim;
         m.material = mat;
         if (name === "glass" && !this.glass.includes(mat as MeshStandardMaterial)) this.glass.push(mat as MeshStandardMaterial);
         if (name === "light_rear") this.rear = mat as MeshBasicMaterial;
       });
     // Les nœuds gardent leur transformation (déquantification glTF) : on décale un parent.
+    const ground = groundY(spec);
+    this.tilt.position.y = ground;
+    const inner = new Group();
+    inner.position.y = -ground;
+    this.tilt.add(inner);
+    this.root.add(this.tilt);
     const body = new Group();
-    body.position.y = GROUND;
-    body.add(assets.car.scene.getObjectByName("body")!.clone(true));
+    body.position.y = ground;
+    body.add(model.gltf.scene.getObjectByName("body")!.clone(true));
     apply(body);
-    this.root.add(body);
-    const wheelSrc = assets.car.scene.getObjectByName("wheel")!;
+    inner.add(body);
+    const wheelSrc = model.gltf.scene.getObjectByName("wheel")!;
     for (let i = 0; i < 4; i++) {
       const steer = new Group();
       const mirror = new Group();
@@ -213,22 +304,40 @@ export class CarView {
       spin.add(w);
       mirror.add(spin);
       steer.add(mirror);
-      this.root.add(steer);
+      // moto : une roue par essieu (les rayons de gauche), dans l'axe
+      if (!this.bike || left) inner.add(steer);
+      // au repos (vitrine) ; en course, update() les suit
+      steer.position.set(this.bike ? 0 : left ? spec.track : -spec.track, ground + spec.wheelRadius, i < 2 ? spec.frontZ : spec.rearZ);
       this.wheels.push({ steer, spin, left });
     }
     this.shadow = new MeshBasicMaterial({
       color: 0x000000,
-      alphaMap: assets.shadow,
+      alphaMap: model.shadow,
       transparent: true,
       opacity: 0.8,
       depthWrite: false,
       polygonOffset: true,
       polygonOffsetFactor: -2,
     });
-    const blob = new Mesh(new PlaneGeometry(2.6, 5).rotateX(-Math.PI / 2), this.shadow);
-    blob.position.y = GROUND + 0.02;
+    const blob = new Mesh(new PlaneGeometry(...blobSize(spec)).rotateX(-Math.PI / 2), this.shadow);
+    blob.position.y = ground + 0.02;
     blob.renderOrder = 1;
     this.root.add(blob);
+
+    // Livrée : repère de la caisse (véhicule à l'origine), peinture, jantes, vitres, décalques
+    this.root.updateMatrixWorld(true);
+    const bounds = carSpace(painted);
+    const paint = paintMaterial(livery, bounds);
+    for (const m of painted) m.material = paint;
+    rimColor(mats.rim as MeshStandardMaterial, livery);
+    glassTint(mats.glass as MeshStandardMaterial, livery);
+    const d = decals(painted, bounds, livery, font);
+    for (const m of d.meshes) inner.add(m);
+    this.release.push(d.dispose, () => paint.dispose(), () => Object.values(mats).forEach((m) => m.dispose()));
+  }
+
+  dispose() {
+    for (const f of this.release) f();
   }
 
   update(g: Game) {
@@ -237,16 +346,195 @@ export class CarView {
     const car = g.car;
     car.wheels.forEach((w, i) => {
       const v = this.wheels[i];
-      v.steer.position.set(w.attach.x, w.attach.y - w.offset, w.attach.z);
+      v.steer.position.set(this.bike ? 0 : w.attach.x, w.attach.y - w.offset, w.attach.z);
       v.steer.rotation.y = w.front ? -car.steer : 0;
       v.spin.rotation.x = v.left ? w.spin : -w.spin;
     });
+    this.tilt.rotation.z = this.bike ? -car.lean : 0;
     this.rear?.color.copy(car.brakeInput > 0 ? BRAKE_ON : BRAKE_OFF);
     this.shadow.opacity = 0.8 * Math.min(1, car.grounded / 3 + (car.airTime < 0.3 ? 0.4 : 0));
   }
 
   setCockpit(on: boolean) {
     for (const m of this.glass) m.opacity = on ? 0.18 : 0.9;
+  }
+}
+
+/* ------------------------------------------------------------------ fantôme */
+
+const GHOST_MAT = new MeshBasicMaterial({ color: "#8CE6D2", transparent: true, opacity: 0.32, depthWrite: false });
+
+/* La voiture du meilleur tour, translucide ; on la traverse. Un seul maillage (caisse et
+   roues fusionnées) : un seul appel de dessin. */
+export class GhostView {
+  readonly root: Mesh;
+  private q2 = new Quaternion();
+  private p = new Vector3();
+  private q = new Quaternion();
+  private one = new Vector3(1, 1, 1);
+  private tilt = new Matrix4();
+  private leanTrack = new LeanTracker();
+  private bike: boolean;
+  private ground: number;
+
+  constructor(model: CarModel, spec: CarSpec) {
+    const pos: number[] = [];
+    const idx: number[] = [];
+    const v = new Vector3();
+    for (const { mesh: m } of carPieces(model, spec)) {
+      const p = m.geometry.getAttribute("position");
+      const base = pos.length / 3;
+      for (let i = 0; i < p.count; i++) {
+        v.fromBufferAttribute(p, i).applyMatrix4(m.matrixWorld);
+        pos.push(v.x, v.y, v.z);
+      }
+      const index = m.geometry.getIndex();
+      if (index) for (let i = 0; i < index.count; i++) idx.push(base + index.getX(i));
+      else for (let i = 0; i < p.count; i++) idx.push(base + i);
+    }
+    const geo = new BufferGeometry();
+    geo.setAttribute("position", new Float32BufferAttribute(pos, 3));
+    geo.setIndex(idx);
+    this.root = new Mesh(geo, GHOST_MAT);
+    this.root.matrixAutoUpdate = false;
+    this.bike = !!spec.bike;
+    this.ground = groundY(spec);
+    this.root.renderOrder = 2;
+    this.root.visible = false;
+  }
+
+  update(g: Game, enabled: boolean) {
+    const r = g.race;
+    const t = r.phase === "countdown" ? 0 : r.time;
+    this.root.visible = enabled && g.ghostAt(t, this.p, this.q, this.q2);
+    if (!this.root.visible) return;
+    this.root.matrix.compose(this.p, this.q, this.one);
+    if (this.bike) this.root.matrix.multiply(leanMatrix(this.leanTrack.update(t, this.p, this.q), this.ground, this.tilt));
+  }
+}
+
+/* ------------------------------------------------------------------ bots */
+
+/* Couleurs des pièces de la voiture pour les bots (la peinture est celle de chaque bot). */
+const BOT_PARTS: Record<string, string> = {
+  trim: "#1E2126",
+  glass: "#16222B",
+  chrome: "#C9CDD2",
+  light_front: "#FFF4DA",
+  light_rear: "#7A1016",
+  interior: "#3A3D42",
+  plate: "#F1F1EB",
+  tire: "#18191C",
+  rim: "#B9BEC4",
+  caliper: "#D8392B",
+  disc: "#6E7076",
+  helmet: "#F2F2EC",
+  suit: "#1F3A5F",
+  livery: "#F4F4F0",
+  beacon: "#FF9A1F",
+  dirt: "#B5482A",
+};
+
+/* Les bots : la voiture fondue en un seul maillage (caisse et roues, couleurs par
+   sommet), instanciée ; 7 bots = un appel de dessin, plus un pour leurs ombres. Un bot
+   s'efface dans la voiture du joueur et entre elle et la caméra : on les traverse, et
+   ils ne cachent jamais la route. */
+export class BotsView {
+  readonly root = new Group();
+  private cars: InstancedMesh;
+  private shadows: InstancedMesh;
+  private m = new Matrix4();
+  private one = new Vector3(1, 1, 1);
+  private zero = new Matrix4().makeScale(0, 0, 0);
+  private tilt = new Matrix4();
+  private tilted = new Matrix4();
+  private leans: LeanTracker[];
+  private bike: boolean;
+  private ground: number;
+
+  constructor(model: CarModel, spec: CarSpec, colors: string[]) {
+    this.bike = !!spec.bike;
+    this.ground = groundY(spec);
+    this.leans = colors.map(() => new LeanTracker());
+    const pos: number[] = [];
+    const nor: number[] = [];
+    const col: number[] = [];
+    const mask: number[] = [];
+    const idx: number[] = [];
+    const v = new Vector3();
+    const c = new Color();
+    for (const { mesh, name } of carPieces(model, spec)) {
+      const paint = name === "paint";
+      c.set(paint ? "#FFFFFF" : (BOT_PARTS[name] ?? BOT_PARTS.trim));
+      const p = mesh.geometry.getAttribute("position");
+      const n = mesh.geometry.getAttribute("normal");
+      const base = pos.length / 3;
+      const normalMatrix = new Matrix4().extractRotation(mesh.matrixWorld);
+      for (let i = 0; i < p.count; i++) {
+        v.fromBufferAttribute(p, i).applyMatrix4(mesh.matrixWorld);
+        pos.push(v.x, v.y, v.z);
+        v.fromBufferAttribute(n, i).applyMatrix4(normalMatrix).normalize();
+        nor.push(v.x, v.y, v.z);
+        col.push(c.r, c.g, c.b);
+        mask.push(paint ? 1 : 0);
+      }
+      const index = mesh.geometry.getIndex();
+      if (index) for (let i = 0; i < index.count; i++) idx.push(base + index.getX(i));
+      else for (let i = 0; i < p.count; i++) idx.push(base + i);
+    }
+    const geo = new BufferGeometry();
+    geo.setAttribute("position", new Float32BufferAttribute(pos, 3));
+    geo.setAttribute("normal", new Float32BufferAttribute(nor, 3));
+    geo.setAttribute("color", new Float32BufferAttribute(col, 3));
+    geo.setAttribute("paintMask", new Float32BufferAttribute(mask, 1));
+    geo.setIndex(idx);
+    const mat = new MeshStandardMaterial({ vertexColors: true, roughness: 0.4, metalness: 0.08, envMapIntensity: 0.85 });
+    // Seule la peinture prend la couleur du bot ; pneus, vitres et chromes restent.
+    mat.onBeforeCompile = (sh) => {
+      sh.vertexShader = sh.vertexShader
+        .replace("#include <common>", "#include <common>\nattribute float paintMask;")
+        .replace(
+          "#include <color_vertex>",
+          "vColor = vec4(1.0);\nvColor.rgb *= color;\n#ifdef USE_INSTANCING_COLOR\nvColor.rgb = mix(vColor.rgb, vColor.rgb * instanceColor, paintMask);\n#endif",
+        );
+    };
+    this.cars = new InstancedMesh(geo, mat, colors.length);
+    colors.forEach((hex, i) => this.cars.setColorAt(i, c.set(hex)));
+    this.cars.frustumCulled = false;
+
+    const shadowMat = new MeshBasicMaterial({
+      color: 0x000000,
+      alphaMap: model.shadow,
+      transparent: true,
+      opacity: 0.7,
+      depthWrite: false,
+      polygonOffset: true,
+      polygonOffsetFactor: -2,
+    });
+    const blob = new PlaneGeometry(...blobSize(spec)).rotateX(-Math.PI / 2).translate(0, groundY(spec) + 0.02, 0);
+    this.shadows = new InstancedMesh(blob, shadowMat, colors.length);
+    this.shadows.renderOrder = 1;
+    this.shadows.frustumCulled = false;
+    this.root.add(this.cars, this.shadows);
+  }
+
+  /* `states` : les bots par défaut, ou les pilotes en direct d'un même véhicule. */
+  update(g: Game, camera: PerspectiveCamera, states: BotState[] = g.botStates) {
+    const near = Math.max(2.5, camera.position.distanceTo(g.pos) - 0.5);
+    const t = g.race.phase === "countdown" ? 0 : g.race.time;
+    states.forEach((s, i) => {
+      const inside = s.pos.distanceToSquared(g.pos) < 3.2 * 3.2 || s.pos.distanceToSquared(camera.position) < near * near;
+      const m = s.visible && !inside ? this.m.compose(s.pos, s.quat, this.one) : this.zero;
+      this.shadows.setMatrixAt(i, m);
+      if (this.bike && m !== this.zero) {
+        const lean = this.leans[i].update(t, s.pos, s.quat);
+        this.cars.setMatrixAt(i, this.tilted.copy(m).multiply(leanMatrix(lean, this.ground, this.tilt)));
+      } else {
+        this.cars.setMatrixAt(i, m);
+      }
+    });
+    this.cars.instanceMatrix.needsUpdate = true;
+    this.shadows.instanceMatrix.needsUpdate = true;
   }
 }
 
@@ -267,14 +555,33 @@ export class Rig {
   private tmp2 = new Vector3();
   private q = new Quaternion();
   private eye = new Vector3(0.34, 0.66, 0.0);
+  private back = 6.3;
+  private up = 2.15;
+  private top = 54;
+  private bike = false;
+  private ground = 0;
+  private leanQ = new Quaternion();
+  private zAxis = new Vector3(0, 0, 1);
+  /* élargissement du champ pendant un boost */
+  private kick = 0;
 
   setMode(mode: CamMode) {
     this.mode = mode;
   }
 
+  /* Recul, hauteur et œil du pilote propres au véhicule. */
+  setVehicle(v: Vehicle) {
+    this.back = v.cam.back;
+    this.up = v.cam.up;
+    this.eye.set(...v.cam.eye);
+    this.top = v.spec.topSpeed;
+    this.bike = !!v.spec.bike;
+    this.ground = groundY(v.spec);
+  }
+
   snap(g: Game) {
     this.fwd.set(0, 0, 1).applyQuaternion(g.quat).setY(0).normalize();
-    this.pos.copy(g.pos).addScaledVector(this.fwd, -6.4).add(this.tmp.set(0, 2.3, 0));
+    this.pos.copy(g.pos).addScaledVector(this.fwd, -this.back - 0.1).add(this.tmp.set(0, this.up + 0.15, 0));
     this.look.copy(g.pos).addScaledVector(this.fwd, 4);
     this.blend = this.mode === "cockpit" ? 1 : 0;
   }
@@ -286,12 +593,12 @@ export class Rig {
     f.normalize();
     this.fwd.lerp(f, 1 - Math.exp(-d * 5)).normalize();
     const speed = Math.max(0, g.car.forwardSpeed);
-    const back = 6.3 + speed * 0.018;
+    const back = this.back + speed * 0.018;
     const target = this.tmp2.copy(g.pos).addScaledVector(this.fwd, -back);
-    target.y += 2.15 + speed * 0.004;
+    target.y += this.up + speed * 0.004;
     this.pos.lerp(target, 1 - Math.exp(-d * 7));
     const aim = this.tmp.copy(g.pos).addScaledVector(this.fwd, 4.2);
-    aim.y += 0.75;
+    aim.y += this.up * 0.35;
     this.look.lerp(aim, 1 - Math.exp(-d * 12));
 
     const want = this.mode === "cockpit" ? 1 : 0;
@@ -299,16 +606,24 @@ export class Rig {
     if (Math.abs(this.blend - want) < 0.002) this.blend = want;
     const b = this.blend;
 
-    const eye = this.tmp.copy(this.eye).applyQuaternion(g.quat).add(g.pos);
+    // moto : l'œil tourne avec l'inclinaison (adoucie : 60 %, sinon l'horizon donne le
+    // tournis), autour du point de contact
+    this.leanQ.setFromAxisAngle(this.zAxis, this.bike ? -g.car.lean * 0.6 : 0);
+    const eye = this.tmp.copy(this.eye);
+    eye.y -= this.ground;
+    eye.applyQuaternion(this.leanQ);
+    eye.y += this.ground;
+    eye.applyQuaternion(g.quat).add(g.pos);
     cam.position.copy(this.pos).lerp(eye, b);
     cam.up.set(0, 1, 0);
     cam.lookAt(this.look);
     if (b > 0) {
-      this.q.copy(g.quat).multiply(COCKPIT_Q);
+      this.q.copy(g.quat).multiply(this.leanQ).multiply(COCKPIT_Q);
       cam.quaternion.slerp(this.q, b);
     }
-    const s = speed / 54;
-    cam.fov = (1 - b) * (60 + s * 12) + b * (72 + s * 8);
+    const s = speed / this.top;
+    this.kick += ((g.car.boostTime > 0 ? 1 : 0) - this.kick) * (1 - Math.exp(-d * 4));
+    cam.fov = (1 - b) * (60 + s * 12) + b * (72 + s * 8) + this.kick * 7;
     cam.near = b > 0.5 ? 0.05 : 0.1;
     cam.updateProjectionMatrix();
   }

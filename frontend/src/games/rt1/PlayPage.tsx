@@ -1,22 +1,35 @@
 "use client";
 
+import { useQueryClient } from "@tanstack/react-query";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { currentProfile } from "@/lib/identity";
-import { onLoadProgress, preloadAssets, type RaceAssets } from "./assets";
+import { loadRaceSetup, readVehicle } from "./api";
+import { type CarModel, loadCar, onLoadProgress, preloadAssets, type RaceAssets } from "./assets";
 import { exitImmersive, setThemeColor } from "./immersive";
+import { circuitBySlug, readCircuit } from "./circuits";
+import { BOT_LEVELS, type BotLevel, loadBotRuns, MAX_BOTS, pickBots } from "./sim/bots";
 import Loader from "./Loader";
 import { PLAY_PATH } from "./meta";
+import type { RaceSetup } from "./sim/game";
+import { type Livery, liveryOf } from "./livery";
+import { tunedVehicle } from "./sim/tuning";
+import { type Vehicle, vehicleById } from "./sim/vehicles";
+
+type GhostCar = { model: CarModel; vehicle: Vehicle } | null;
 
 const Race = dynamic(() => import("./Race"), { ssr: false, loading: () => null });
 
-/* La page de course : écran de chargement jusqu'à la première image de la course, écran
+/* La page de course : écran de chargement jusqu'à la première image de la course (décor,
+   record et fantôme à suivre : le sien, celui du pilote défié avec ?ghost=, ou des bots
+   avec ?bots=<nombre>&level=<niveau>), écran
    gardé allumé, barre d'état noire. Le plein écran et le paysage sont demandés par le
    bouton « Rouler » (il faut un geste) ; sans eux, la course tourne son rendu. */
 export default function PlayPage() {
   const router = useRouter();
-  const [assets, setAssets] = useState<RaceAssets | null>(null);
+  const queryClient = useQueryClient();
+  const [loaded, setLoaded] = useState<{ assets: RaceAssets; setup: RaceSetup; ghostCar: GhostCar; livery: Livery } | null>(null);
   const [failed, setFailed] = useState(false);
   const [progress, setProgress] = useState(0);
   const [ready, setReady] = useState(false);
@@ -38,11 +51,37 @@ export default function PlayPage() {
   }, [router]);
 
   useEffect(() => {
+    const profile = currentProfile();
+    if (!profile) return;
     let cancelled = false;
-    preloadAssets().then(
-      (a) => {
-        if (!cancelled) setAssets(a);
-      },
+    const q = new URLSearchParams(window.location.search);
+    // circuit demandé (?c=) sinon le dernier choisi
+    const circuit = circuitBySlug(q.get("c") ?? readCircuit());
+    const slug = circuit.slug;
+    const count = Math.min(MAX_BOTS, Math.max(0, Number(q.get("bots")) || 0));
+    const level = (BOT_LEVELS as string[]).includes(q.get("level") ?? "") ? (q.get("level") as BotLevel) : "normal";
+    // Le décor part tout de suite, avec le dernier véhicule connu ; le serveur confirme.
+    void preloadAssets(slug, readVehicle()).catch(() => {});
+    loadRaceSetup(queryClient, profile, slug, count ? null : q.get("ghost"))
+      .then(({ vehicle: vid, workshop, ghostVehicle, ...setup }) => {
+        // la physique suit l'atelier ; le modèle, lui, est celui d'origine
+        const vehicle = tunedVehicle(vehicleById(vid), workshop);
+        const other = !count && ghostVehicle && ghostVehicle !== vehicle.id ? vehicleById(ghostVehicle) : null;
+        return Promise.all([
+          preloadAssets(slug, vehicle.id),
+          count ? loadBotRuns(slug, vehicle.id) : null,
+          other ? loadCar(other.id).then((model) => ({ model, vehicle: other })) : null,
+        ]).then(([assets, runs, ghostCar]) => {
+          // Contre les bots : pas de fantôme, seulement eux.
+          const bots = runs ? pickBots(runs, circuit.medals, level, count) : [];
+          const full: RaceSetup = runs ? { ...setup, vehicle, ghost: null, rival: null, bots, level } : { ...setup, vehicle };
+          return { assets, setup: full, ghostCar, livery: liveryOf(workshop?.livery) };
+        });
+      })
+      .then(
+        (next) => {
+          if (!cancelled) setLoaded(next);
+        },
       () => {
         if (!cancelled) setFailed(true);
       },
@@ -50,7 +89,7 @@ export default function PlayPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [queryClient]);
 
   useEffect(() => {
     let lock: { release: () => Promise<void> } | null = null;
@@ -81,7 +120,7 @@ export default function PlayPage() {
 
   return (
     <>
-      {assets && <Race assets={assets} onReady={onReady} />}
+      {loaded && <Race assets={loaded.assets} setup={loaded.setup} ghostCar={loaded.ghostCar} livery={loaded.livery} onReady={onReady} />}
       {!ready && <Loader progress={progress} portrait={portrait} failed={failed} />}
     </>
   );

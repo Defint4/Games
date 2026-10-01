@@ -1,6 +1,7 @@
-"""Circuit de Nouméa (front de mer) : terrain, route, ville, végétation, lumière cuite.
+"""Un circuit de RT1 sur l'île : terrain, route, ville, végétation, lumière cuite.
 
-blender -b -P level.py -- --out <dossier> [--samples 128] [--lm 2048]
+blender -b -P level.py -- --circuit <slug> --out <dossier> [--samples 128] [--lm 2048]
+(tracés et blocs dans circuits.py)
 
 Sorties (dans --out) :
   level.glb          terrain, route, décor, collisions (col_road, col_wall)
@@ -26,6 +27,7 @@ import numpy as np
 from mathutils import Vector, kdtree, noise
 
 sys.path.insert(0, os.path.dirname(__file__))
+from circuits import CIRCUITS  # noqa: E402
 from common import (Builder, args, bake_material, finalize_colors, mix, reset, shade,  # noqa: E402
                     smoothstep, srgb, use_gpu)
 
@@ -34,8 +36,10 @@ OUT = os.path.abspath(A.get("out", "out"))
 SAMPLES = int(A.get("samples", "128"))
 LM = int(A.get("lm", "2048"))
 LM_SCALE = 2.0
-# --walls 0 : circuit sans murs (sortie de route libre, gravier puis terre)
-WALLS = A.get("walls", "1") != "0"
+SLUG = A.get("circuit", "noumea")
+CIRCUIT = CIRCUITS[SLUG]
+# murs ou non (--walls 0/1 force, pour essayer une variante)
+WALLS = CIRCUIT["walls"] if "walls" not in A else A["walls"] != "0"
 os.makedirs(OUT, exist_ok=True)
 rng = random.Random(1853)
 
@@ -109,8 +113,7 @@ def natural(x, y):
 
 
 # ---------------------------------------------------------------- tracé
-CTRL = [(-300, 0), (-100, 6), (100, -4), (220, 12), (285, 80), (270, 170), (190, 215), (110, 190),
-        (40, 235), (-50, 250), (-130, 195), (-215, 215), (-300, 175), (-370, 100), (-372, 30)]
+CTRL = CIRCUIT["ctrl"]
 
 
 def catmull_closed(pts, per=60):
@@ -187,6 +190,13 @@ for _ in range(40):
             z[j] = z[i] - lim
     w = 6
     z = [sum(z[(i + k) % N] for k in range(-w, w + 1)) / (2 * w + 1) for i in range(N)]
+# Sauts : rampe de 22 m jusqu'à +h, puis la route plonge sur 7 m (à vive allure, on vole)
+for frac, h in CIRCUIT["jumps"]:
+    i0 = int(frac * N)
+    up, down = int(22 / DS), int(7 / DS)
+    for k in range(-up, down + 1):
+        t = (k + up) / up if k <= 0 else 1 - k / down
+        z[(i0 + k) % N] += h * (t ** 1.6 if k <= 0 else t * t)
 Z = z
 
 # Courbure signée et dévers
@@ -459,6 +469,35 @@ def gate(i, start=False):
         else:
             col = C["white"] if k in (0, cells - 1) else C["gate_orange"]
             props.box((p.x, p.y, top_c), (span / cells, 0.6, 1.8), col, rz)
+
+
+BOOST_LEN = 10.0
+
+
+def boost_pads():
+    """Chevrons orange sur la chaussée ; le client les éclaire lui-même (pas de cuisson)."""
+    b = Builder()
+    orange, light = srgb("#FF7A2F"), srgb("#FFD7B5")
+    for frac in CIRCUIT["boosts"]:
+        i0 = int(frac * N)
+        n = int(BOOST_LEN / DS)
+        for c in range(3):
+            a = i0 + int(c * n / 3)
+            for k in range(int(n / 3) - 1):
+                i, j = a + k, a + k + 1
+                t0, t1 = k / (n / 3), (k + 1) / (n / 3)
+                for side in (1, -1):
+                    # bras du chevron : de l'extérieur (arrière) vers l'axe (avant)
+                    o0, o1 = side * 3.6 * (1 - t0), side * 3.6 * (1 - t1)
+                    col = orange if (c + k) % 2 == 0 else light
+                    p = (road_point(i, o0, 0.045), road_point(j, o1, 0.045),
+                         road_point(j, o1 - side * 0.9, 0.045), road_point(i, o0 - side * 0.9, 0.045))
+                    b.face(p, col, flip=side > 0)
+    if not CIRCUIT["boosts"]:
+        return None
+    ob = b.to_object("boosts")
+    finalize_colors(ob)
+    return ob
 
 
 def building(x, y, w, d, floors, facade, rz=0.0):
@@ -1038,13 +1077,14 @@ def main():
     bpy.ops.object.mode_set(mode="OBJECT")
     back = backdrop()
     sky = clouds()
+    pads = boost_pads()
     plant()
     protos = {"palm": proto_palm(), "pine": proto_pine(), "niaouli": proto_niaouli(),
               "bush": proto_bush(), "rock": proto_rock(), "lamp": proto_lamp()}
     for o in protos.values():
         finalize_colors(o)
         o.hide_render = True
-    for o in (col_road, col_wall, back, sky):
+    for o in (col_road, col_wall, back, sky, pads):
         if o:
             o.hide_render = True
     lights()
@@ -1067,7 +1107,9 @@ def main():
 
     spawn = int(18 / DS)
     meta = {
-        "name": "noumea",
+        "name": SLUG,
+        "laps": CIRCUIT["laps"],
+        "boosts": [{**gate_info(int(f * N)), "half": 4.2, "len": BOOST_LEN} for f in CIRCUIT["boosts"]],
         "length": round(LENGTH, 1),
         "sun": g(SUN),
         "lmScale": LM_SCALE,
@@ -1083,7 +1125,7 @@ def main():
     with open(os.path.join(OUT, "level.json"), "w") as f:
         json.dump(meta, f, separators=(",", ":"))
 
-    export([o for o in (terrain, road, props_ob, back, sky, col_road, col_wall) if o], os.path.join(OUT, "level.glb"))
+    export([o for o in (terrain, road, props_ob, back, sky, pads, col_road, col_wall) if o], os.path.join(OUT, "level.glb"))
     export(list(protos.values()), os.path.join(OUT, "flora.glb"))
     print("counts", {k: len(v) for k, v in INST.items()}, "length", LENGTH, "N", N)
 

@@ -1,8 +1,43 @@
-/* Le son de la voiture, synthétisé : moteur (deux dents de scie désaccordées, saturées,
-   filtrées selon la charge), crissement des pneus, souffle du vent. Plus les bips du
-   départ, des checkpoints et de l'arrivée. */
+/* Le son du véhicule, synthétisé : moteur (oscillateurs désaccordés, saturés, filtrés
+   selon la charge, une voix par famille), crissement des pneus, souffle du vent. Plus
+   les bips du départ, des checkpoints et de l'arrivée. */
 
 import { audio, isMuted } from "@/lib/sound";
+import type { Family } from "./sim/vehicles";
+
+/* Une voix : régime au ralenti et étendue (Hz), oscillateurs (forme, multiple, désaccord,
+   volume), filtre (ouverture au repos, avec l'accélérateur, avec le régime). */
+type Voice = {
+  base: number;
+  span: number;
+  osc: [OscillatorType, number, number, number][];
+  filter: [number, number, number];
+  q: number;
+};
+
+const CITY: Voice = {
+  base: 38,
+  span: 190,
+  osc: [["sawtooth", 1, 0, 0.5], ["sawtooth", 2, 7, 0.28], ["square", 0.5, -4, 0.35]],
+  filter: [380, 1700, 1500],
+  q: 1.2,
+};
+
+const VOICES: Record<Family, Voice> = {
+  city: CITY,
+  sport: { base: 46, span: 260, osc: [["sawtooth", 1, 0, 0.5], ["sawtooth", 2, 5, 0.3], ["sawtooth", 3, -3, 0.12]], filter: [450, 2100, 1900], q: 1.4 },
+  rally: { base: 50, span: 250, osc: [["square", 1, 0, 0.4], ["sawtooth", 2, 9, 0.3], ["square", 0.5, -6, 0.25]], filter: [420, 2300, 1600], q: 2.2 },
+  bush: { base: 28, span: 125, osc: [["sawtooth", 1, 0, 0.5], ["square", 0.5, -5, 0.45], ["sawtooth", 0.25, 3, 0.3]], filter: [260, 1000, 900], q: 1.0 },
+  suv: { base: 32, span: 145, osc: [["sawtooth", 1, 0, 0.5], ["square", 0.5, -5, 0.4], ["sawtooth", 2, 4, 0.18]], filter: [300, 1200, 1100], q: 1.0 },
+  super: { base: 42, span: 300, osc: [["sawtooth", 1, 0, 0.45], ["sawtooth", 1.5, 6, 0.28], ["square", 0.5, -4, 0.4]], filter: [420, 2400, 2200], q: 1.6 },
+  kart: { base: 70, span: 380, osc: [["square", 1, 0, 0.45], ["sawtooth", 2, 12, 0.25]], filter: [700, 2600, 2000], q: 2.5 },
+  f1: { base: 90, span: 520, osc: [["sawtooth", 1, 0, 0.45], ["sawtooth", 2, 4, 0.3], ["square", 4, -8, 0.1]], filter: [900, 3200, 3000], q: 1.8 },
+  buggy: { base: 40, span: 220, osc: [["square", 1, 0, 0.45], ["square", 0.5, -7, 0.4], ["sawtooth", 2, 10, 0.15]], filter: [360, 1600, 1400], q: 1.6 },
+  trail: { base: 30, span: 190, osc: [["square", 1, 0, 0.5], ["sawtooth", 0.5, -6, 0.4]], filter: [320, 1500, 1300], q: 1.8 },
+  mx: { base: 62, span: 430, osc: [["square", 1, 0, 0.45], ["sawtooth", 2, 15, 0.25]], filter: [650, 2800, 2200], q: 3 },
+  sportbike: { base: 72, span: 560, osc: [["sawtooth", 1, 0, 0.45], ["sawtooth", 2, 6, 0.28], ["sawtooth", 4, -9, 0.1]], filter: [800, 3000, 2800], q: 1.6 },
+  truck: { base: 22, span: 90, osc: [["sawtooth", 1, 0, 0.5], ["square", 0.5, -4, 0.5], ["sawtooth", 0.25, 5, 0.35]], filter: [200, 800, 700], q: 0.9 },
+};
 
 type Nodes = {
   ctx: AudioContext;
@@ -36,6 +71,11 @@ function shaper(ctx: AudioContext): WaveShaperNode {
 
 export class EngineSound {
   private n: Nodes | null = null;
+  private voice: Voice;
+
+  constructor(family: Family = "city") {
+    this.voice = VOICES[family];
+  }
   private muted = false;
   private checked = 0;
 
@@ -52,16 +92,12 @@ export class EngineSound {
     engine.gain.value = 0.05;
     const filter = ctx.createBiquadFilter();
     filter.type = "lowpass";
-    filter.Q.value = 1.2;
+    filter.Q.value = this.voice.q;
     const sh = shaper(ctx);
     const pre = ctx.createGain();
     pre.gain.value = 0.35;
     const osc: OscillatorNode[] = [];
-    for (const [type, mult, detune, vol] of [
-      ["sawtooth", 1, 0, 0.5],
-      ["sawtooth", 2, 7, 0.28],
-      ["square", 0.5, -4, 0.35],
-    ] as const) {
+    for (const [type, mult, detune, vol] of this.voice.osc) {
       const o = ctx.createOscillator();
       o.type = type;
       o.detune.value = detune;
@@ -113,9 +149,10 @@ export class EngineSound {
       this.muted = isMuted();
     }
     n.out.gain.setTargetAtTime(this.muted ? 0 : 1, now, 0.05);
-    const f = 38 + rpm * 190;
+    const v = this.voice;
+    const f = v.base + rpm * v.span;
     for (const o of n.osc) o.frequency.setTargetAtTime(f * (o as OscillatorNode & { mult: number }).mult, now, 0.03);
-    n.filter.frequency.setTargetAtTime(380 + throttle * 1700 + rpm * 1500, now, 0.05);
+    n.filter.frequency.setTargetAtTime(v.filter[0] + throttle * v.filter[1] + rpm * v.filter[2], now, 0.05);
     n.engine.gain.setTargetAtTime(0.045 + throttle * 0.07 + rpm * 0.03, now, 0.05);
     const sk = grounded ? Math.max(0, slip - 0.18) * Math.min(1, speed / 8) : 0;
     n.skid.gain.setTargetAtTime(Math.min(0.16, sk * 0.3), now, 0.04);
@@ -174,4 +211,17 @@ export const raceSfx = {
     notes.forEach((f, i) => blip(f, i * 0.11, 0.3, 0.07, "triangle"));
   },
   respawn: () => blip(420, 0, 0.2, 0.05, "sine"),
+  /* pièces qui tombent : une par gain affiché */
+  cash: (n: number) => {
+    for (let i = 0; i < Math.min(n, 6); i++) {
+      blip(1976, i * 0.16, 0.08, 0.035, "square");
+      blip(2637, i * 0.16 + 0.05, 0.16, 0.03, "triangle");
+    }
+  },
+  levelUp: () => [523, 659, 784, 1047, 1319].forEach((f, i) => blip(f, i * 0.08, 0.35, 0.06, "triangle")),
+  boost: () => {
+    blip(520, 0, 0.12, 0.05, "sawtooth");
+    blip(780, 0.06, 0.18, 0.05, "sawtooth");
+    blip(1040, 0.12, 0.25, 0.04, "triangle");
+  },
 };

@@ -17,6 +17,8 @@ const EN: Record<string, string> = {
   "Ce n'est pas à toi de choisir.": "It's not your call.",
   "Ce pseudo est déjà pris dans cette partie.": "That name is already taken at this table.",
   "Ce pseudo est déjà pris.": "That name is already taken.",
+  "Ce véhicule est déjà au garage.": "That vehicle is already in your garage.",
+  "Ce véhicule n'est pas au garage.": "That vehicle isn't in your garage.",
   "Ce siège n'est pas un bot.": "That seat isn't a bot.",
   "Ces cartes ne se déplacent pas.": "Those cards can't be moved.",
   "Cette carte ne peut pas être posée maintenant.": "That card can't be played right now.",
@@ -29,6 +31,7 @@ const EN: Record<string, string> = {
   "Cible invalide.": "Invalid target.",
   "Code PIN actuel incorrect.": "Your current PIN is wrong.",
   "Code PIN incorrect.": "Wrong PIN.",
+  "Circuit inconnu.": "Unknown circuit.",
   "Coup illégal.": "Illegal move.",
   "Coup illisible.": "Unreadable move.",
   "Deux charges maximum.": "Two charges at most.",
@@ -66,7 +69,12 @@ const EN: Record<string, string> = {
   "On n'ouvre pas sur les Pacos.": "You can't open on Pacos.",
   "On ne s'attaque pas soi-même.": "You can't attack yourself.",
   "Partie introuvable.": "Table not found.",
+  "Fantôme illisible.": "Unreadable ghost.",
   "Partie trop longue.": "That game is too long.",
+  "Niveau de pilote insuffisant.": "Driver level too low.",
+  "Pas de fantôme pour ce temps.": "No ghost for this time.",
+  "Place impossible.": "Impossible finishing place.",
+  "Pas assez d'argent.": "Not enough money.",
   "Partie trop courte.": "That game is too short.",
   "Pas d'enchère à contester.": "There's no bid to challenge.",
   "Personne n'a de couleur à choisir.": "Nobody has a colour to pick.",
@@ -81,6 +89,9 @@ const EN: Record<string, string> = {
   "Seul le créateur de la table ajoute des bots.": "Only the table's creator can add bots.",
   "Seul le créateur de la table retire des bots.": "Only the table's creator can remove bots.",
   "Seul le créateur de la table règle le temps.": "Only the table's creator sets the timer.",
+  "Seul le créateur de la table choisit le circuit.": "Only the table's creator picks the circuit.",
+  "La course n'est pas en cours.": "The race isn't running.",
+  "Tu as déjà passé la ligne.": "You've already crossed the line.",
   "Trop d'essais : ce compte est bloqué quelques minutes.":
     "Too many tries: this account is locked for a few minutes.",
   "Trop de tentatives : réessaie dans quelques minutes.":
@@ -89,6 +100,11 @@ const EN: Record<string, string> = {
   "Trop tard pour annuler : abandonne plutôt.": "Too late to abort: resign instead.",
   "Tu as déjà proposé nulle.": "You've already offered a draw.",
   "Vous n'avez pas assez de cartes de cette valeur.": "You don't have enough cards of that value.",
+  "Véhicule inconnu.": "Unknown vehicle.",
+  "Cette pièce est déjà au maximum.": "That part is already maxed out.",
+  "Réglage pas encore débloqué.": "That setting isn't unlocked yet.",
+  "Pièce inconnue.": "Unknown part.",
+  "Réglage inconnu.": "Unknown setting.",
 };
 
 export function serverText(message: string): string {

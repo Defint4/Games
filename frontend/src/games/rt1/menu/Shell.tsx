@@ -8,9 +8,11 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect } from "react";
 import { HUB_PATH } from "@/lib/games";
-import { useT } from "@/lib/i18n";
+import { useLang, useT } from "@/lib/i18n";
 import { currentProfile } from "@/lib/identity";
+import { formatMoney, readVehicle, useProfile, useRt1State } from "../api";
 import { preloadAssets } from "../assets";
+import { readCircuit } from "../circuits";
 import { T } from "../i18n";
 import { setThemeColor } from "../immersive";
 import { bungee } from "../meta";
@@ -28,6 +30,8 @@ export default function Shell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   const t = useT(T).menu;
+  const lang = useLang();
+  const state = useRt1State(useProfile()).data;
 
   useEffect(() => {
     if (!currentProfile()) router.replace("/");
@@ -38,7 +42,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     // Le circuit se charge dès les menus : la course démarre sans attente.
-    void preloadAssets().catch(() => {});
+    void preloadAssets(readCircuit(), readVehicle()).catch(() => {});
   }, []);
 
   return (
@@ -55,11 +59,11 @@ export default function Shell({ children }: { children: React.ReactNode }) {
         <div className="ml-auto flex items-center gap-2">
           <Chip>
             <CoinIcon className="size-4 text-[#F4B942]" />
-            <span className="tabular-nums">0 F</span>
+            {state ? <span className="tabular-nums">{formatMoney(state.money, lang)}</span> : <Pending />}
           </Chip>
           <Chip>
             <span className="text-[#8CE6D2]">{t.level}</span>
-            <span className="tabular-nums">1</span>
+            {state ? <span className="tabular-nums">{state.level}</span> : <Pending short />}
           </Chip>
         </div>
       </header>
@@ -105,6 +109,11 @@ function Chip({ children }: { children: React.ReactNode }) {
       {children}
     </span>
   );
+}
+
+/* Une valeur qui arrive du serveur. */
+export function Pending({ short = false }: { short?: boolean }) {
+  return <span aria-hidden className={`inline-block h-[0.8em] ${short ? "w-3" : "w-12"} animate-pulse rounded bg-white/15 align-middle`} />;
 }
 
 /* Titre de section des écrans RT1. */

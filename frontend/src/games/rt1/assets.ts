@@ -1,24 +1,29 @@
 /* Tout ce qu'une course doit avoir avant le premier affichage : physique (wasm),
-   circuit, modèles, cartes de lumière, textures calculées, code de la scène. */
+   circuit, modèles, cartes de lumière, textures calculées, code de la scène, et le
+   véhicule (chargé à part : on en change sans recharger le circuit). */
 
 import type { Texture } from "three";
 import type { GLTF } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { initPhysics } from "./sim/game";
 import { asset, type LevelData, loadLevel } from "./sim/level";
+import { type Vehicle, vehicleById } from "./sim/vehicles";
 
-export type RaceAssets = {
+/* Un véhicule : modèle (objets body et wheel) et ombre de contact cuite. */
+export type CarModel = { gltf: GLTF; shadow: Texture };
+
+type LevelAssets = {
+  slug: string;
   level: LevelData;
   levelGltf: GLTF;
   flora: GLTF;
-  car: GLTF;
   lightmaps: { terrain: Texture; road: Texture; props: Texture };
   water: Texture;
-  shadow: Texture;
 };
 
-export const LEVEL = "noumea";
+export type RaceAssets = LevelAssets & { vehicle: Vehicle; car: CarModel };
 
-let warm: Promise<RaceAssets> | null = null;
+/* Un seul circuit gardé en mémoire : en changer libère le précédent. */
+let warm: { slug: string; promise: Promise<LevelAssets> } | null = null;
 
 /* Avancement du chargement (0 → 1), pondéré par la taille des fichiers. */
 let progress = 0;
@@ -55,7 +60,14 @@ function tracker(total: number) {
   };
 }
 
-async function loaders() {
+let loading: ReturnType<typeof makeLoaders> | null = null;
+
+function loaders() {
+  loading ??= makeLoaders();
+  return loading;
+}
+
+async function makeLoaders() {
   const [{ GLTFLoader }, { MeshoptDecoder }, { TextureLoader }] = await Promise.all([
     import("three/examples/jsm/loaders/GLTFLoader.js"),
     import("three/examples/jsm/libs/meshopt_decoder.module.js"),
@@ -66,9 +78,32 @@ async function loaders() {
   return { gltf, tex: new TextureLoader() };
 }
 
-export function preloadAssets(): Promise<RaceAssets> {
-  warm ??= (async () => {
+const cars = new Map<string, Promise<CarModel>>();
+
+/* Le modèle d'un véhicule, gardé une fois chargé (quelques dizaines de ko). */
+export function loadCar(id: string): Promise<CarModel> {
+  let p = cars.get(id);
+  if (!p) {
+    p = loaders().then(async ({ gltf, tex }) => {
+      const [model, shadow] = await Promise.all([gltf.loadAsync(asset(`cars/${id}.glb`)), tex.loadAsync(asset(`cars/${id}_shadow.png`))]);
+      return { gltf: model, shadow };
+    });
+    p.catch(() => cars.delete(id));
+    cars.set(id, p);
+  }
+  return p;
+}
+
+export function preloadAssets(slug: string, vehicleId: string): Promise<RaceAssets> {
+  const vehicle = vehicleById(vehicleId);
+  return Promise.all([levelAssets(slug), loadCar(vehicle.id)]).then(([level, car]) => ({ ...level, vehicle, car }));
+}
+
+function levelAssets(slug: string): Promise<LevelAssets> {
+  if (warm?.slug === slug) return warm.promise;
+  const promise = (async () => {
     progress = 0;
+    const LEVEL = slug;
     const track = tracker(52);
     const code = track(8, () => Promise.all([loaders(), import("./three/RaceScene")]));
     const physics = track(6, () => initPhysics());
@@ -86,16 +121,14 @@ export function preloadAssets(): Promise<RaceAssets> {
           return t;
         }),
       );
-    const [level, levelGltf, flora, car, terrain, road, props, water, shadow] = await Promise.all([
+    const [level, levelGltf, flora, terrain, road, props, water] = await Promise.all([
       track(2, () => loadLevel(LEVEL)),
       glb(17, `${LEVEL}/level.glb`),
-      glb(1, `${LEVEL}/flora.glb`),
-      glb(1, "cars/starter.glb"),
+      glb(2, `${LEVEL}/flora.glb`),
       img(2, `${LEVEL}/lm_terrain.webp`, true),
       img(2, `${LEVEL}/lm_road.webp`, true),
       img(8, `${LEVEL}/lm_props.webp`, true),
-      img(1, `${LEVEL}/water.png`),
-      img(1, "cars/starter_shadow.png"),
+      img(2, `${LEVEL}/water.png`),
       physics,
       track(3, () =>
         import("./three/materials").then(
@@ -110,10 +143,11 @@ export function preloadAssets(): Promise<RaceAssets> {
         ),
       ),
     ]);
-    return { level, levelGltf, flora, car, lightmaps: { terrain, road, props }, water, shadow };
-  })().catch((e) => {
-    warm = null;
-    throw e;
+    return { slug, level, levelGltf, flora, lightmaps: { terrain, road, props }, water };
+  })();
+  promise.catch(() => {
+    if (warm?.promise === promise) warm = null;
   });
-  return warm;
+  warm = { slug, promise };
+  return promise;
 }

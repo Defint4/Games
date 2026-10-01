@@ -3,26 +3,43 @@
 /* Une course : la scène 3D en fond, le chrono et les commandes par-dessus. Le chrono et
    le compteur sont écrits directement dans le DOM à chaque image (pas de rendu React). */
 
+import { useQueryClient } from "@tanstack/react-query";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import SoundToggle from "@/components/SoundToggle";
-import { useT } from "@/lib/i18n";
-import { type Mesh, Vector3 } from "three";
-import type { GLTF } from "three/examples/jsm/loaders/GLTFLoader.js";
-import type { RaceAssets } from "./assets";
+import { ApiError } from "@/lib/api";
+import { tr, useLang, useT } from "@/lib/i18n";
+import { currentProfile } from "@/lib/identity";
+import { type Arrival, boardKey, formatMoney, type Gain, sendFinish, stateKey } from "./api";
+import type { CarModel, RaceAssets } from "./assets";
+import type { RaceRoomView } from "./online/types";
 import { EngineSound, raceSfx } from "./engineSound";
 import { T } from "./i18n";
+import type { Livery } from "./livery";
 import { bungee, GAME } from "./meta";
-import { Game, type TriMesh } from "./sim/game";
+import { trimesh } from "./sim/colliders";
+import { Game, type RaceSetup } from "./sim/game";
 import type { Input } from "./sim/input";
+import { circuitBySlug, type Medal, MEDALS } from "./circuits";
+import MedalIcon from "./MedalIcon";
+import { encodeGhost } from "./sim/ghost";
+import { performanceIndex } from "./sim/tuning";
+import type { Vehicle } from "./sim/vehicles";
 import { formatDelta, formatTime } from "./sim/race";
 import { canFullscreen, enterImmersive, isFullscreen } from "./immersive";
 import { type CamMode, renderStats } from "./three/RaceScene";
 
 const RaceScene = dynamic(() => import("./three/RaceScene"), { ssr: false, loading: () => null });
 
-const PAINT = "#E8552B";
+const GHOST_KEY = "games:rt1:ghostOn";
+
+/* « Tour 1/2 · 1/3 » : checkpoints passés dans le tour, tour en cours. */
+function progressLabel(game: Game, lapWord: string): string {
+  const r = game.race;
+  const cps = `${r.lapCheckpoints}/${r.perLap - 1}`;
+  return r.laps > 1 ? `${lapWord} ${r.lap}/${r.laps} · ${cps}` : cps;
+}
 const CAM_KEY = "games:rt1:camera";
 const FLIP_KEY = "games:rt1:flip";
 const STATS_KEY = "games:rt1:stats";
@@ -41,33 +58,55 @@ function frame(portrait: boolean, flip: boolean): React.CSSProperties {
     : { ...base, transform: "rotate(90deg) translateY(-100%)", ["--sl" as string]: env("top"), ["--st" as string]: env("right"), ["--sr" as string]: env("bottom"), ["--sb" as string]: env("left") };
 }
 
-function trimesh(gltf: GLTF, name: string): TriMesh {
-  const root = gltf.scene.getObjectByName(name);
-  const verts: number[] = [];
-  const idx: number[] = [];
-  if (!root) return { vertices: new Float32Array(), indices: new Uint32Array() };
-  root.updateWorldMatrix(true, true);
-  const v = new Vector3();
-  root.traverse((o) => {
-    const m = o as Mesh;
-    if (!m.isMesh) return;
-    const pos = m.geometry.getAttribute("position");
-    const base = verts.length / 3;
-    for (let i = 0; i < pos.count; i++) {
-      v.fromBufferAttribute(pos, i).applyMatrix4(m.matrixWorld);
-      verts.push(v.x, v.y, v.z);
-    }
-    const index = m.geometry.getIndex();
-    if (index) for (let i = 0; i < index.count; i++) idx.push(base + index.getX(i));
-    else for (let i = 0; i < pos.count; i++) idx.push(base + i);
-  });
-  return { vertices: Float32Array.from(verts), indices: Uint32Array.from(idx) };
-}
-
 type Banner = { key: number; text: string } | null;
-type Finish = { time: number; delta: number | null; best: boolean; record: number | null };
+/* L'arrivée vue par le serveur : envoi, gains, ou gardée pour plus tard (hors réseau).
+   En direct, c'est la table qui paie à la fin de la course. */
+type Server =
+  | { status: "off" }
+  | { status: "sending" }
+  | { status: "done"; arrival: Arrival }
+  | { status: "later" }
+  | { status: "live" }
+  | { status: "error"; message: string };
 
-export default function Race({ assets, onReady }: { assets: RaceAssets; onReady: () => void }) {
+/* Course en direct : la vue de la table (elle change à chaque arrivée), et les actions
+   qui passent par le socket. */
+export type OnlineRace = {
+  view: RaceRoomView;
+  mySeat: number;
+  rivalCars: Record<string, CarModel>;
+  finish: (timeMs: number, splits: number[], ghost?: string) => void;
+  giveUp: () => void;
+  rematch: () => void;
+  leave: () => void;
+};
+type Finish = {
+  id: number;
+  time: number;
+  delta: number | null;
+  best: boolean;
+  record: number | null;
+  medal: Medal | null;
+  server: Server;
+};
+
+type GhostCar = { model: CarModel; vehicle: Vehicle } | null;
+
+export default function Race({
+  assets,
+  setup,
+  ghostCar,
+  livery,
+  online,
+  onReady,
+}: {
+  assets: RaceAssets;
+  setup: RaceSetup;
+  ghostCar: GhostCar;
+  livery: Livery;
+  online?: OnlineRace;
+  onReady: () => void;
+}) {
   const [game, setGame] = useState<Game | null>(null);
   const colliders = useMemo(
     () => ({ road: trimesh(assets.levelGltf, "col_road"), walls: trimesh(assets.levelGltf, "col_wall") }),
@@ -76,21 +115,36 @@ export default function Race({ assets, onReady }: { assets: RaceAssets; onReady:
 
   // Le monde physique (wasm) est créé et libéré par l'effet : sûr en double montage.
   useEffect(() => {
-    const g = new Game(assets.level, colliders.road, colliders.walls);
+    const g = new Game(assets.level, colliders.road, colliders.walls, setup);
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setGame(g);
     return () => {
       setGame(null);
       g.dispose();
     };
-  }, [assets, colliders]);
+  }, [assets, colliders, setup]);
 
   if (!game) return <main className="fixed inset-0 bg-black" />;
-  return <RaceView key={game.id} game={game} assets={assets} onSceneReady={onReady} />;
+  return <RaceView key={game.id} game={game} assets={assets} ghostCar={ghostCar} livery={livery} online={online} onSceneReady={onReady} />;
 }
 
-function RaceView({ game, assets, onSceneReady }: { game: Game; assets: RaceAssets; onSceneReady: () => void }) {
+function RaceView({
+  game,
+  assets,
+  ghostCar,
+  livery,
+  online,
+  onSceneReady,
+}: {
+  game: Game;
+  assets: RaceAssets;
+  ghostCar: GhostCar;
+  livery: Livery;
+  online?: OnlineRace;
+  onSceneReady: () => void;
+}) {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const t = useT(T).race;
   const [cam, setCam] = useState<CamMode>("chase");
   const [ready, setReady] = useState(false);
@@ -100,6 +154,8 @@ function RaceView({ game, assets, onSceneReady }: { game: Game; assets: RaceAsse
   const [flip, setFlip] = useState(false);
   /* ligne technique (cadence, appels, triangles, résolution) : menu pause ou ?debug */
   const [stats, setStats] = useState(false);
+  const [ghostOn, setGhostOn] = useState(true);
+  const circuit = circuitBySlug(assets.slug);
   const [fullscreen, setFullscreen] = useState(true);
   const [banner, setBanner] = useState<Banner>(null);
   const [finish, setFinish] = useState<Finish | null>(null);
@@ -113,6 +169,7 @@ function RaceView({ game, assets, onSceneReady }: { game: Game; assets: RaceAsse
   const delta = useRef<HTMLDivElement>(null);
   const cp = useRef<HTMLDivElement>(null);
   const fps = useRef<HTMLDivElement>(null);
+  const place = useRef<HTMLSpanElement>(null);
   const off = useRef<HTMLDivElement>(null);
   const offCount = useRef<HTMLSpanElement>(null);
   const deltaTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -144,6 +201,7 @@ function RaceView({ game, assets, onSceneReady }: { game: Game; assets: RaceAsse
       // Réglage lu après montage (localStorage).
       // eslint-disable-next-line react-hooks/set-state-in-effect
       if (saved === "cockpit") setCam("cockpit");
+      setGhostOn(localStorage.getItem(GHOST_KEY) !== "0");
       setFlip(localStorage.getItem(FLIP_KEY) === "1");
     } catch {
       /* stockage indisponible */
@@ -164,6 +222,38 @@ function RaceView({ game, assets, onSceneReady }: { game: Game; assets: RaceAsse
 
   const showBanner = useCallback((text: string) => setBanner({ key: Date.now(), text }), []);
 
+  /* Envoie l'arrivée ; la réponse ne s'affiche que si le panneau est toujours le sien. */
+  const submit = useCallback(
+    (id: number, time: number, best: boolean) => {
+      const server = (next: Server) => setFinish((f) => (f && f.id === id ? { ...f, server: next } : f));
+      const profile = currentProfile();
+      if (!profile) return server({ status: "error", message: tr(T).race.sendFailed });
+      const ms = (s: number) => Math.round(s * 1000);
+      sendFinish(profile, {
+        circuit: circuit.slug,
+        time_ms: ms(time),
+        splits: game.race.splits.map(ms),
+        ghost: best && game.lastLap ? encodeGhost(game.lastLap) : undefined,
+        bots: game.botLevel ? { level: game.botLevel, count: game.bots.length, place: game.position } : undefined,
+        vehicle: game.vehicle.id,
+        pi: performanceIndex(game.vehicle.spec),
+      }).then(
+        (arrival) => {
+          if (!arrival) return server({ status: "later" });
+          queryClient.setQueryData(stateKey(profile.pseudo), arrival.state);
+          void queryClient.invalidateQueries({ queryKey: boardKey(circuit.slug) });
+          server({ status: "done", arrival });
+          setTimeout(() => {
+            raceSfx.cash(arrival.gains.length);
+            if (arrival.state.level > arrival.level_before) setTimeout(raceSfx.levelUp, 180 * arrival.gains.length);
+          }, 250);
+        },
+        (e) => server({ status: "error", message: e instanceof ApiError ? e.message : tr(T).race.sendFailed }),
+      );
+    },
+    [game, circuit, queryClient],
+  );
+
   const toggleCam = useCallback(() => {
     setCam((c) => {
       const next = c === "chase" ? "cockpit" : "chase";
@@ -177,12 +267,23 @@ function RaceView({ game, assets, onSceneReady }: { game: Game; assets: RaceAsse
   }, []);
 
   const restart = useCallback(() => {
+    if (game.live) return;
     setFinish(null);
     setMenu(false);
     // un tap : l'occasion de revenir en plein écran si on en est sorti
     enterImmersive();
     game.restart();
   }, [game]);
+
+  /* En direct : quitter, c'est abandonner si on n'est pas arrivé. */
+  const quit = useCallback(() => {
+    if (!online) {
+      router.push(GAME.path);
+      return;
+    }
+    if (game.race.phase !== "finished") online.giveUp();
+    online.leave();
+  }, [online, game, router]);
 
   // Événements de course → bandeaux, écarts, sons
   useEffect(() => {
@@ -191,7 +292,7 @@ function RaceView({ game, assets, onSceneReady }: { game: Game; assets: RaceAsse
         case "restart":
           showBanner("3");
           raceSfx.beat();
-          if (cp.current) cp.current.textContent = `0/${game.race.checkpointCount}`;
+          if (cp.current) cp.current.textContent = progressLabel(game, t.lap);
           break;
         case "beat":
           showBanner(String(e.n));
@@ -203,7 +304,7 @@ function RaceView({ game, assets, onSceneReady }: { game: Game; assets: RaceAsse
           break;
         case "checkpoint": {
           raceSfx.checkpoint(e.delta == null ? null : e.delta <= 0);
-          if (cp.current) cp.current.textContent = `${e.index + 1}/${e.count}`;
+          if (cp.current) cp.current.textContent = progressLabel(game, t.lap);
           const el = delta.current;
           if (el) {
             el.textContent = e.delta == null ? formatTime(e.time) : formatDelta(e.delta);
@@ -216,9 +317,26 @@ function RaceView({ game, assets, onSceneReady }: { game: Game; assets: RaceAsse
           }
           break;
         }
-        case "finish":
+        case "finish": {
           raceSfx.finish(e.best);
-          setFinish({ time: e.time, delta: e.delta, best: e.best, record: game.race.best?.time ?? null });
+          const id = Date.now();
+          setFinish({
+            id,
+            time: e.time,
+            delta: e.delta,
+            best: e.best,
+            record: game.race.best?.time ?? null,
+            medal: MEDALS.find((m) => e.time <= circuit.medals[m]) ?? null,
+            server: online ? { status: "live" } : game.testing ? { status: "off" } : { status: "sending" },
+          });
+          if (online) {
+            const ms = (s: number) => Math.round(s * 1000);
+            online.finish(ms(e.time), game.race.splits.map(ms), e.best && game.lastLap ? encodeGhost(game.lastLap) : undefined);
+          } else if (!game.testing) submit(id, e.time, e.best);
+          break;
+        }
+        case "boost":
+          raceSfx.boost();
           break;
         case "respawn":
           raceSfx.respawn();
@@ -228,7 +346,7 @@ function RaceView({ game, assets, onSceneReady }: { game: Game; assets: RaceAsse
     return () => {
       off();
     };
-  }, [game, showBanner, t.go]);
+  }, [game, showBanner, t.go, t.lap, circuit, submit, online]);
 
   // Clavier (ordinateur)
   useEffect(
@@ -239,14 +357,14 @@ function RaceView({ game, assets, onSceneReady }: { game: Game; assets: RaceAsse
   // Moteur : démarre avec la course, se tait en pause
   useEffect(() => {
     if (!ready) return;
-    const s = new EngineSound();
+    const s = new EngineSound(game.vehicle.family);
     s.start();
     sound.current = s;
     return () => {
       s.stop();
       sound.current = null;
     };
-  }, [ready]);
+  }, [ready, game]);
   useEffect(() => {
     sound.current?.hush(paused);
     if (paused) game.input.clear();
@@ -255,9 +373,11 @@ function RaceView({ game, assets, onSceneReady }: { game: Game; assets: RaceAsse
   const onReady = useCallback(() => {
     setReady(true);
     onSceneReady();
+    // en direct, le décompte vient de l'horloge commune (événements beat)
+    if (game.live) return;
     showBanner("3");
     raceSfx.beat();
-  }, [showBanner, onSceneReady]);
+  }, [showBanner, onSceneReady, game]);
 
   const onFrame = useCallback(
     (dt: number) => {
@@ -265,6 +385,7 @@ function RaceView({ game, assets, onSceneReady }: { game: Game; assets: RaceAsse
       const c = game.car;
       if (chrono.current) chrono.current.textContent = formatTime(r.phase === "countdown" ? 0 : r.time);
       if (speed.current) speed.current.textContent = String(Math.round(Math.abs(c.forwardSpeed) * 3.6));
+      if (place.current) place.current.textContent = String(game.position);
       if (gear.current) gear.current.textContent = c.gear === 0 && c.forwardSpeed < -1 ? "R" : String(Math.max(1, c.gear));
       sound.current?.update(c.rpm, c.throttle, c.slip, c.speed, c.grounded > 0);
       if (off.current && offCount.current) {
@@ -294,7 +415,18 @@ function RaceView({ game, assets, onSceneReady }: { game: Game; assets: RaceAsse
       onContextMenu={(e) => e.preventDefault()}
     >
       <div className="absolute inset-0 touch-none">
-        <RaceScene game={game} assets={assets} camMode={cam} paint={PAINT} paused={paused} onFrame={onFrame} onReady={onReady} />
+        <RaceScene
+          game={game}
+          assets={assets}
+          camMode={cam}
+          livery={livery}
+          paused={paused}
+          ghost={ghostOn}
+          ghostCar={ghostCar}
+          rivalCars={online?.rivalCars}
+          onFrame={onFrame}
+          onReady={onReady}
+        />
       </div>
 
       <div className={photo ? "hidden" : "contents"}>
@@ -304,17 +436,28 @@ function RaceView({ game, assets, onSceneReady }: { game: Game; assets: RaceAsse
           <HudButton label={t.menu} onClick={() => setMenu(true)}>
             <path d="M5 7h14M5 12h14M5 17h14" />
           </HudButton>
-          <HudButton label={t.restart} onClick={restart}>
-            <path d="M5 12a7 7 0 1 0 2.1-5M5 4v4h4" />
-          </HudButton>
+          {!game.live && (
+            <HudButton label={t.restart} onClick={restart}>
+              <path d="M5 12a7 7 0 1 0 2.1-5M5 4v4h4" />
+            </HudButton>
+          )}
+          {game.opponents > 0 && (
+            <div className={`${bungee.className} ml-1 flex items-baseline rounded-xl bg-black/30 px-2.5 py-1 ring-1 ring-white/25 backdrop-blur-sm`}>
+              <span ref={place} className="text-[clamp(1.4rem,calc(3.6*var(--u)),2.2rem)] leading-none tabular-nums [text-shadow:0_2px_0_rgba(8,40,52,0.55)]">
+                1
+              </span>
+              <span className="text-xs opacity-80">/{game.opponents + 1}</span>
+            </div>
+          )}
         </div>
         <div className={`${bungee.className} flex flex-col items-center gap-1`}>
           <div ref={chrono} className="text-[clamp(1.6rem,calc(4.2*var(--u)),2.6rem)] leading-none tabular-nums [text-shadow:0_2px_0_rgba(8,40,52,0.55)]">
             0:00.000
           </div>
           <div ref={cp} className="text-[11px] leading-none opacity-80">
-            0/{game.race.checkpointCount}
+            {progressLabel(game, t.lap)}
           </div>
+          {game.rival && <div className="font-sans text-[11px] font-bold leading-none text-[#8CE6D2]">{t.versus(game.rival)}</div>}
           <div
             ref={delta}
             data-show="0"
@@ -373,8 +516,11 @@ function RaceView({ game, assets, onSceneReady }: { game: Game; assets: RaceAsse
 
       {finish && (
         <div className="absolute inset-0 flex items-center justify-center bg-black/35 backdrop-blur-[2px]">
-          <div className="flex min-w-[16rem] flex-col items-center gap-3 rounded-2xl bg-[#0B2A36]/90 px-8 py-6 ring-1 ring-white/15">
+          <div className="flex max-h-full items-stretch gap-6 overflow-y-auto rounded-2xl bg-[#0B2A36]/90 px-8 py-5 ring-1 ring-white/15">
+          {online ? <LiveStandings online={online} /> : game.bots.length > 0 && <Standings game={game} time={finish.time} color={livery.color} />}
+          <div className="flex min-w-[16rem] flex-col items-center gap-2.5">
             <p className={`${bungee.className} text-sm text-[#8CE6D2]`}>{finish.best ? t.newBest : t.finish}</p>
+            {game.rival && <p className="-mt-2 text-xs font-bold text-white/60">{t.versus(game.rival)}</p>}
             <p className={`${bungee.className} text-4xl tabular-nums`}>{formatTime(finish.time)}</p>
             {finish.delta != null && (
               <p className={`rounded-md px-2 py-0.5 text-sm tabular-nums ${finish.delta <= 0 ? "bg-[#2F7BFF]" : "bg-[#F2433A]"}`}>
@@ -382,14 +528,35 @@ function RaceView({ game, assets, onSceneReady }: { game: Game; assets: RaceAsse
               </p>
             )}
             {!finish.best && finish.record != null && <p className="text-sm text-white/70">{t.best(formatTime(finish.record))}</p>}
+            <div className="flex gap-3">
+              {MEDALS.map((m) => (
+                <div key={m} className={`flex flex-col items-center gap-0.5 ${finish.medal === m ? "" : "opacity-60"}`}>
+                  <MedalIcon medal={m} earned={finish.time <= circuit.medals[m]} className={finish.medal === m ? "size-8" : "size-6"} />
+                  <span className="text-[10px] tabular-nums text-white/75">{formatTime(circuit.medals[m])}</span>
+                </div>
+              ))}
+            </div>
+            {online ? <LiveOutcome online={online} /> : <FinishServer server={finish.server} circuit={circuit.slug} />}
             <div className="mt-2 flex gap-3">
-              <button type="button" onClick={() => router.push(GAME.path)} className="rounded-xl bg-white/10 px-5 py-3 font-bold ring-1 ring-white/15 active:translate-y-0.5">
+              <button type="button" onClick={quit} className="rounded-xl bg-white/10 px-5 py-3 font-bold ring-1 ring-white/15 active:translate-y-0.5">
                 {t.quit}
               </button>
-              <button type="button" onClick={restart} className={`${bungee.className} rounded-xl bg-gold px-6 py-3 text-ink active:translate-y-0.5`}>
-                {t.again}
-              </button>
+              {online ? (
+                <button
+                  type="button"
+                  onClick={online.rematch}
+                  disabled={online.view.status !== "finished"}
+                  className={`${bungee.className} rounded-xl bg-gold px-6 py-3 text-ink active:translate-y-0.5 disabled:opacity-40`}
+                >
+                  {t.newRace}
+                </button>
+              ) : (
+                <button type="button" onClick={restart} className={`${bungee.className} rounded-xl bg-gold px-6 py-3 text-ink active:translate-y-0.5`}>
+                  {t.again}
+                </button>
+              )}
             </div>
+          </div>
           </div>
         </div>
       )}
@@ -408,14 +575,33 @@ function RaceView({ game, assets, onSceneReady }: { game: Game; assets: RaceAsse
             >
               {t.resume}
             </button>
-            <button type="button" onClick={restart} className="rounded-xl bg-white/10 p-3 font-bold ring-1 ring-white/15 active:translate-y-0.5">
-              {t.restart}
-            </button>
-            <button type="button" onClick={() => router.push(GAME.path)} className="rounded-xl bg-white/10 p-3 font-bold ring-1 ring-white/15 active:translate-y-0.5">
-              {t.quit}
+            {!game.live && (
+              <button type="button" onClick={restart} className="rounded-xl bg-white/10 p-3 font-bold ring-1 ring-white/15 active:translate-y-0.5">
+                {t.restart}
+              </button>
+            )}
+            <button type="button" onClick={quit} className={`rounded-xl bg-white/10 p-3 font-bold ring-1 ring-white/15 active:translate-y-0.5 ${game.live ? "col-span-2" : ""}`}>
+              {game.live && game.race.phase !== "finished" ? t.giveUp : t.quit}
             </button>
             <div className="col-span-2 flex flex-wrap items-center justify-center gap-3">
               <SoundToggle />
+              <button
+                type="button"
+                aria-pressed={ghostOn}
+                onClick={() => {
+                  setGhostOn((v) => {
+                    try {
+                      localStorage.setItem(GHOST_KEY, v ? "0" : "1");
+                    } catch {
+                      /* stockage indisponible */
+                    }
+                    return !v;
+                  });
+                }}
+                className={`rounded-xl px-4 py-2.5 text-sm font-bold ring-1 ring-white/15 active:translate-y-0.5 ${ghostOn ? "bg-[#2EC4C6] text-[#061920]" : "bg-white/10"}`}
+              >
+                {t.ghost}
+              </button>
               <button
                 type="button"
                 aria-pressed={stats}
@@ -473,10 +659,153 @@ function RaceView({ game, assets, onSceneReady }: { game: Game; assets: RaceAsse
         />
       )}
       <style>{`
+        @keyframes rt1-gain { from { opacity: 0; transform: translateY(6px) } to { opacity: 1; transform: none } }
         @keyframes rt1-pop { 0% { transform: scale(1.6); opacity: 0 } 25% { transform: scale(1); opacity: 1 } 75% { opacity: 1 } 100% { transform: scale(0.9); opacity: 0 } }
-        @media (prefers-reduced-motion: reduce) { [class*="rt1-pop"] { animation: none !important } }
+        @media (prefers-reduced-motion: reduce) { [class*="rt1-pop"] { animation: none !important } [class*="rt1-gain"] { animation: none !important; opacity: 1 } }
       `}</style>
     </main>
+  );
+}
+
+/* Contre les bots : le classement final. Les temps des bots sont connus d'avance, même
+   ceux qui roulent encore. */
+function Standings({ game, time, color }: { game: Game; time: number; color: string }) {
+  const t = useT(T).race;
+  const rows = [
+    ...game.bots.map((b) => ({ name: b.name, color: b.color, time: b.time, me: false })),
+    { name: t.you, color, time, me: true },
+  ].sort((a, b) => a.time - b.time);
+  return (
+    <div className="flex min-w-[13rem] flex-col gap-1 border-r border-white/10 pr-6">
+      <p className={`${bungee.className} mb-1 text-sm text-[#8CE6D2]`}>{t.standings}</p>
+      {rows.map((r, i) => (
+        <p
+          key={r.name}
+          style={{ animationDelay: `${i * 0.06}s` }}
+          className={`flex items-center gap-2 rounded-lg px-2 py-0.5 text-sm opacity-0 [animation:rt1-gain_0.3s_ease-out_forwards] ${r.me ? "bg-[#2EC4C6]/20 font-bold ring-1 ring-[#2EC4C6]/50" : "text-white/80"}`}
+        >
+          <span className={`${bungee.className} w-5 text-xs tabular-nums ${i < 3 ? "text-[#FFE08A]" : "text-white/55"}`}>{i + 1}</span>
+          <span aria-hidden className="size-2.5 shrink-0 rounded-full ring-1 ring-white/30" style={{ background: r.color }} />
+          <span className="grow truncate">{r.name}</span>
+          <span className="tabular-nums text-white/75">{formatTime(r.time)}</span>
+        </p>
+      ))}
+    </div>
+  );
+}
+
+/* En direct : le classement de la table, qui se remplit au fil des arrivées. */
+function LiveStandings({ online }: { online: OnlineRace }) {
+  const t = useT(T).race;
+  const { view, mySeat } = online;
+  const rows = view.places.map((seat) => view.players[seat]).filter(Boolean);
+  return (
+    <div className="flex min-w-[13rem] flex-col gap-1 border-r border-white/10 pr-6">
+      <p className={`${bungee.className} mb-1 text-sm text-[#8CE6D2]`}>{t.standings}</p>
+      {rows.map((p, i) => (
+        <p
+          key={p.seat}
+          className={`flex items-center gap-2 rounded-lg px-2 py-0.5 text-sm ${p.seat === mySeat ? "bg-[#2EC4C6]/20 font-bold ring-1 ring-[#2EC4C6]/50" : "text-white/80"}`}
+        >
+          <span className={`${bungee.className} w-5 text-xs tabular-nums ${p.time_ms !== null && i < 3 ? "text-[#FFE08A]" : "text-white/55"}`}>
+            {p.time_ms !== null ? i + 1 : ""}
+          </span>
+          <span aria-hidden className="size-2.5 shrink-0 rounded-full ring-1 ring-white/30" style={{ background: p.color }} />
+          <span className="grow truncate">{p.seat === mySeat ? t.you : p.pseudo}</span>
+          <span className={`tabular-nums ${p.time_ms !== null ? "text-white/75" : "text-white/45"}`}>
+            {p.time_ms !== null ? formatTime(p.time_ms / 1000) : p.dnf ? t.out : t.racing}
+          </span>
+        </p>
+      ))}
+    </div>
+  );
+}
+
+/* En direct, sous le chrono : on attend les autres, puis les gains payés par la table. */
+function LiveOutcome({ online }: { online: OnlineRace }) {
+  const t = useT(T).race;
+  const { view, mySeat } = online;
+  const me = view.players[mySeat];
+  if (view.status !== "finished") {
+    return (
+      <p className="flex items-center gap-2 text-sm text-white/70">
+        <span aria-hidden className="size-4 animate-spin rounded-full border-2 border-white/25 border-t-[#2EC4C6]" />
+        {t.waitingOthers}
+        {view.finish_deadline !== null && <span className="tabular-nums text-white/50">{Math.ceil(view.finish_deadline)} s</span>}
+      </p>
+    );
+  }
+  if (!me?.gains) return <p className="text-sm text-[#FFB47F]">{t.notCounted}</p>;
+  return <Gains gains={me.gains} levelBefore={me.level_before ?? 1} level={me.level ?? 1} rank={null} />;
+}
+
+/* Sous le chrono d'arrivée : l'envoi, puis les gains un par un, la place, le niveau. */
+function FinishServer({ server, circuit }: { server: Server; circuit: string }) {
+  const t = useT(T).race;
+  if (server.status === "off" || server.status === "live") return null;
+  if (server.status === "sending") {
+    return (
+      <p className="flex items-center gap-2 text-sm text-white/70">
+        <span aria-hidden className="size-4 animate-spin rounded-full border-2 border-white/25 border-t-[#2EC4C6]" />
+        {t.sending}
+      </p>
+    );
+  }
+  if (server.status === "later") return <p className="max-w-[18rem] text-center text-sm text-[#FFB47F]">{t.savedLater}</p>;
+  if (server.status === "error") return <p className="text-sm text-[#FF8A80]">{server.message}</p>;
+  const { arrival } = server;
+  return (
+    <Gains
+      gains={arrival.gains}
+      levelBefore={arrival.level_before}
+      level={arrival.state.level}
+      rank={arrival.state.records[circuit]?.rank ?? null}
+    />
+  );
+}
+
+function Gains({ gains: all, levelBefore, level, rank }: { gains: Gain[]; levelBefore: number; level: number; rank: number | null }) {
+  const t = useT(T).race;
+  const missions = useT(T).missions;
+  const lang = useLang();
+  const levelUp = level > levelBefore;
+  // Plusieurs médailles d'un coup (de rien à l'or) : une ligne, la meilleure, leur somme.
+  const medals = all.filter((g) => g.kind === "medal");
+  const gains = [
+    ...all.filter((g) => g.kind !== "medal" && g.kind !== "mission"),
+    ...(medals.length ? [{ ...medals[medals.length - 1], money: medals.reduce((a, g) => a + g.money, 0) }] : []),
+    ...all.filter((g) => g.kind === "mission"),
+  ];
+  const label = (g: Gain) =>
+    g.kind === "finish"
+      ? t.gainFinish
+      : g.kind === "medal"
+        ? t.gainMedal[g.id as Medal]
+        : g.kind === "bots"
+          ? t.gainBots(t.place(Number(g.id)))
+          : g.kind === "online"
+            ? t.gainOnline(t.place(Number(g.id)))
+            : t.gainMission(missions[g.id ?? ""]?.name ?? g.id ?? "");
+  return (
+    <div className="flex w-full flex-col gap-1">
+      {gains.map((g, i) => (
+        <p
+          key={`${g.kind}-${g.id}`}
+          style={{ animationDelay: `${0.25 + i * 0.16}s` }}
+          className={`flex items-center justify-between gap-4 text-sm opacity-0 [animation:rt1-gain_0.35s_ease-out_forwards] ${g.kind === "mission" ? "font-bold text-[#FFE08A]" : "text-white/80"}`}
+        >
+          <span>{label(g)}</span>
+          <span className={`${bungee.className} tabular-nums text-[#F4B942]`}>+{formatMoney(g.money, lang)}</span>
+        </p>
+      ))}
+      <p
+        style={{ animationDelay: `${0.25 + gains.length * 0.16}s` }}
+        className="mt-1 flex items-center justify-between gap-4 text-xs text-white/60 opacity-0 [animation:rt1-gain_0.35s_ease-out_forwards]"
+      >
+        <span>{rank ? t.rank(rank) : ""}</span>
+        {levelUp && <span className={`${bungee.className} rounded-full bg-[#2EC4C6] px-2.5 py-0.5 text-[#061920]`}>{t.levelUp(level)}</span>}
+      </p>
+    </div>
   );
 }
 

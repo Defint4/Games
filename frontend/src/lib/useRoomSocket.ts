@@ -11,7 +11,15 @@ import {
 } from "./maintenance";
 import { serverText } from "./serverMessages";
 import { sfx } from "./sound";
-import type { BaseRoomView, BotDifficulty, ChatEntry, GameEvent, ServerMessage } from "./types";
+import type {
+  BaseRoomView,
+  BotDifficulty,
+  ChatEntry,
+  GameEvent,
+  PongMessage,
+  RelayMessage,
+  ServerMessage,
+} from "./types";
 
 /* Connexion WebSocket à une table, commune à tous les jeux : vue, chat, emotes, bots,
    timer, revanche, reconnexion. Les actions propres à un jeu passent par `send`
@@ -35,6 +43,8 @@ export type RoomSocket<V extends BaseRoomView = BaseRoomView> = {
   rematch: () => void;
   leave: () => void;
   onEvents: (handler: (events: GameEvent[], nextView: V) => void) => void;
+  /* Relais et pongs, hors état React (la course les lit à chaque image). */
+  onRelay: (handler: ((msg: RelayMessage | PongMessage) => void) | null) => void;
 };
 
 const CLOSE_REASONS = dict<Record<number, string>>({
@@ -69,6 +79,7 @@ export function useRoomSocket<V extends BaseRoomView>(
   // Événements arrivés sans personne pour les jouer (le lobby est encore affiché au
   // démarrage de la partie) : gardés pour la table, qui les rejoue en s'abonnant.
   const pendingEventsRef = useRef<{ events: GameEvent[]; view: V }[]>([]);
+  const relayHandlerRef = useRef<((msg: RelayMessage | PongMessage) => void) | null>(null);
   const retryRef = useRef(0);
   const rejoinRef = useRef(0);
 
@@ -132,6 +143,8 @@ export function useRoomSocket<V extends BaseRoomView>(
           }
         } else if (msg.type === "maintenance") {
           setPhase(msg.phase);
+        } else if (msg.type === "relay" || msg.type === "pong") {
+          relayHandlerRef.current?.(msg);
         }
       };
 
@@ -236,6 +249,9 @@ export function useRoomSocket<V extends BaseRoomView>(
       const pending = pendingEventsRef.current;
       pendingEventsRef.current = [];
       for (const { events, view } of pending) handler(events, view);
+    }, []),
+    onRelay: useCallback((handler) => {
+      relayHandlerRef.current = handler;
     }, []),
   };
 }

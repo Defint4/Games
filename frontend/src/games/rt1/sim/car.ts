@@ -38,6 +38,12 @@ export type CarSpec = {
   steerLow: number;
   steerHigh: number;
   gears: number;
+  /* Moto : quatre rayons très rapprochés et un stabilisateur qui la garde droite ; elle
+     ne penche qu'à l'image (lean), d'après l'accélération latérale. Arcade assumé : une
+     vraie moto en équilibre serait injouable au doigt. */
+  bike?: boolean;
+  /* part du freinage sur l'avant (0,6 par défaut ; réglage fin de l'atelier) */
+  brakeFront?: number;
 };
 
 export const STARTER: CarSpec = {
@@ -119,6 +125,10 @@ export class Car {
   grounded = 0;
   slip = 0;
   airTime = 0;
+  /* secondes de boost restantes */
+  boostTime = 0;
+  /* inclinaison dans le virage (rad, positive vers la gauche), lissée : l'image des motos */
+  lean = 0;
 
   constructor(R: typeof RAPIER, world: RAPIER.World, spec: CarSpec) {
     this.R = R;
@@ -178,6 +188,8 @@ export class Car {
     this.rpm = 0.2;
     this.gear = 1;
     this.airTime = 0;
+    this.boostTime = 0;
+    this.lean = 0;
     for (const w of this.wheels) {
       w.offset = this.spec.rest;
       w.compression = 0;
@@ -217,7 +229,7 @@ export class Car {
       drive = this.forwardSpeed > -9 ? -s.reverse : 0;
     } else {
       if (c.throttle > 0) {
-        const k = Math.max(0, this.forwardSpeed) / s.topSpeed;
+        const k = Math.max(0, this.forwardSpeed) / (s.topSpeed * (this.boostTime > 0 ? 1.3 : 1));
         drive = c.throttle * s.engine * Math.max(0, 1 - Math.pow(k, 1.6));
       }
       if (c.brake > 0) brake = s.brake * c.brake;
@@ -293,10 +305,11 @@ export class Car {
 
       let fx = drive * driveShare[i];
       if (brake > 0) {
-        const bshare = w.front ? 0.3 : 0.2;
+        const bf = s.brakeFront ?? 0.6;
+        const bshare = w.front ? bf / 2 : (1 - bf) / 2;
         fx -= Math.sign(vLong) * Math.min(brake * bshare, (Math.abs(vLong) * mEff) / h);
       } else if (drive === 0) {
-        fx -= Math.sign(vLong) * Math.min(260, (Math.abs(vLong) * mEff) / h);
+        fx -= Math.sign(vLong) * Math.min(260 * (s.mass / 1150), (Math.abs(vLong) * mEff) / h);
       }
       let fy = (-vLat * mEff) / h;
       const mu = (w.front ? s.gripFront : s.gripRear) * w.load;
@@ -331,6 +344,14 @@ export class Car {
       const df = s.downforce * this.forwardSpeed * this.forwardSpeed * h;
       b.applyImpulse({ x: down.x * df, y: down.y * df, z: down.z * df }, true);
     }
+    // Boost : poussée vers l'avant, même sans accélérer
+    if (this.boostTime > 0) {
+      this.boostTime -= h;
+      if (grounded > 0) {
+        const f = 7500 * (s.mass / 1150) * h;
+        b.applyImpulse({ x: fwd.x * f, y: fwd.y * f, z: fwd.z * f }, true);
+      }
+    }
     // En l'air : la caisse se stabilise
     this.grounded = grounded;
     this.airTime = grounded === 0 ? this.airTime + h : 0;
@@ -339,10 +360,23 @@ export class Car {
     if (grounded > 1 && Math.abs(c.steer) < 0.01) {
       const av = b.angvel();
       const yawRate = av.x * up.x + av.y * up.y + av.z * up.z;
-      const k = -yawRate * 900 * h;
+      const k = -yawRate * 900 * (s.mass / 1150) * h;
       b.applyTorqueImpulse({ x: up.x * k, y: up.y * k, z: up.z * k }, true);
     }
     this.slip = grounded ? slipSum / grounded : 0;
+
+    // Inclinaison d'équilibre : tan(angle) = accélération latérale / g.
+    const av = b.angvel();
+    const yaw = av.x * up.x + av.y * up.y + av.z * up.z;
+    const want = grounded > 0 ? MathUtils.clamp(Math.atan((this.forwardSpeed * yaw) / GRAVITY), -0.85, 0.85) : this.lean * 0.98;
+    this.lean += (want - this.lean) * (1 - Math.exp(-h * 9));
+    if (s.bike) {
+      // Moto : la caisse est tenue droite (roulis ramené à zéro, amorti).
+      const side = tmp.side.set(1, 0, 0).applyQuaternion(tmp.q);
+      const roll = av.x * fwd.x + av.y * fwd.y + av.z * fwd.z;
+      const k = (-side.y * 60 - roll * 9) * s.mass * h;
+      b.applyTorqueImpulse({ x: fwd.x * k, y: fwd.y * k, z: fwd.z * k }, true);
+    }
 
     // Régime et rapport (pour le son et le compte-tours)
     const ratio = MathUtils.clamp(Math.abs(this.forwardSpeed) / s.topSpeed, 0, 1);

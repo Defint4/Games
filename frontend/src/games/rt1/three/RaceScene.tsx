@@ -8,9 +8,12 @@ import { Environment, PerformanceMonitor } from "@react-three/drei";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { BackSide, Color, type Mesh, type PerspectiveCamera, SphereGeometry, Vector3 } from "three";
-import type { RaceAssets } from "../assets";
+import type { CarModel, RaceAssets } from "../assets";
+import { type Vehicle, vehicleById } from "../sim/vehicles";
+import type { Livery } from "../livery";
+import { bungee } from "../meta";
 import type { Game } from "../sim/game";
-import { buildFlora, buildLevel, buildWater, type CamMode, CarView, Rig } from "./kit";
+import { BotsView, buildFlora, buildLevel, buildWater, type CamMode, CarView, GhostView, Rig } from "./kit";
 import { clock, FOG, skyMaterial } from "./materials";
 
 export type { CamMode };
@@ -22,8 +25,13 @@ type Props = {
   game: Game;
   assets: RaceAssets;
   camMode: CamMode;
-  paint: string;
+  livery: Livery;
   paused: boolean;
+  ghost: boolean;
+  /* véhicule du fantôme suivi, s'il n'est pas celui du joueur */
+  ghostCar?: { model: CarModel; vehicle: Vehicle } | null;
+  /* course en direct : le modèle de chaque véhicule des autres pilotes */
+  rivalCars?: Record<string, CarModel>;
   onFrame: (dt: number) => void;
   onReady: () => void;
 };
@@ -54,19 +62,44 @@ export default function RaceScene(props: Props) {
   );
 }
 
-function Contents({ game, assets, camMode, paint, paused, onFrame, onReady }: Props) {
+function Contents({ game, assets, camMode, livery, paused, ghost, ghostCar, rivalCars, onFrame, onReady }: Props) {
   const { camera, gl, scene } = useThree();
   const sun = useMemo(() => new Vector3(...assets.level.meta.sun).normalize(), [assets]);
   const level = useMemo(() => buildLevel(assets, gl.capabilities.getMaxAnisotropy()), [assets, gl]);
   const water = useMemo(() => buildWater(assets, sun), [assets, sun]);
   const flora = useMemo(() => buildFlora(assets), [assets]);
-  const car = useMemo(() => new CarView(assets, paint), [assets, paint]);
-  const rig = useMemo(() => new Rig(), []);
+  const car = useMemo(() => new CarView(assets.car, assets.vehicle.spec, livery, bungee.style.fontFamily), [assets, livery]);
+  useEffect(() => () => car.dispose(), [car]);
+  const rig = useMemo(() => {
+    const r = new Rig();
+    r.setVehicle(assets.vehicle);
+    return r;
+  }, [assets]);
+  const ghostView = useMemo(
+    () => (ghostCar ? new GhostView(ghostCar.model, ghostCar.vehicle.spec) : new GhostView(assets.car, assets.vehicle.spec)),
+    [assets, ghostCar],
+  );
+  const botsView = useMemo(
+    () => (game.bots.length ? new BotsView(assets.car, assets.vehicle.spec, game.bots.map((b) => b.color)) : null),
+    [assets, game],
+  );
+  // Pilotes en direct : une vue instanciée par modèle de véhicule, aux couleurs de leur livrée.
+  const rivalViews = useMemo(() => {
+    const groups = new Map<string, number[]>();
+    game.rivals.forEach((r, i) => groups.set(r.vehicle, [...(groups.get(r.vehicle) ?? []), i]));
+    return [...groups].map(([id, idx]) => {
+      const model = rivalCars?.[id] ?? (id === assets.vehicle.id ? assets.car : null) ?? assets.car;
+      const spec = vehicleById(id).spec;
+      return { view: new BotsView(model, spec, idx.map((i) => game.rivals[i].color)), states: idx.map((i) => game.rivalStates[i]) };
+    });
+  }, [assets, game, rivalCars]);
   const pausedRef = useRef(paused);
+  const ghostRef = useRef(ghost);
 
   useEffect(() => {
     pausedRef.current = paused;
-  }, [paused]);
+    ghostRef.current = ghost;
+  }, [paused, ghost]);
 
   useEffect(() => {
     rig.snap(game);
@@ -89,7 +122,10 @@ function Contents({ game, assets, camMode, paint, paused, onFrame, onReady }: Pr
     if (!pausedRef.current) game.update(dt);
     clock.value += Math.min(dt, 0.1);
     car.update(game);
+    ghostView.update(game, ghostRef.current);
     rig.update(game, camera as PerspectiveCamera, dt);
+    botsView?.update(game, camera as PerspectiveCamera);
+    for (const r of rivalViews) r.view.update(game, camera as PerspectiveCamera, r.states);
     renderStats.calls = gl.info.render.calls;
     renderStats.triangles = gl.info.render.triangles;
     renderStats.dpr = gl.getPixelRatio();
@@ -108,6 +144,11 @@ function Contents({ game, assets, camMode, paint, paused, onFrame, onReady }: Pr
       <primitive object={water} />
       <primitive object={flora} />
       <primitive object={car.root} />
+      <primitive object={ghostView.root} />
+      {botsView && <primitive object={botsView.root} />}
+      {rivalViews.map((r, i) => (
+        <primitive key={i} object={r.view.root} />
+      ))}
     </>
   );
 }

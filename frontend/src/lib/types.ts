@@ -44,13 +44,22 @@ export type GameEvent = { type: string; [key: string]: unknown };
 
 export type ChatEntry = { type: "chat"; seat: number; text: string };
 
+/* Message à haute fréquence transmis tel quel par le serveur (GameSpec.relay) : la pose
+   d'une voiture de RT1. */
+export type RelayMessage = { type: "relay"; seat: number; [key: string]: unknown };
+
+/* Réponse au `ping` : l'heure du serveur (s) et l'horodatage renvoyé, pour se caler. */
+export type PongMessage = { type: "pong"; t: number; now: number };
+
 export type ServerMessage<V extends BaseRoomView = BaseRoomView> =
   | { type: "state"; events: GameEvent[]; view: V; chat?: ChatEntry[] }
   | ChatEntry
   | { type: "emote"; seat: number; emote: string; target: number | null }
   | { type: "rematch"; code: string }
   | { type: "error"; detail: string }
-  | { type: "maintenance"; phase: string };
+  | { type: "maintenance"; phase: string }
+  | RelayMessage
+  | PongMessage;
 
 /* `best_ms` : jeux chronométrés (Solitaire), victoire la plus rapide ; affiché, hors
    classement. */
@@ -99,4 +108,6 @@ export type OpenRoom = {
   seats_max: number;
   /* Échecs : la cadence choisie par le créateur. */
   time_control?: string;
+  /* RT1 : le circuit de la course. */
+  circuit?: string;
 };

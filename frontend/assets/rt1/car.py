@@ -401,4 +401,6 @@ def main():
     bake_shadow(body, ws)
 
 
-main()
+# vehicles.py importe ce fichier pour ses outils (sections, matières) sans le lancer.
+if __name__ == "__main__":
+    main()

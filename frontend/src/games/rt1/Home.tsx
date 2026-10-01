@@ -1,47 +1,79 @@
 "use client";
 
-/* Onglet Course : le circuit du moment en contre-la-montre, et les modes à venir. */
+/* Onglet Course : les circuits de la région en contre-la-montre, leurs médailles, et les
+   modes à venir. Le circuit choisi est retenu et préchargé (décor et fantôme). */
 
+import { useQueryClient } from "@tanstack/react-query";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { TransitionOverlay } from "@/components/Loading";
-import { tr, useT } from "@/lib/i18n";
-import { LEVEL } from "./assets";
+import { tr, useLang, useT } from "@/lib/i18n";
+import { fetchRival, readVehicle, useProfile, useRt1State } from "./api";
+import { preloadAssets } from "./assets";
+import { type Circuit, CIRCUITS, circuitBySlug, MEDALS, medalFor, readCircuit, saveCircuit } from "./circuits";
 import { T } from "./i18n";
 import { enterImmersive } from "./immersive";
+import MedalIcon from "./MedalIcon";
 import { LockIcon } from "./menu/icons";
-import { card, Title } from "./menu/Shell";
+import BotsSheet from "./menu/BotsSheet";
+import { card, Pending, Title } from "./menu/Shell";
 import { bungee, PLAY_PATH } from "./meta";
 import { asset } from "./sim/level";
-import { type Best, formatTime } from "./sim/race";
+import { formatTime } from "./sim/race";
 
 export default function Home() {
   const router = useRouter();
   const t = useT(T).home;
-  const [best, setBest] = useState<Best | null>(null);
+  const lang = useLang();
+  const queryClient = useQueryClient();
+  const profile = useProfile();
+  const state = useRt1State(profile);
+  const records = state.data?.records;
+  const bests: Record<string, number> = {};
+  for (const [c, r] of Object.entries(records ?? {})) bests[c] = r.time_ms / 1000;
+  // Temps pas encore arrivés : ni tiret ni record, un chargement.
+  const pending = !records && !state.isError;
+  const [slug, setSlug] = useState(CIRCUITS[0].slug);
   const [leaving, setLeaving] = useState<string | null>(null);
+  const [botsOpen, setBotsOpen] = useState(false);
+  const circuit = circuitBySlug(slug);
+  const best = bests[slug];
 
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(`games:rt1:best:${LEVEL}`);
-      // Lecture localStorage impossible côté serveur : elle arrive après montage.
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      if (raw) setBest(JSON.parse(raw) as Best);
-    } catch {
-      /* stockage indisponible */
-    }
+    // Lecture localStorage impossible côté serveur : elle arrive après montage.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setSlug(circuitBySlug(readCircuit()).slug);
   }, []);
+
+  // Le fantôme du record se télécharge avec le décor : la course part sans attente.
+  const mine = records?.[slug];
+  useEffect(() => {
+    if (profile && mine) void fetchRival(queryClient, slug, profile.pseudo, mine.time_ms).catch(() => {});
+  }, [queryClient, profile, slug, mine]);
+
+  const drive = (query = "") => {
+    enterImmersive();
+    setLeaving(tr(T).home.leaving);
+    router.push(`${PLAY_PATH}?c=${slug}${query}`);
+  };
+
+  const choose = (c: Circuit) => {
+    setSlug(c.slug);
+    saveCircuit(c.slug);
+    void preloadAssets(c.slug, state.data?.vehicle ?? readVehicle()).catch(() => {});
+  };
 
   return (
     <>
       <TransitionOverlay label={leaving} />
       <Title sub={t.sub}>{t.title}</Title>
 
-      <section className={`${card} mb-4 overflow-hidden`}>
+      <section className={`${card} mb-5 overflow-hidden`}>
         <div className="relative">
           <Image
-            src={asset(`${LEVEL}/cover.webp`)}
+            key={slug}
+            src={asset(`${slug}/cover.webp`)}
             alt=""
             width={960}
             height={400}
@@ -54,22 +86,26 @@ export default function Home() {
           </span>
         </div>
         <div className="p-4">
-          <p className={`${bungee.className} text-lg`}>{t.track}</p>
-          <p className="mt-1 text-sm text-white/70">{t.trackNote}</p>
+          <p className={`${bungee.className} text-lg`}>{circuit.name[lang]}</p>
+          <p className="mt-1 text-sm text-white/70">{circuit.note[lang]}</p>
+          <div className="mt-3 flex gap-3">
+            {MEDALS.map((m) => (
+              <span key={m} className="flex items-center gap-1 text-[11px] tabular-nums text-white/70">
+                <MedalIcon medal={m} earned={best != null && best <= circuit.medals[m]} className="size-5" />
+                {formatTime(circuit.medals[m]).replace(/^0:/, "")}
+              </span>
+            ))}
+          </div>
           <div className="mt-4 flex items-center justify-between gap-3">
             <div>
               <p className="text-[11px] font-bold uppercase tracking-wide text-white/50">{t.record}</p>
               <p className={`${bungee.className} text-xl tabular-nums text-[#8CE6D2]`}>
-                {best ? formatTime(best.time) : "—"}
+                {pending ? <Pending /> : best != null ? formatTime(best) : "—"}
               </p>
             </div>
             <button
               type="button"
-              onClick={() => {
-                enterImmersive();
-                setLeaving(tr(T).home.leaving);
-                router.push(PLAY_PATH);
-              }}
+              onClick={() => drive()}
               disabled={leaving !== null}
               className={`${bungee.className} rounded-xl bg-[#FF7A2F] px-7 py-3.5 text-xl text-[#1b0d05] shadow-[0_6px_0_#b24c14] transition-transform enabled:active:translate-y-1 enabled:active:shadow-[0_2px_0_#b24c14] disabled:opacity-50`}
             >
@@ -79,8 +115,47 @@ export default function Home() {
         </div>
       </section>
 
+      <h2 className={`${bungee.className} mb-2 text-sm text-[#8CE6D2]`}>{t.circuits}</h2>
+      <div className="mb-5 flex flex-col gap-2">
+        {CIRCUITS.map((c) => {
+          const medal = medalFor(c, bests[c.slug]);
+          const active = c.slug === slug;
+          return (
+            <button
+              key={c.slug}
+              type="button"
+              onClick={() => choose(c)}
+              className={`${card} flex items-center gap-3 p-3 text-left transition-colors ${active ? "ring-2 ring-[#2EC4C6]" : ""}`}
+            >
+              <MedalIcon medal={medal ?? "bronze"} earned={medal !== null} className="size-8 shrink-0" />
+              <span className="min-w-0 grow">
+                <span className={`${bungee.className} block truncate text-sm`}>{c.name[lang]}</span>
+                <span className="block truncate text-xs text-white/60">{c.note[lang]}</span>
+              </span>
+              <span className={`${bungee.className} shrink-0 text-sm tabular-nums ${bests[c.slug] != null ? "text-[#8CE6D2]" : "text-white/35"}`}>
+                {pending ? <Pending /> : bests[c.slug] != null ? formatTime(bests[c.slug]) : "—"}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
       <h2 className={`${bungee.className} mb-2 text-sm text-[#8CE6D2]`}>{t.modes}</h2>
       <div className="grid grid-cols-2 gap-3">
+        <button
+          type="button"
+          onClick={() => setBotsOpen(true)}
+          disabled={leaving !== null}
+          className={`${card} p-3.5 text-left ring-[#FF7A2F]/50 transition-transform active:scale-[0.98]`}
+        >
+          <p className={`${bungee.className} flex items-center gap-1.5 text-sm text-[#FFB47F]`}>
+            <svg viewBox="0 0 24 24" aria-hidden className="size-4" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M4 19l4-6 4 3 4-8 4 5" />
+            </svg>
+            {t.bots.name}
+          </p>
+          <p className="mt-1 text-xs text-white/65">{t.bots.note}</p>
+        </button>
         {t.soonModes.map((m) => (
           <div key={m.name} className={`${card} p-3.5 opacity-75`}>
             <p className={`${bungee.className} flex items-center gap-1.5 text-sm`}>
@@ -91,7 +166,16 @@ export default function Home() {
           </div>
         ))}
       </div>
-      <p className="mt-5 text-center text-xs text-white/45">{t.preview}</p>
+      {botsOpen && (
+        <BotsSheet
+          circuit={circuit.name[lang]}
+          onClose={() => setBotsOpen(false)}
+          onGo={(level, count) => {
+            setBotsOpen(false);
+            drive(`&bots=${count}&level=${level}`);
+          }}
+        />
+      )}
     </>
   );
 }
