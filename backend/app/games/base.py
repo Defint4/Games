@@ -13,6 +13,8 @@ from collections.abc import Awaitable, Callable
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any
 
+from app.core.config import settings
+
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -40,7 +42,7 @@ DEV_GAMES = frozenset({"rt1"})
 
 
 def is_open(slug: str, admin: bool) -> bool:
-    return slug not in DEV_GAMES or admin
+    return slug not in DEV_GAMES or admin or settings.open_dev_games
 
 
 class GameSpec(ABC):

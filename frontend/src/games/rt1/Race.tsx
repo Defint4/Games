@@ -113,21 +113,18 @@ export default function Race({
   onReady: () => void;
 }) {
   const [game, setGame] = useState<Game | null>(null);
-  const colliders = useMemo(
-    () => ({ road: trimesh(assets.levelGltf, "col_road"), walls: trimesh(assets.levelGltf, "col_wall") }),
-    [assets],
-  );
+  const road = useMemo(() => trimesh(assets.levelGltf, "col_road"), [assets]);
 
   // Le monde physique (wasm) est créé et libéré par l'effet : sûr en double montage.
   useEffect(() => {
-    const g = new Game(assets.level, colliders.road, colliders.walls, setup);
+    const g = new Game(assets.level, road, setup);
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setGame(g);
     return () => {
       setGame(null);
       g.dispose();
     };
-  }, [assets, colliders, setup]);
+  }, [assets, road, setup]);
 
   if (!game) return <main className="fixed inset-0 bg-black" />;
   return <RaceView key={game.id} game={game} assets={assets} ghostCar={ghostCar} livery={livery} online={online} ticket={ticket} onSceneReady={onReady} />;

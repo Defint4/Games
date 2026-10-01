@@ -18,7 +18,6 @@ export type Circuit = {
   heights: Int16Array;
   gltf: GLTF;
   road: ReturnType<typeof trimesh>;
-  walls: ReturnType<typeof trimesh>;
 };
 
 export async function loadCircuit(slug: string): Promise<Circuit> {
@@ -29,7 +28,7 @@ export async function loadCircuit(slug: string): Promise<Circuit> {
   const loader = new GLTFLoader();
   loader.setMeshoptDecoder(MeshoptDecoder);
   const gltf = await loader.parseAsync(glb.buffer.slice(glb.byteOffset, glb.byteOffset + glb.byteLength), "");
-  return { slug, meta, heights, gltf, road: trimesh(gltf, "col_road"), walls: trimesh(gltf, "col_wall") };
+  return { slug, meta, heights, gltf, road: trimesh(gltf, "col_road") };
 }
 
 /* Hauteur du terrain (m) en un point three (x, z), interpolée dans heights.bin. */

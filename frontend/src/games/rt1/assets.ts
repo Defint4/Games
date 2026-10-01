@@ -2,7 +2,7 @@
    circuit, modèles, cartes de lumière, textures calculées, code de la scène, et le
    véhicule (chargé à part : on en change sans recharger le circuit). */
 
-import type { Texture } from "three";
+import type { Texture, WebGLRenderer } from "three";
 import type { GLTF } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { initPhysics } from "./sim/game";
 import { asset, type LevelData, loadLevel } from "./sim/level";
@@ -68,14 +68,26 @@ function loaders() {
 }
 
 async function makeLoaders() {
-  const [{ GLTFLoader }, { MeshoptDecoder }, { TextureLoader }] = await Promise.all([
+  const [{ GLTFLoader }, { MeshoptDecoder }, { KTX2Loader }, { TextureLoader }] = await Promise.all([
     import("three/examples/jsm/loaders/GLTFLoader.js"),
     import("three/examples/jsm/libs/meshopt_decoder.module.js"),
+    import("three/examples/jsm/loaders/KTX2Loader.js"),
     import("three"),
   ]);
   const gltf = new GLTFLoader();
   gltf.setMeshoptDecoder(MeshoptDecoder);
-  return { gltf, tex: new TextureLoader() };
+  // Cartes de lumière en KTX2 : transcodées vers le format compressé du GPU (ASTC sur
+  // iPhone), 4 bits par pixel au lieu de 32. Les formats se détectent sur un contexte
+  // WebGL jetable : le rendu n'existe pas encore au chargement.
+  const ktx2 = new KTX2Loader().setTranscoderPath("/rt1/basis/").setWorkerLimit(2);
+  const probe = document.createElement("canvas");
+  const gl = probe.getContext("webgl2") ?? probe.getContext("webgl");
+  if (gl) {
+    const fake = { extensions: { has: (n: string) => gl.getExtension(n) !== null, get: (n: string) => gl.getExtension(n) } };
+    ktx2.detectSupport(fake as unknown as WebGLRenderer);
+    gl.getExtension("WEBGL_lose_context")?.loseContext();
+  }
+  return { gltf, tex: new TextureLoader(), ktx2 };
 }
 
 const cars = new Map<string, Promise<CarModel>>();
@@ -107,27 +119,18 @@ function levelAssets(slug: string): Promise<LevelAssets> {
     const track = tracker(52);
     const code = track(8, () => Promise.all([loaders(), import("./three/RaceScene")]));
     const physics = track(6, () => initPhysics());
-    const [{ gltf, tex }] = await code;
-    const { SRGBColorSpace } = await import("three");
+    const [{ gltf, tex, ktx2 }] = await code;
     const glb = (weight: number, path: string) =>
       track(weight, (frac) => gltf.loadAsync(asset(path), (e) => e.total && frac(e.loaded / e.total)));
-    const img = (weight: number, path: string, lightmap = false) =>
-      track(weight, () =>
-        tex.loadAsync(asset(path)).then((t) => {
-          if (lightmap) {
-            t.colorSpace = SRGBColorSpace;
-            t.flipY = false;
-          }
-          return t;
-        }),
-      );
+    const img = (weight: number, path: string) => track(weight, () => tex.loadAsync(asset(path)));
+    const lm = (weight: number, path: string) => track(weight, () => ktx2.loadAsync(asset(path)));
     const [level, levelGltf, flora, terrain, road, props, water] = await Promise.all([
       track(2, () => loadLevel(LEVEL)),
       glb(17, `${LEVEL}/level.glb`),
       glb(2, `${LEVEL}/flora.glb`),
-      img(2, `${LEVEL}/lm_terrain.webp`, true),
-      img(2, `${LEVEL}/lm_road.webp`, true),
-      img(8, `${LEVEL}/lm_props.webp`, true),
+      lm(2, `${LEVEL}/lm_terrain.ktx2`),
+      lm(2, `${LEVEL}/lm_road.ktx2`),
+      lm(8, `${LEVEL}/lm_props.ktx2`),
       img(2, `${LEVEL}/water.png`),
       physics,
       track(3, () =>

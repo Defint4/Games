@@ -44,12 +44,12 @@ const total: Result = { essais: 0, travers: 0, dessus: 0, tonneaux: 0, hmax: 0 }
 
 for (const slug of wanted) {
   const c = await loadCircuit(slug);
-  if (c.meta.walls === false || !c.walls.indices.length) continue;
+  if (c.meta.walls === false || !c.meta.wallSegments?.length) continue;
   const line = c.meta.line.map((p) => new Vector3(...p));
   const n = line.length;
   for (const vehicle of VEHICLES) {
     if (only && !only.includes(vehicle.id)) continue;
-    const game = new Game({ meta: c.meta, heights: c.heights }, c.road, c.walls, { best: null, ghost: null, rival: null, bots: [], vehicle });
+    const game = new Game({ meta: c.meta, heights: c.heights }, c.road, { best: null, ghost: null, rival: null, bots: [], vehicle });
     const loc = new TrackLocator(c.meta.line);
     const r: Result = { essais: 0, travers: 0, dessus: 0, tonneaux: 0, hmax: 0 };
     for (let k = 0; k < points; k++) {

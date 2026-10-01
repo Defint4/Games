@@ -1,10 +1,14 @@
 #!/usr/bin/env bash
 # Régénère les modèles et la lumière cuite de RT1 dans public/rt1/.
-# Blender 4.5 LTS (portable, BLENDER=chemin sinon ~/.local/opt/…) + gltf-transform.
+# Blender 4.5 LTS (portable, BLENDER=chemin sinon ~/.local/opt/…), gltf-transform, toktx.
+# SAMPLES=128 pour aller vite, SKIP_CARS=1 pour ne refaire que les circuits, SKIP_BLENDER=1
+# pour ne refaire que l'optimisation, CIRCUITS="noumea le-col" pour une partie.
 set -euo pipefail
 cd "$(dirname "$0")"
 
 BLENDER=${BLENDER:-$HOME/.local/opt/blender-4.5.14-linux-x64/blender}
+# KTX-Software (toktx) : cartes de lumière en KTX2, décompressées par le GPU du téléphone
+TOKTX=${TOKTX:-$HOME/.local/opt/KTX-Software-4.4.2-Linux-x86_64/bin/toktx}
 SAMPLES=${SAMPLES:-256}
 OUT=.out
 PUB=../../public/rt1
@@ -29,25 +33,37 @@ if [ -z "${SKIP_BLENDER:-}" ]; then
   for c in $CIRCUITS; do
     blend level.py --circuit "$c" --out "$OUT/$c" --samples "$SAMPLES" --lm 2048
   done
-  blend car.py --out "$OUT/cars"
-  # dimensions des véhicules : une seule source, sim/vehicles.ts
-  ../../node_modules/.bin/jiti specs.ts > "$OUT/specs.json"
-  blend vehicles.py --out "$OUT/cars" --specs "$OUT/specs.json" --thumbs 1
-  blend vehicles.py --out "$OUT/cars" --specs "$OUT/specs.json" --only starter --thumbs 1
+  if [ -z "${SKIP_CARS:-}" ]; then
+    blend car.py --out "$OUT/cars"
+    # dimensions des véhicules : une seule source, sim/vehicles.ts
+    ../../node_modules/.bin/jiti specs.ts > "$OUT/specs.json"
+    blend vehicles.py --out "$OUT/cars" --specs "$OUT/specs.json" --thumbs 1
+    blend vehicles.py --out "$OUT/cars" --specs "$OUT/specs.json" --only starter --thumbs 1
+  fi
 fi
 
 mkdir -p "$PUB/cars"
+# positions sur 16 bits (le niveau « high » les mettait sur 14 : pas de 8 cm sur le terrain),
+# normales sur 10 bits (8 faisaient des paliers dans les reflets de la peinture)
 opt() {
-  ../../node_modules/.bin/gltf-transform optimize "$1" "$2" --compress meshopt --flatten false --join false \
-    --instance false --palette false --simplify false --texture-compress false \
-    --prune-attributes false >/dev/null
+  ../../node_modules/.bin/gltf-transform meshopt "$1" "$2" --level medium \
+    --quantize-position 16 --quantize-normal 10 >/dev/null
+}
+# Carte de lumière en KTX2 ETC1S (sRGB, mips) : 4 bits par pixel sur le GPU au lieu de 32.
+lm() {
+  "$TOKTX" --t2 --encode etc1s --clevel 2 --qlevel 230 --assign_oetf srgb --genmipmap "$2" "$1"
 }
 for c in $CIRCUITS; do
   mkdir -p "$PUB/$c"
   opt "$OUT/$c/level.glb" "$PUB/$c/level.glb"
   opt "$OUT/$c/flora.glb" "$PUB/$c/flora.glb"
-  cp "$OUT/$c"/{lm_terrain.webp,lm_road.webp,lm_props.webp,water.png,heights.bin,level.json} "$PUB/$c/"
+  for m in lm_terrain lm_road lm_props; do lm "$OUT/$c/$m.png" "$PUB/$c/$m.ktx2"; done
+  rm -f "$PUB/$c"/lm_*.webp
+  cp "$OUT/$c"/{water.png,heights.bin,level.json} "$PUB/$c/"
 done
+# le décodeur Basis de three, servi avec les fichiers du jeu
+mkdir -p "$PUB/basis"
+cp ../../node_modules/three/examples/jsm/libs/basis/basis_transcoder.{js,wasm} "$PUB/basis/"
 for glb in "$OUT"/cars/*.glb; do
   opt "$glb" "$PUB/cars/$(basename "$glb")"
 done

@@ -16,6 +16,11 @@ export type LevelMeta = {
   lmScale: number;
   /* faux : circuit sans murs, la sortie de route est libre */
   walls?: boolean;
+  /* tronçons de mur [ax, ay, az, bx, by, bz, côté (+1 à gauche)] le long de la face
+     intérieure du muret ; le jeu en fait des pavés épais et hauts */
+  wallSegments?: number[][];
+  /* distance entre deux points de `line` (m) */
+  lineStep?: number;
   laps?: number;
   /* plaques de boost : centre du début, direction, demi-largeur, longueur */
   boosts?: (Gate & { len: number })[];

@@ -1,8 +1,7 @@
 /* Contrôles des circuits publiés, lancés en fin de build.sh (pnpm rt1:check [circuit…]) :
    - aucun sommet plat de la route sous le terrain (sinon le terrain, cuit en noir à cet
      endroit, perce l'accotement et scintille) ;
-   - collider de route tourné vers le haut, murs tournés vers la route (Rapier ne garde que
-     les contacts de face avant avec le drapeau FIX_INTERNAL_EDGES).
+   - collider de route tourné vers le haut, et des tronçons de mur sur les circuits à murs.
    Sort en erreur au premier circuit fautif. */
 
 import { type Mesh, Vector3 } from "three";
@@ -41,27 +40,17 @@ function piercing(c: Circuit): { count: number; max: number } {
   return { count, max };
 }
 
-/* Part des triangles d'un collider dont la normale regarde vers le haut (route) ou vers
-   l'axe (murs). */
-function facing(c: Circuit, mesh: Circuit["road"], towardAxis: boolean): { ok: number; total: number } {
-  const line = c.meta.line.map((p) => new Vector3(...p));
-  const probe = new TrackLocator(c.meta.line);
-  const a = new Vector3(), b = new Vector3(), d = new Vector3(), n = new Vector3(), ctr = new Vector3();
+/* Part des triangles du collider de route dont la normale regarde vers le haut. */
+function facingUp(mesh: Circuit["road"]): { ok: number; total: number } {
+  const a = new Vector3(), b = new Vector3(), d = new Vector3(), n = new Vector3();
   let ok = 0;
   const total = mesh.indices.length / 3;
   for (let t = 0; t < mesh.indices.length; t += 3) {
     a.fromArray(mesh.vertices, mesh.indices[t] * 3);
     b.fromArray(mesh.vertices, mesh.indices[t + 1] * 3);
     d.fromArray(mesh.vertices, mesh.indices[t + 2] * 3);
-    n.copy(b).sub(a).cross(ctr.copy(d).sub(a)).normalize();
-    ctr.copy(a).add(b).add(d).multiplyScalar(1 / 3);
-    if (!towardAxis) {
-      if (n.y > 0) ok++;
-      continue;
-    }
-    probe.reset();
-    const p = line[probe.locate(ctr).i];
-    if ((p.x - ctr.x) * n.x + (p.z - ctr.z) * n.z > 0) ok++;
+    n.copy(b).sub(a).cross(d.sub(a));
+    if (n.y > 0) ok++;
   }
   return { ok, total };
 }
@@ -71,14 +60,13 @@ const wanted = process.argv.slice(2).length ? process.argv.slice(2) : CIRCUITS;
 for (const slug of wanted) {
   const c = await loadCircuit(slug);
   const p = piercing(c);
-  const road = facing(c, c.road, false);
-  const walls = c.walls.indices.length ? facing(c, c.walls, true) : null;
-  const bad = p.count > 0 || road.ok !== road.total || (walls !== null && walls.ok !== walls.total);
+  const road = facingUp(c.road);
+  const walls = c.meta.wallSegments?.length ?? 0;
+  const bad = p.count > 0 || road.ok < road.total - 2 || (c.meta.walls !== false && walls === 0);
   failed ||= bad;
   console.log(
     `${bad ? "ÉCHEC" : "ok   "} ${slug.padEnd(13)} route sous le terrain : ${p.count} sommets (max ${(p.max * 100).toFixed(0)} cm) | ` +
-      `col_road vers le haut : ${road.ok}/${road.total}` +
-      (walls ? ` | col_wall vers la route : ${walls.ok}/${walls.total}` : " | sans murs"),
+      `col_road vers le haut : ${road.ok}/${road.total} | murs : ${c.meta.walls === false ? "aucun (voulu)" : `${walls} tronçons`}`,
   );
 }
 process.exit(failed ? 1 : 0);

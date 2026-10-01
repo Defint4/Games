@@ -22,6 +22,10 @@ class Settings(BaseSettings):
     # Une partie sans aucun joueur connecté pendant ce délai est supprimée.
     empty_room_ttl_minutes: int = 15
 
+    # Jeux en développement (games.base.DEV_GAMES) ouverts à tous : pour une machine de dev
+    # sans compte admin. Jamais en production.
+    open_dev_games: bool = False
+
     # Journal des parties jouées contre des bots (une ligne JSON par manche) ; vide = désactivé.
     games_log_path: str = "logs/games.jsonl"
 

@@ -62,7 +62,7 @@ export function buildLevel(assets: RaceAssets, anisotropy: number): Object3D {
       return;
     }
     const name = (m.material as { name?: string }).name ?? "";
-    if (top === "terrain") {
+    if (top.startsWith("terrain")) {
       const mat = new MeshBasicMaterial({ vertexColors: true, lightMap: terrain, lightMapIntensity: k });
       withGroundDetail(mat, detailTexture());
       m.material = mat;

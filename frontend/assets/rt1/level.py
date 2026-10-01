@@ -4,12 +4,13 @@ blender -b -P level.py -- --circuit <slug> --out <dossier> [--samples 128] [--lm
 (tracés et blocs dans circuits.py)
 
 Sorties (dans --out) :
-  level.glb          terrain, route, décor, collisions (col_road, col_wall)
+  level.glb          terrain (en tuiles), route, décor, collision de la route (col_road)
   flora.glb          prototypes des objets instanciés (palmier, pin, niaouli…)
-  lm_terrain.webp, lm_road.webp, lm_props.webp   cartes de lumière (éclairement / LM_SCALE)
+  lm_terrain.png, lm_road.png, lm_props.png   cartes de lumière (éclairement / LM_SCALE),
+                     encodées en KTX2 par build.sh
   heights.bin        hauteurs du terrain (int16, cm), grille nx × ny
   water.png          profondeur d'eau (R) sur l'emprise du terrain
-  level.json         départ, portes, soleil, emprise, instances
+  level.json         départ, portes, murs (tronçons), soleil, emprise, instances
 
 Repère Blender : Z en haut, la mer au sud (-Y). Le glTF passe en Y en haut :
 (x, y, z) Blender → (x, z, -y) three.
@@ -99,7 +100,8 @@ def natural(x, y):
     else:
         beach = min(d * 0.075, 2.3)
         inland = smoothstep(110, 380, y) * (32 + 24 * fbm(x * 0.004 + 3, y * 0.004))
-        side = smoothstep(390, 620, abs(x)) * (26 + 10 * n)
+        # falaises des extrémités : montent depuis la plage sur 60 m, pas d'un seul coup
+        side = smoothstep(390, 620, abs(x)) * (26 + 10 * n) * smoothstep(0, 60, d)
         bumps = 3.2 * fbm(x * 0.021, y * 0.021) * smoothstep(20, 90, d)
         h = beach + inland + side + bumps
         cw = city_weight(x, y)
@@ -235,6 +237,11 @@ def track_info(x, y):
 # ---------------------------------------------------------------- terrain final
 nx = int((X1 - X0) / STEP) + 1
 ny = int((Y1 - Y0) / STEP) + 1
+# Emprise de la route (jupe comprise) : le terrain reste au moins 0,45 m dessous. Avec le
+# dévers, la hauteur visée est continue de l'axe à 40 m (une maille de 4 m interpolait
+# sinon entre un sommet abaissé et un sommet trop haut : le terrain perçait l'accotement).
+ROAD_HALF = 9.4
+ROAD_CLEAR = 0.45
 H = np.zeros((ny, nx), dtype=np.float64)
 NAT = np.zeros((ny, nx), dtype=np.float64)
 for j in range(ny):
@@ -245,9 +252,12 @@ for j in range(ny):
         NAT[j, i] = h
         ti, dist, lat = track_info(x, y)
         if dist < 40:
-            road_z = Z[ti] - lat * math.sin(BANK[ti]) if abs(lat) < 9 else Z[ti]
+            road_z = Z[ti] - max(-ROAD_HALF, min(ROAD_HALF, lat)) * math.sin(BANK[ti])
             w = 1 - smoothstep(9.5, 32, dist)
-            h = h * (1 - w) + (road_z - 0.45) * w
+            h = h * (1 - w) + (road_z - ROAD_CLEAR) * w
+            # toute maille qui touche l'emprise a ses quatre coins sous la route
+            if dist < ROAD_HALF + STEP * 1.5:
+                h = min(h, road_z - ROAD_CLEAR)
         H[j, i] = h
 
 
@@ -300,8 +310,7 @@ def build_terrain():
             verts.append((x, y, h))
             c = terrain_color(x, y, h, slope)
             _, dist, _ = track_info(x, y)
-            if dist < 10:
-                c = mix(c, C["earth"], 0.7)
+            c = mix(c, C["earth"], 0.7 * (1 - smoothstep(8, 14, dist)))
             cols.extend(c)
             lms.append(((x - X0) / (X1 - X0), (y - Y0) / (Y1 - Y0)))
     faces = []
@@ -312,6 +321,27 @@ def build_terrain():
             if max(H[j, i], H[j, i + 1], H[j + 1, i], H[j + 1, i + 1]) < -2.6:
                 continue
             faces.append(q)
+    # jupe sur le pourtour : du bord du terrain jusque sous la mer, couleur du relief
+    skirt = [(j, i) for i in range(nx) for j in (0, ny - 1)] + [(j, i) for j in range(ny) for i in (0, nx - 1)]
+    edges = (
+        [((0, i), (0, i + 1)) for i in range(nx - 1)]
+        + [((ny - 1, i + 1), (ny - 1, i)) for i in range(nx - 1)]
+        + [((j + 1, 0), (j, 0)) for j in range(ny - 1)]
+        + [((j, nx - 1), (j + 1, nx - 1)) for j in range(ny - 1)]
+    )
+    low = {}
+    for (j, i) in skirt:
+        if (j, i) in low:
+            continue
+        low[(j, i)] = len(verts)
+        verts.append((X0 + i * STEP, Y0 + j * STEP, -12.0))
+        cols.extend(shade(terrain_color(X0 + i * STEP, Y0 + j * STEP, H[j, i], 0.6), 0.8))
+        lms.append(((i * STEP) / (X1 - X0), (j * STEP) / (Y1 - Y0)))
+    for (a, b) in edges:
+        if max(H[a], H[b]) < -2.6:
+            continue
+        # face tournée vers l'extérieur de la carte
+        faces.append((b[0] * nx + b[1], a[0] * nx + a[1], low[a], low[b]))
     me = bpy.data.meshes.new("terrain")
     me.from_pydata(verts, [], faces)
     me.update()
@@ -392,7 +422,11 @@ def build_road():
             if 6.0 <= abs(mid) <= 7.0:
                 if CURB[i]:
                     col = C["curb_red"] if (i // max(1, int(1.5 / DS))) % 2 else C["curb_white"]
-                    a, bb, c, d = (v + Vector((0, 0, 0.05)) for v in (a, bb, c, d))
+                    up = Vector((0, 0, 0.05))
+                    # flancs du vibreur : sans eux, une fente laissait voir le terrain dessous
+                    b.face((a, bb, bb + up, a + up), col, None, lms, flip=True)
+                    b.face((d + up, c + up, c, d), col, None, lms, flip=True)
+                    a, bb, c, d = (v + up for v in (a, bb, c, d))
                 else:
                     col = C["shoulder"]
             elif abs(mid) < 7.4:
@@ -415,27 +449,40 @@ def build_road():
     return ob
 
 
-def build_road_colliders():
+# Face intérieure du mur visible (WALL) : les pavés de collision commencent là.
+WALL_FACE = 7.55
+
+
+def build_road_collider():
+    """Le collider de la route, tourné vers le haut (Rapier ne garde que les contacts de
+    face avant) : chaussée, accotements, puis la jupe qui descend sous le terrain, pour
+    qu'une roue ne tombe pas d'une marche au bord."""
     b = Builder()
     step = 2
+    prof = [(9.4, -1.1), (7.4, 0.0), (-7.4, 0.0), (-9.4, -1.1)]
     for i in range(0, N, step):
         j = i + step
-        a, bb = road_point(i, 7.4), road_point(j, 7.4)
-        c, d = road_point(j, -7.4), road_point(i, -7.4)
-        b.face((a, bb, c, d), C["black"])
-    road = b.to_object("col_road")
+        for (l0, d0), (l1, d1) in zip(prof, prof[1:]):
+            a, bb = road_point(i, l0, d0), road_point(j, l0, d0)
+            c, d = road_point(j, l1, d1), road_point(i, l1, d1)
+            b.face((a, bb, c, d), C["black"], flip=True)
+    return b.to_object("col_road")
+
+
+def wall_segments():
+    """Les murs pour la physique : un tronçon par 3 échantillons et par côté, de a à b le
+    long de la face intérieure du mur visible (repère three), avec le côté (+1 à gauche).
+    Le client en fait des pavés épais et hauts (sim/game.ts)."""
     if not WALLS:
-        return road, None
-    b = Builder()
+        return []
+    out = []
+    step = 3
     for i in range(0, N, step):
         j = i + step
         for side in (1, -1):
-            l = side * 7.75
-            a, bb = road_point(i, l, -1.0), road_point(j, l, -1.0)
-            c, d = road_point(j, l, 2.4), road_point(i, l, 2.4)
-            b.face((a, bb, c, d), C["black"])
-    wall = b.to_object("col_wall")
-    return road, wall
+            a, bb = road_point(i, side * WALL_FACE), road_point(j, side * WALL_FACE)
+            out.append([*g(a), *g(bb), side])
+    return out
 
 
 # ---------------------------------------------------------------- décor cuit
@@ -528,7 +575,7 @@ def building(x, y, w, d, floors, facade, rz=0.0):
         for side in (-1, 1):
             props.box(P(side * (w / 2 + 0.03), 0, zf + 1.5), (0.08, 1.6, 1.5), C["glass"], rz)
     # toit : acrotère, clim, chauffe-eau
-    props.box(P(0, 0, h + 0.3), (w + 0.3, d + 0.3, 0.2), shade(facade, 0.9), rz)
+    props.box(P(0, 0, h + 0.1), (w + 0.3, d + 0.3, 0.2), shade(facade, 0.9), rz)
     for _ in range(rng.randint(1, 3)):
         props.box(P(rng.uniform(-w / 3, w / 3), rng.uniform(-d / 3, d / 3), h + 0.7), (1.2, 0.8, 0.8), C["roof_zinc"], rz)
     if rng.random() < 0.7:
@@ -641,7 +688,6 @@ def parasol(x, y, col):
         p0 = Vector((x + 1.4 * math.cos(a0), y + 1.4 * math.sin(a0), zg + 2.1))
         p1 = Vector((x + 1.4 * math.cos(a1), y + 1.4 * math.sin(a1), zg + 2.1))
         props.face((p0, p1, top), col if k % 2 else C["white"])
-        props.face((top, p1, p0), col if k % 2 else C["white"])
 
 
 def paillote(x, y):
@@ -927,7 +973,10 @@ def instances_for_bake(protos):
     return coll
 
 
-def bake(ob, name, size):
+def bake(ob, name, size, margin=6, hidden=()):
+    """Cuit l'éclairement de `ob` dans une carte de lumière. `hidden` : objets écartés le
+    temps de la cuisson (le terrain est cuit sans la route par-dessus, sinon il est noir
+    sous la chaussée et ce noir bave sur les bords par le filtrage)."""
     img = bpy.data.images.new(name, size, size, alpha=False, float_buffer=True)
     n = max(1, len(ob.data.materials))
     mats = [bake_material(f"bake_{name}_{k}", img) for k in range(n)]
@@ -941,11 +990,15 @@ def bake(ob, name, size):
     bpy.context.view_layer.objects.active = ob
     sc = bpy.context.scene
     sc.cycles.samples = SAMPLES
-    sc.render.bake.margin = 6
+    sc.render.bake.margin = margin
     sc.render.bake.use_pass_color = False
     sc.render.bake.use_pass_direct = True
     sc.render.bake.use_pass_indirect = True
-    bpy.ops.object.bake(type="DIFFUSE", pass_filter={"DIRECT", "INDIRECT"}, margin=6, use_clear=True)
+    for o in hidden:
+        o.hide_render = True
+    bpy.ops.object.bake(type="DIFFUSE", pass_filter={"DIRECT", "INDIRECT"}, margin=margin, use_clear=True)
+    for o in hidden:
+        o.hide_render = False
     px = np.empty(size * size * 4, dtype=np.float32)
     img.pixels.foreach_get(px)
     px = px.reshape(size, size, 4)
@@ -957,9 +1010,9 @@ def bake(ob, name, size):
     out = bpy.data.images.new(name + "_out", size, size, alpha=False)
     flat = np.concatenate([rgb, np.ones((size, size, 1), dtype=np.float32)], axis=2).ravel()
     out.pixels.foreach_set(flat)
-    out.filepath_raw = os.path.join(OUT, f"{name}.webp")
-    out.file_format = "WEBP"
-    sc.render.image_settings.quality = 88
+    # PNG sans perte : build.sh l'encode en KTX2 (compressé sur le GPU du téléphone)
+    out.filepath_raw = os.path.join(OUT, f"{name}.png")
+    out.file_format = "PNG"
     out.save()
     # matières d'export : noms lisibles par le client
     for k, label in enumerate(["asphalt", "painted"] if name == "lm_road" else ["painted"]):
@@ -1033,6 +1086,47 @@ def water_texture():
     img.save()
 
 
+def split_tiles(ob, cols, rows):
+    """Découpe un maillage (déjà cuit, UV et couleurs gardés) en cols × rows objets selon la
+    position x, y des faces : terrain_<c>_<r>."""
+    import bmesh
+    src = bmesh.new()
+    src.from_mesh(ob.data)
+    src.faces.ensure_lookup_table()
+    tiles = []
+    for c in range(cols):
+        for r in range(rows):
+            x0, x1 = X0 + (X1 - X0) * c / cols, X0 + (X1 - X0) * (c + 1) / cols
+            y0, y1 = Y0 + (Y1 - Y0) * r / rows, Y0 + (Y1 - Y0) * (r + 1) / rows
+            bm = src.copy()
+            drop = []
+            for f in bm.faces:
+                cx = sum(v.co.x for v in f.verts) / len(f.verts)
+                cy = sum(v.co.y for v in f.verts) / len(f.verts)
+                if not (x0 <= cx < x1 and y0 <= cy < y1):
+                    drop.append(f)
+            bmesh.ops.delete(bm, geom=drop, context="FACES")
+            if not bm.faces:
+                bm.free()
+                continue
+            me = bpy.data.meshes.new(f"terrain_{c}_{r}")
+            bm.to_mesh(me)
+            bm.free()
+            for m in ob.data.materials:
+                me.materials.append(m)
+            for p in me.polygons:
+                p.use_smooth = True
+            t = bpy.data.objects.new(me.name, me)
+            bpy.context.scene.collection.objects.link(t)
+            finalize_colors(t)
+            if "Col" not in me.color_attributes:
+                raise RuntimeError(f"{me.name} : couleurs de sommet perdues au découpage")
+            tiles.append(t)
+    src.free()
+    ob.hide_render = True
+    return tiles
+
+
 def export(objs, path):
     bpy.ops.object.select_all(action="DESELECT")
     for o in objs:
@@ -1058,7 +1152,7 @@ def main():
     print("GPU:", use_gpu())
     terrain = build_terrain()
     road = build_road()
-    col_road, col_wall = build_road_colliders()
+    col_road = build_road_collider()
     START, CPS = int(40 / DS), [int(N * f) for f in (0.26, 0.52, 0.76)]
     gate(START, start=True)
     for i in CPS:
@@ -1073,7 +1167,9 @@ def main():
     props_ob.data.uv_layers.active = props_ob.data.uv_layers["Lightmap"]
     bpy.ops.object.mode_set(mode="EDIT")
     bpy.ops.mesh.select_all(action="SELECT")
-    bpy.ops.uv.smart_project(angle_limit=math.radians(66), island_margin=0.002, scale_to_bounds=True)
+    # marge d'îlot au-dessus de la marge de cuisson (16 px sur 2048), sinon les îlots
+    # voisins se mélangent dès les premières mips
+    bpy.ops.uv.smart_project(angle_limit=math.radians(66), island_margin=0.009, scale_to_bounds=True)
     bpy.ops.object.mode_set(mode="OBJECT")
     back = backdrop()
     sky = clouds()
@@ -1084,7 +1180,7 @@ def main():
     for o in protos.values():
         finalize_colors(o)
         o.hide_render = True
-    for o in (col_road, col_wall, back, sky, pads):
+    for o in (col_road, back, sky, pads):
         if o:
             o.hide_render = True
     lights()
@@ -1092,9 +1188,12 @@ def main():
     if "preview" in A:
         preview(protos, [terrain, road, props_ob], A["preview"])
         return
-    for ob, name, size in ((road, "lm_road", LM), (terrain, "lm_terrain", LM), (props_ob, "lm_props", LM)):
-        bake(ob, name, size)
+    bake(road, "lm_road", LM)
+    bake(terrain, "lm_terrain", LM, hidden=(road,))
+    bake(props_ob, "lm_props", LM, margin=16)
     water_texture()
+    # terrain en tuiles : chacune est écartée du dessin quand elle sort du champ
+    tiles = split_tiles(terrain, 4, 4)
     bpy.data.collections.remove(inst)
 
     # hauteurs pour la physique
@@ -1114,6 +1213,8 @@ def main():
         "sun": g(SUN),
         "lmScale": LM_SCALE,
         "walls": WALLS,
+        "wallSegments": wall_segments(),
+        "lineStep": round(DS * max(1, int(4 / DS)), 3),
         "terrain": {"x0": X0, "y0": Y0, "x1": X1, "y1": Y1, "nx": nx, "ny": ny, "step": STEP},
         "spawn": {"pos": g(road_point(spawn, 0, 0.6)), "dir": g(Vector((TAN[spawn].x, TAN[spawn].y, 0)))},
         "start": gate_info(START),
@@ -1125,7 +1226,7 @@ def main():
     with open(os.path.join(OUT, "level.json"), "w") as f:
         json.dump(meta, f, separators=(",", ":"))
 
-    export([o for o in (terrain, road, props_ob, back, sky, pads, col_road, col_wall) if o], os.path.join(OUT, "level.glb"))
+    export([o for o in (*tiles, road, props_ob, back, sky, pads, col_road) if o], os.path.join(OUT, "level.glb"))
     export(list(protos.values()), os.path.join(OUT, "flora.glb"))
     print("counts", {k: len(v) for k, v in INST.items()}, "length", LENGTH, "N", N)
 

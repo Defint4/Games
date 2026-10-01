@@ -26,12 +26,18 @@ export class Autopilot {
   private to = new Vector3();
   private side = new Vector3();
 
+  /* `step` : distance entre deux points de la ligne (m) ; les distances ci-dessous sont
+     pensées pour 4 m et ramenées à ce pas */
+  private k: number;
+
   constructor(
     line: V3[],
     private style: DriveStyle = { pace: 1, offset: 0 },
     private ap: AutopilotTuning = { top: 52, corner: 38 },
+    step = 4,
   ) {
     this.line = line.map((p) => new Vector3(...p));
+    this.k = 4 / step;
   }
 
   reset() {
@@ -55,7 +61,8 @@ export class Autopilot {
     }
     this.idx = best;
     const speed = Math.max(0, car.forwardSpeed);
-    const ahead = Math.round(3 + speed * 0.14); // points de 4 m
+    const k = this.k;
+    const ahead = Math.round((3 + speed * 0.14) * k); // 12 m + 0,56 s de route devant
     const target = this.line[(best + ahead) % n].clone();
     if (this.style.offset) {
       const dir = this.line[(best + ahead + 1) % n].clone().sub(this.line[(best + ahead) % n]).setY(0).normalize();
@@ -70,31 +77,34 @@ export class Autopilot {
     const angle = Math.atan2(cross, this.fwd.dot(this.to));
     const steer = Math.max(-1, Math.min(1, angle * 3.5));
     // virage à venir : écart de cap sur 60 m
-    const a = this.line[(best + 4) % n].clone().sub(this.line[best]).setY(0).normalize();
-    const b = this.line[(best + 18) % n].clone().sub(this.line[(best + 14) % n]).setY(0).normalize();
+    const i4 = Math.round(4 * k), i14 = Math.round(14 * k), i18 = Math.round(18 * k);
+    const a = this.line[(best + i4) % n].clone().sub(this.line[best]).setY(0).normalize();
+    const b = this.line[(best + i18) % n].clone().sub(this.line[(best + i14) % n]).setY(0).normalize();
     const turn = Math.acos(Math.max(-1, Math.min(1, a.dot(b))));
     let limit = Math.max(10, this.ap.top - turn * this.ap.corner) * this.style.pace;
     const decel = this.ap.decel;
     if (decel) {
       // Premier saut à venir (la route plonge) : en l'air on ne freine pas, le vol (~1,1 s)
       // ne compte pas dans la distance de freinage des virages qui le suivent.
-      const reach = Math.ceil((speed * speed) / (2 * decel) / 4) + 18;
+      const step = 4 / k;
+      const reach = Math.ceil((speed * speed) / (2 * decel) / step) + i18;
       let drop = Infinity;
-      for (let k = 0; k < reach; k++) {
-        if (this.line[(best + k + 2) % n].y - this.line[(best + k) % n].y < -1.5) {
-          drop = k;
+      for (let j = 0; j < reach; j++) {
+        if (this.line[(best + j + 2) % n].y - this.line[(best + j) % n].y < -1.5) {
+          drop = j;
           break;
         }
       }
-      if (this.ap.jump && drop < Infinity) limit = Math.min(limit, Math.sqrt(this.ap.jump ** 2 + 2 * decel * drop * 4));
+      if (this.ap.jump && drop < Infinity) limit = Math.min(limit, Math.sqrt(this.ap.jump ** 2 + 2 * decel * drop * step));
       // virages plus loin, jusqu'à la distance d'arrêt : vitesse encore permise ici (au-delà
       // de la fenêtre de 60 m ci-dessus, qui règle déjà les virages proches)
-      for (let k = 18; k < reach; k += 3) {
-        const c = this.line[(best + k) % n].clone().sub(this.line[(best + k - 4) % n]).setY(0).normalize();
-        const e = this.line[(best + k + 14) % n].clone().sub(this.line[(best + k + 10) % n]).setY(0).normalize();
+      const i10 = Math.round(10 * k);
+      for (let j = i18; j < reach; j += Math.max(1, Math.round(3 * k))) {
+        const c = this.line[(best + j) % n].clone().sub(this.line[(best + j - i4) % n]).setY(0).normalize();
+        const e = this.line[(best + j + i14) % n].clone().sub(this.line[(best + j + i10) % n]).setY(0).normalize();
         const tk = Math.acos(Math.max(-1, Math.min(1, c.dot(e))));
         const vk = Math.max(10, this.ap.top - tk * this.ap.corner) * this.style.pace;
-        const room = Math.max(0, (k - 4) * 4 - (k > drop ? speed * 1.1 : 0));
+        const room = Math.max(0, (j - i4) * step - (j > drop ? speed * 1.1 : 0));
         limit = Math.min(limit, Math.sqrt(vk * vk + 2 * decel * room));
       }
     }

@@ -38,6 +38,13 @@ export function initPhysics(): Promise<void> {
 
 export type TriMesh = { vertices: Float32Array; indices: Uint32Array };
 
+/* Murs : pavés pleins le long de la face intérieure du muret visible, épais vers
+   l'extérieur et bien plus hauts que lui (mur invisible : un saut ne fait pas sortir).
+   Pleins, ils ne se traversent pas, quel que soit le sens des faces. */
+const WALL_THICKNESS = 1.0;
+const WALL_TOP = 8.0;
+const WALL_BOTTOM = 1.0;
+
 /* Course en direct : le top départ (Date.now() local), les autres pilotes, et l'envoi
    de sa propre pose. */
 export type OnlineSetup = { startAt: number; rivals: Rival[]; sendPose: (d: number[]) => void };
@@ -62,6 +69,38 @@ export type GameEvent = RaceEvent | { type: "respawn" } | { type: "restart" } | 
 
 /* Troncs et rochers près de la route : de vrais obstacles (rayon au sol, à l'échelle 1). */
 const OBSTACLES: Record<string, number> = { palm: 0.3, pine: 0.4, niaouli: 0.32, lamp: 0.15, rock: 1.1 };
+
+/* Les tronçons de level.json (3 m) bout à bout tant qu'ils restent alignés : chaque pavé
+   coûte à chaque pas de physique, une ligne droite n'en demande qu'un. En virage, l'écart
+   entre un pavé droit et le muret courbe reste sous quelques centimètres. */
+function mergeWalls(segments: number[][]): number[][] {
+  const out: number[][] = [];
+  const MAX_LEN = 40, MAX_TURN = 0.03, MAX_RISE = 0.6;
+  let cur: number[] | null = null;
+  const dir = (s: number[]) => Math.atan2(s[3] - s[0], s[5] - s[2]);
+  // les tronçons alternent les côtés : un côté après l'autre
+  const ordered = [...segments.filter((s) => s[6] > 0), ...segments.filter((s) => s[6] < 0)];
+  for (const s of ordered) {
+    if (cur && cur[6] === s[6] && Math.abs(cur[3] - s[0]) < 0.05 && Math.abs(cur[5] - s[2]) < 0.05) {
+      const dx = s[3] - cur[0], dz = s[5] - cur[2];
+      const len = Math.hypot(dx, dz);
+      let turn = dir(s) - dir(cur);
+      turn -= Math.round(turn / (2 * Math.PI)) * 2 * Math.PI;
+      // le pavé est droit entre ses deux bouts : l'écart au muret vaut ≈ len·turn/8
+      const sag = (len * Math.abs(turn)) / 8;
+      const rise = Math.abs(s[4] - cur[1]);
+      if (len <= MAX_LEN && sag < 0.08 && Math.abs(turn) < MAX_TURN * 3 && rise < MAX_RISE) {
+        cur[3] = s[3];
+        cur[4] = s[4];
+        cur[5] = s[5];
+        continue;
+      }
+    }
+    cur = [...s];
+    out.push(cur);
+  }
+  return out;
+}
 
 let ids = 0;
 
@@ -116,7 +155,7 @@ export class Game {
   private gateIdx: number[];
   private q2 = new Quaternion();
 
-  constructor(level: LevelData, road: TriMesh, walls: TriMesh, setup: RaceSetup) {
+  constructor(level: LevelData, road: TriMesh, setup: RaceSetup) {
     this.level = level;
     const { meta, heights } = level;
     this.world = new RAPIER.World({ x: 0, y: -GRAVITY, z: 0 });
@@ -141,15 +180,39 @@ export class Game {
         .setCollisionGroups(GROUND_GROUP),
       body,
     );
-    const hasWalls = meta.walls !== false && walls.indices.length > 0;
+    const segments = meta.wallSegments ?? [];
+    const hasWalls = meta.walls !== false && segments.length > 0;
     this.walls = hasWalls;
     this.rules = hasWalls ? RULES.walls : RULES.open;
-    // Maillages à deux faces : avec FIX_INTERNAL_EDGES seul, Rapier jette les contacts venant
-    // de l'arrière d'un triangle, et les murs générés regardent dehors d'un côté (le droit
-    // ne bloquait rien), la route vers le bas.
-    for (const m of hasWalls ? [road, walls] : [road]) {
-      const desc = RAPIER.ColliderDesc.trimesh(m.vertices, m.indices, RAPIER.TriMeshFlags.FIX_INTERNAL_EDGES_TWO_SIDED);
-      this.world.createCollider(desc.setFriction(m === walls ? 0.02 : 0.8).setCollisionGroups(m === walls ? WALL_GROUP : GROUND_GROUP), body);
+    // La route : un maillage tourné vers le haut (level.py) ; à deux faces quand même, un
+    // contact venu de dessous (caisse retournée) vaut mieux qu'une traversée.
+    const roadDesc = RAPIER.ColliderDesc.trimesh(road.vertices, road.indices, RAPIER.TriMeshFlags.FIX_INTERNAL_EDGES_TWO_SIDED);
+    this.world.createCollider(roadDesc.setFriction(0.8).setCollisionGroups(GROUND_GROUP), body);
+    if (hasWalls) {
+      const a = new Vector3(), b = new Vector3(), u = new Vector3(), c = new Vector3();
+      const q = new Quaternion(), up = new Vector3(0, 1, 0);
+      for (const [ax, ay, az, bx, by, bz, side] of mergeWalls(segments)) {
+        a.set(ax, ay, az);
+        b.set(bx, by, bz);
+        u.copy(b).sub(a).setY(0);
+        const len = u.length();
+        if (len < 0.01) continue;
+        u.divideScalar(len);
+        // à gauche du sens de marche : haut × tangente ; dehors = ce côté-ci ou l'autre
+        const out = new Vector3(u.z, 0, -u.x).multiplyScalar(side);
+        const bottom = Math.min(ay, by) - WALL_BOTTOM, top = Math.max(ay, by) + WALL_TOP;
+        c.copy(a).add(b).multiplyScalar(0.5).addScaledVector(out, WALL_THICKNESS / 2);
+        c.y = (bottom + top) / 2;
+        q.setFromAxisAngle(up, Math.atan2(u.x, u.z));
+        this.world.createCollider(
+          RAPIER.ColliderDesc.cuboid(WALL_THICKNESS / 2, (top - bottom) / 2, len / 2 + 0.2)
+            .setTranslation(c.x, c.y, c.z)
+            .setRotation({ x: q.x, y: q.y, z: q.z, w: q.w })
+            .setFriction(0.02)
+            .setCollisionGroups(WALL_GROUP),
+          body,
+        );
+      }
     }
 
     this.track = new TrackLocator(meta.line);
@@ -246,7 +309,7 @@ export class Game {
   }
 
   testMode(autopilot: boolean, speedup: number, style?: DriveStyle) {
-    this.autopilot = autopilot ? new Autopilot(this.level.meta.line, style, this.vehicle.ap) : null;
+    this.autopilot = autopilot ? new Autopilot(this.level.meta.line, style, this.vehicle.ap, this.level.meta.lineStep) : null;
     this.speedup = speedup;
   }
 

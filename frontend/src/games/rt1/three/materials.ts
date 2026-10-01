@@ -267,7 +267,10 @@ export function waterMaterial(depth: Texture, bounds: Vector4, sun: Vector3): Sh
       }
       void main() {
         vec2 uv = vec2((vWorld.x - uBounds.x) / (uBounds.z - uBounds.x), (-vWorld.z - uBounds.y) / (uBounds.w - uBounds.y));
-        float inside = step(0.0, uv.x) * step(uv.x, 1.0) * step(0.0, uv.y) * step(uv.y, 1.0);
+        // la profondeur cuite s'arrête à l'emprise du terrain : fondu vers le large sur 80 m
+        // (sinon un rectangle de couleur se voit au bord de la carte)
+        vec2 edge = min(uv, 1.0 - uv) * vec2(uBounds.z - uBounds.x, uBounds.w - uBounds.y);
+        float inside = smoothstep(0.0, 80.0, min(edge.x, edge.y));
         vec4 tex = texture2D(uDepth, clamp(uv, 0.0, 1.0));
         float dm = mix(40.0, tex.r * 8.0, inside);
         vec3 col = mix(uShallow, uLagoon, smoothstep(0.2, 2.6, dm));
