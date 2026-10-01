@@ -50,6 +50,9 @@ class Seat:
     replaced: bool = False
     # Cote Elo du joueur à l'entrée (jeux classés seulement), mise à jour en fin de partie.
     rating: int | None = None
+    # Un relais (GameSpec.relay) est en cours d'envoi vers ce siège : les suivants sont
+    # sautés tant qu'il n'est pas parti, plutôt que de s'empiler chez un client lent.
+    relay_busy: bool = False
 
 
 @dataclass

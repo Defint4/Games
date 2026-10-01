@@ -122,6 +122,13 @@ class GameSpec(ABC):
     def auto_play(self, room: Room, seat: int) -> list[Event]:
         """Temps de tour écoulé : le coup le plus simple pour ce siège."""
 
+    def relay(self, room: Room, seat: int, action: str, message: dict) -> dict | None:
+        """Message à haute fréquence (la pose d'une voiture) : renvoie ce qui est
+        transmis tel quel aux autres sièges, sans verrou, sans changer l'état ni
+        recalculer les vues. None = pas un relais (l'action suit le chemin normal).
+        ValueError/TypeError = message mal formé, ignoré."""
+        return None
+
     # --- Fin de partie -----------------------------------------------------------
 
     @abstractmethod

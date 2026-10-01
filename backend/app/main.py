@@ -12,6 +12,7 @@ from app.core.database import engine
 from app.core.rate_limit import limiter
 from app.core.version import COMMIT
 from app.games.chess.router import router as chess_router
+from app.games.rt1.router import router as rt1_router
 from app.games.solitaire.router import router as solitaire_router
 from app.players.router import router as players_router
 from app.rooms import lobby
@@ -66,6 +67,7 @@ app.include_router(players_router)
 app.include_router(rooms_router)
 app.include_router(solitaire_router)
 app.include_router(chess_router)
+app.include_router(rt1_router)
 app.include_router(admin_router)
 
 

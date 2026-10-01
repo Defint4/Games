@@ -7,10 +7,12 @@ from app.games.chess.spec import Chess
 from app.games.goulag import Goulag
 from app.games.nine_to_one import NineToOne
 from app.games.perudo import Perudo
+from app.games.rt1.spec import Rt1Race
 from app.games.solitaire import SLUG as SOLITAIRE
 
+# RT1 est aussi un jeu solo (routes /api/rt1) ; sa GameSpec ne sert qu'aux courses en direct.
 GAMES: dict[str, GameSpec] = {
-    spec.slug: spec for spec in (NineToOne(), Goulag(), Perudo(), Chess())
+    spec.slug: spec for spec in (NineToOne(), Goulag(), Perudo(), Chess(), Rt1Race())
 }
 
 # Jeux solo, sans table : ils ont leurs propres routes et pas de GameSpec, mais des

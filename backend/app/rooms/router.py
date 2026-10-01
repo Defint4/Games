@@ -268,6 +268,22 @@ async def _handle_message(
     if not isinstance(message, dict):
         return
     action = str(message.get("action", ""))
+    if action == "ping":
+        # Horloge du serveur, pour caler un départ commun (courses de RT1).
+        await send_bounded(websocket, {"type": "pong", "t": message.get("t"), "now": time.time()})
+        return
+    seat_index = room.seat_of(player_id)
+    if seat_index is None:
+        return
+    try:
+        relayed = room.spec.relay(room, seat_index, action, message)
+    except (KeyError, TypeError, ValueError):
+        return
+    if relayed is not None:
+        # Chemin court, hors verrou : rien ne change dans l'état, pas de vue à recalculer.
+        room.touch()
+        _relay(room, seat_index, {"type": "relay", "seat": seat_index, **relayed})
+        return
     async with room.lock:
         seat_index = room.seat_of(player_id)
         if seat_index is None:
@@ -665,6 +681,25 @@ async def _broadcast(room: Room, message: dict) -> None:
     await asyncio.gather(
         *(send_bounded(s.socket, message) for s in list(room.seats) if s.socket is not None)
     )
+
+
+def _relay(room: Room, from_seat: int, message: dict) -> None:
+    """Envoi aux autres sièges sans attendre : un client qui n'a pas fini de recevoir le
+    relais précédent saute celui-ci (une pose de plus ou de moins ne change rien), et
+    l'expéditeur n'est jamais retenu par un destinataire lent."""
+    loop = asyncio.get_running_loop()
+    for i, seat in enumerate(list(room.seats)):
+        if i == from_seat or seat.socket is None or seat.relay_busy:
+            continue
+        seat.relay_busy = True
+        loop.create_task(_relay_send(seat, seat.socket, message))
+
+
+async def _relay_send(seat: Seat, socket: WebSocket, message: dict) -> None:
+    try:
+        await send_bounded(socket, message)
+    finally:
+        seat.relay_busy = False
 
 
 async def _send_error(websocket: WebSocket, detail: str) -> None:
