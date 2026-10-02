@@ -25,6 +25,7 @@ import {
   forgetMoves,
   newDeal,
   saveMoves,
+  wantsWinnable,
   type Deal,
   type Victory,
 } from "./api";
@@ -191,7 +192,7 @@ export default function Game({
   };
 
   const redeal = useMutation({
-    mutationFn: () => newDeal(profile.token),
+    mutationFn: () => newDeal(profile.token, wantsWinnable()),
     onMutate: () => {
       setSheet(null);
       setError(null);

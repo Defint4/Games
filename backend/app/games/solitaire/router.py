@@ -1,7 +1,8 @@
 """Le Solitaire : une donne à la fois par joueur, jouée en local, validée à la fin.
 
 GET  /api/solitaire/current          la partie ouverte (null s'il n'y en a pas)
-POST /api/solitaire/deal             donne neuve ; l'ouverte compte perdue
+POST /api/solitaire/deal             donne neuve, au hasard ou gagnante ; l'ouverte compte
+                                     perdue
 POST /api/solitaire/{id}/abandon     partie perdue
 POST /api/solitaire/{id}/finish      coups joués → victoire validée, temps du serveur
 """
@@ -18,6 +19,7 @@ from app.games.base import GameError
 from app.games.solitaire import service
 from app.games.solitaire.engine import MAX_MOVES
 from app.games.solitaire.models import SolitaireGame
+from app.games.solitaire.solver import NoWinnableDeal
 from app.players.dependencies import get_current_player
 from app.players.models import Player
 from app.rooms.manager import manager
@@ -27,6 +29,7 @@ router = APIRouter(prefix="/api/solitaire", tags=["solitaire"])
 
 NOT_FOUND = "Donne introuvable."
 CLOSED = "Cette partie est déjà terminée."
+NO_WINNABLE = "Pas de donne gagnante trouvée, réessaie."
 
 
 class DealOut(BaseModel):
@@ -35,6 +38,10 @@ class DealOut(BaseModel):
     # Temps déjà écoulé côté serveur : le client cale son chrono dessus, quelle que soit
     # l'heure de l'appareil.
     elapsed_ms: int
+
+
+class DealRequest(BaseModel):
+    winnable: bool = False
 
 
 class FinishRequest(BaseModel):
@@ -63,13 +70,18 @@ async def current(
 @limiter.limit("30/minute")
 async def deal(
     request: Request,
+    payload: DealRequest,
     player: Player = Depends(get_current_player),
     db: AsyncSession = Depends(get_db),
 ) -> DealOut:
     if manager.maintenance:
         # Une donne neuve est une nouvelle partie ; la donne en cours, elle, se reprend.
         raise HTTPException(status_code=503, detail=MAINTENANCE)
-    return _deal_out(await service.deal(db, player.id))
+    try:
+        game = await service.deal(db, player.id, payload.winnable)
+    except NoWinnableDeal:
+        raise HTTPException(status_code=503, detail=NO_WINNABLE) from None
+    return _deal_out(game)
 
 
 @router.post("/{game_id}/abandon", status_code=204)

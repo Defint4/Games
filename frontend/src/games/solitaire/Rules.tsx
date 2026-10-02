@@ -224,8 +224,13 @@ export default function Rules() {
         </p>
         <p>
           {fr
-            ? "Bloqué ? « Nouvelle donne » ou « Abandonner » : la partie compte perdue. Quitter l’écran ne l’abandonne pas, tu la reprends depuis l’accueil."
-            : "Stuck? “New deal” or “Give up”: the game counts as lost. Leaving the screen doesn't give it up, you can pick it back up from the Solitaire home."}
+            ? "Bloqué ? « Nouvelle donne » ou « Abandonner » : la partie compte perdue. Quitter l’écran ne l’abandonne pas, tu la reprends depuis l’accueil pendant 8 h. Au-delà, elle disparaît sans compter."
+            : "Stuck? “New deal” or “Give up”: the game counts as lost. Leaving the screen doesn't give it up, you can pick it back up from the Solitaire home for 8 hours. After that, it disappears without counting."}
+        </p>
+        <p>
+          {fr
+            ? "Les donnes sont battues au hasard, et certaines ne se gagnent pas. Coche « Donne gagnante » sur l’accueil pour ne recevoir que des donnes qu’un ordinateur a su gagner en voyant toutes les cartes."
+            : "Deals are shuffled at random, and some can't be won. Tick “Winnable deal” on the home screen to only get deals a computer managed to win, seeing every card."}
         </p>
       </section>
 

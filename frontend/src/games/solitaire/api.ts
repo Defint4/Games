@@ -29,14 +29,35 @@ export async function fetchCurrent(token: string): Promise<Deal | null> {
   return deal && stamp(deal);
 }
 
-/* Donne neuve ; la partie ouverte, s'il y en a une, est comptée perdue. */
-export async function newDeal(token: string): Promise<Deal> {
+/* Donne neuve, au hasard ou gagnante (choisie par le solveur du serveur) ; la partie
+   ouverte, s'il y en a une, est comptée perdue. */
+export async function newDeal(token: string, winnable: boolean): Promise<Deal> {
   return stamp(
     await request<Omit<Deal, "receivedAt">>("/api/solitaire/deal", {
       method: "POST",
       headers: authed(token),
+      body: JSON.stringify({ winnable }),
     }),
   );
+}
+
+/* L'option « Donne gagnante », retenue sur l'appareil d'une donne à l'autre. */
+const WINNABLE_KEY = "games:solitaire:winnable";
+
+export function wantsWinnable(): boolean {
+  try {
+    return localStorage.getItem(WINNABLE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+export function setWantsWinnable(on: boolean) {
+  try {
+    localStorage.setItem(WINNABLE_KEY, on ? "1" : "0");
+  } catch {
+    /* stockage indisponible : l'option ne vaut que pour cette visite */
+  }
 }
 
 export function abandonGame(token: string, id: string) {

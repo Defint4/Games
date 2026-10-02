@@ -16,7 +16,15 @@ import { currentProfile, type StoredProfile } from "@/lib/identity";
 import { isMaintenanceError, maintenanceBlocks, showMaintenanceNotice } from "@/lib/maintenance";
 import { COMMON } from "@/lib/texts";
 import { NO_STATS } from "@/lib/types";
-import { currentKey, fetchCurrent, forgetMoves, newDeal, type Deal } from "./api";
+import {
+  currentKey,
+  fetchCurrent,
+  forgetMoves,
+  newDeal,
+  setWantsWinnable,
+  wantsWinnable,
+  type Deal,
+} from "./api";
 import { preloadAssets } from "./assets";
 import { T } from "./i18n";
 import { GAME, PLAY_PATH } from "./meta";
@@ -76,6 +84,8 @@ function Desk({ profile }: { profile: StoredProfile }) {
   const [leaving, setLeaving] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [sheet, setSheet] = useState<null | "confirm" | "rules">(null);
+  // Desk n'est monté qu'une fois l'identité lue, côté client : localStorage est là.
+  const [winnable, setWinnable] = useState(wantsWinnable);
 
   const me = useQuery({ queryKey: ["me", profile.pseudo], queryFn: () => fetchMe(profile.token) });
   const stats = me.data?.stats[GAME.slug] ?? NO_STATS;
@@ -89,7 +99,7 @@ function Desk({ profile }: { profile: StoredProfile }) {
   const open = current.isFetchedAfterMount ? current.data : undefined;
 
   const deal = useMutation({
-    mutationFn: () => newDeal(profile.token),
+    mutationFn: () => newDeal(profile.token, winnable),
     onMutate: () => {
       setSheet(null);
       setError(null);
@@ -158,6 +168,29 @@ function Desk({ profile }: { profile: StoredProfile }) {
         className="rounded-2xl bg-gold py-5 text-xl font-extrabold text-ink shadow-card enabled:active:translate-y-0.5 disabled:opacity-40"
       >
         {t.newDeal}
+      </button>
+
+      <button
+        type="button"
+        role="switch"
+        aria-checked={winnable}
+        onClick={() => {
+          setWinnable(!winnable);
+          setWantsWinnable(!winnable);
+        }}
+        className="-mt-2 flex items-center justify-between gap-4 rounded-2xl bg-black/25 px-4 py-3 text-left ring-1 ring-white/10"
+      >
+        <span>
+          <span className="block font-bold">{t.winnable}</span>
+          <span className="block text-sm text-ivory-dim/75">{t.winnableHint}</span>
+        </span>
+        <span
+          className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${winnable ? "bg-gold" : "bg-white/15"}`}
+        >
+          <span
+            className={`absolute top-0.5 size-5 rounded-full bg-ivory shadow transition-[left] ${winnable ? "left-[1.375rem]" : "left-0.5"}`}
+          />
+        </span>
       </button>
 
       <button

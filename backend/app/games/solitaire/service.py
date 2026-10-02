@@ -1,16 +1,22 @@
+import asyncio
 import uuid
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.games.base import GameError
 from app.games.solitaire import SLUG
 from app.games.solitaire.engine import new_deck, replay
 from app.games.solitaire.models import SolitaireGame
+from app.games.solitaire.solver import winnable_deck
 from app.players.models import Player
 from app.players.service import add_solo_result
+
+# Une partie laissée ouverte plus longtemps disparaît, ni gagnée ni perdue : on la
+# reprend en revenant dans la journée, pas quatre jours après.
+EXPIRY = timedelta(hours=8)
 
 
 class GameNotFound(Exception):
@@ -25,7 +31,23 @@ def elapsed_ms(game: SolitaireGame) -> int:
     return int((datetime.now(UTC) - game.started_at).total_seconds() * 1000)
 
 
+def _expired(game: SolitaireGame, now: datetime) -> bool:
+    return game.finished_at is None and now - game.started_at > EXPIRY
+
+
+async def _drop_expired(db: AsyncSession, player_id: uuid.UUID, now: datetime) -> None:
+    await db.execute(
+        delete(SolitaireGame).where(
+            SolitaireGame.player_id == player_id,
+            SolitaireGame.finished_at.is_(None),
+            SolitaireGame.started_at < now - EXPIRY,
+        )
+    )
+
+
 async def current_game(db: AsyncSession, player_id: uuid.UUID) -> SolitaireGame | None:
+    await _drop_expired(db, player_id, datetime.now(UTC))
+    await db.commit()
     return await db.scalar(
         select(SolitaireGame)
         .where(SolitaireGame.player_id == player_id, SolitaireGame.finished_at.is_(None))
@@ -34,13 +56,18 @@ async def current_game(db: AsyncSession, player_id: uuid.UUID) -> SolitaireGame 
     )
 
 
-async def deal(db: AsyncSession, player_id: uuid.UUID) -> SolitaireGame:
-    """Une donne neuve. La partie encore ouverte, s'il y en a une, compte perdue : on ne
-    change pas de donne gratuitement."""
+async def deal(db: AsyncSession, player_id: uuid.UUID, winnable: bool) -> SolitaireGame:
+    """Une donne neuve, au hasard ou gagnante (choisie par le solveur). La partie encore
+    ouverte, s'il y en a une, compte perdue : on ne change pas de donne gratuitement.
+    NoWinnableDeal si le solveur n'a rien gagné, ce qui n'arrive en pratique jamais."""
+    # Le solveur occupe le processeur quelques dixièmes de seconde : hors de la boucle, avant
+    # le verrou.
+    deck = await asyncio.to_thread(winnable_deck) if winnable else new_deck()
     # Verrou sur le joueur : deux donnes demandées en même temps ne laissent pas deux
     # parties ouvertes, et la précédente n'est comptée perdue qu'une fois.
     await db.scalar(select(Player.id).where(Player.id == player_id).with_for_update())
     now = datetime.now(UTC)
+    await _drop_expired(db, player_id, now)
     opened = await db.scalars(
         select(SolitaireGame).where(
             SolitaireGame.player_id == player_id, SolitaireGame.finished_at.is_(None)
@@ -49,7 +76,7 @@ async def deal(db: AsyncSession, player_id: uuid.UUID) -> SolitaireGame:
     for game in opened:
         _close(game, won=False, now=now)
         await add_solo_result(db, SLUG, player_id, won=False)
-    game = SolitaireGame(player_id=player_id, deck=new_deck(), started_at=now)
+    game = SolitaireGame(player_id=player_id, deck=deck, winnable=winnable, started_at=now)
     db.add(game)
     await db.commit()
     return game
@@ -61,7 +88,7 @@ async def _locked(db: AsyncSession, player_id: uuid.UUID, game_id: uuid.UUID) ->
         .where(SolitaireGame.id == game_id, SolitaireGame.player_id == player_id)
         .with_for_update()
     )
-    if game is None:
+    if game is None or _expired(game, datetime.now(UTC)):
         raise GameNotFound
     if game.finished_at is not None:
         raise GameClosed

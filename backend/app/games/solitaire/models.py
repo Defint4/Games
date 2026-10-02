@@ -19,6 +19,8 @@ class SolitaireGame(IdMixin, Base):
         UUID(as_uuid=True), ForeignKey("players.id", ondelete="CASCADE"), index=True
     )
     deck: Mapped[str] = mapped_column(String(104))
+    # Donne gagnante (option du joueur) : tirée parmi celles que le solveur a gagnées.
+    winnable: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     # Le chrono est celui du serveur : de la donne servie à la victoire reçue.
     started_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), default=lambda: datetime.now(UTC)
