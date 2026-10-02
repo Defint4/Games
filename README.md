@@ -1,95 +1,146 @@
-# Games
+<div align="center">
 
-Plateforme de jeux multijoueurs en temps réel, pensée pour le téléphone : on entre un
-pseudo, on choisit un jeu, on crée une table, on partage son code, et on joue. Une seule
-application (PWA), une seule identité, un module par jeu.
+<img src="frontend/public/logo.svg" width="128" alt="Le spot 3.0" />
 
-- Frontend : Next.js 16 (PWA mobile), servi par `next start` sur le port 3003.
-- Backend : FastAPI + WebSocket, PostgreSQL pour les profils et les stats, tables en
-  mémoire (un seul processus). Port 8003.
-- Production : https://games.matthieuguiot.dev
+# Le spot 3.0
 
-| Jeu | Slug | Joueurs | Doc |
-|---|---|---|---|
-| Nine to One | `nine-to-one` | 2 à 5, bots à 3 niveaux | [docs/nine-to-one](docs/nine-to-one/README.md) |
-| Goulag | `goulag` | 2 à 6, bots à 2 niveaux | [docs/goulag](docs/goulag/README.md) |
+**Cartes, dés et mauvaise foi.**
+Une plateforme de jeux en temps réel, pensée pour le téléphone.
+
+[games.matthieuguiot.dev](https://games.matthieuguiot.dev)
+
+![Next.js](https://img.shields.io/badge/Next.js_16-000?logo=nextdotjs&logoColor=fff)
+![React](https://img.shields.io/badge/React_19-20232a?logo=react&logoColor=61dafb)
+![TypeScript](https://img.shields.io/badge/TypeScript-3178c6?logo=typescript&logoColor=fff)
+![Tailwind](https://img.shields.io/badge/Tailwind_4-0f172a?logo=tailwindcss&logoColor=38bdf8)
+![Python](https://img.shields.io/badge/Python_3.12-3776ab?logo=python&logoColor=fff)
+![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=fff)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-4169e1?logo=postgresql&logoColor=fff)
+![PWA](https://img.shields.io/badge/PWA-0c2c22?logo=pwa&logoColor=fff)
+
+</div>
+
+On entre un pseudo, on choisit un jeu, on ouvre une table et on partage son code à quatre
+chiffres. Pas de compte, pas d'e-mail : un pseudo, un avatar, un code PIN. Une seule
+application installable, une seule identité, un module par jeu.
+
+## Les jeux
+
+| | Jeu | Joueurs | En bref | Doc |
+|---|---|---|---|---|
+| 🂡 | **Nine to One** | 2 à 5 | Pose plus fort ou ramasse tout. Bots entraînés par renforcement. | [→](docs/nine-to-one/README.md) |
+| ⚔️ | **Goulag** | 2 à 6 | Deux cartes de vie, une de défense. Attaque, charge ou blinde-toi. | [→](docs/goulag/README.md) |
+| 🎲 | **Perudo** | 2 à 6 | Dés sous le gobelet, enchères et bluff, en 3D. | [→](docs/perudo/README.md) |
+| 🃏 | **Solitaire** | 1 | Klondike chronométré, donnes gagnantes en option, victoire rejouée par le serveur. | [→](docs/solitaire/README.md) |
+| ♟️ | **Échecs** | 2 | Elo, bots Stockfish de 800 à 2500 dans le navigateur, analyse de partie. | |
+| 🏁 | **RT1** | 1 à 8 | Course contre la montre en Nouvelle-Calédonie, de Nouméa à Poum. *En développement.* | [→](docs/rt1/README.md) |
+
+## Architecture
+
+```mermaid
+flowchart LR
+    P["📱 PWA<br/>Next.js 16"] -- "REST + WebSocket" --> N["nginx<br/>Cloudflare"]
+    N --> F["Next<br/>:3003"]
+    N --> B["FastAPI<br/>:8003"]
+    B --> T[("Tables<br/>en mémoire")]
+    B --> D[("PostgreSQL<br/>profils · stats")]
+```
+
+- **Le serveur est seul juge.** Le client envoie des intentions (`{"action": …}`) et reçoit
+  à chaque changement une vue filtrée : jamais les cartes des autres.
+- **Tables en mémoire**, dans un seul processus uvicorn. Jamais de `--workers`.
+- **Jeux solo** (Solitaire) : joués en local, le serveur tire la donne, tient le chrono et
+  rejoue les coups pour valider la victoire.
+- **Mobile d'abord** : sur téléphone, l'app exige l'installation en PWA ; sur ordinateur,
+  le navigateur suffit.
 
 ```
-backend/
-  app/core/        config, base de données, JWT, rate limiting
-  app/players/     identité par pseudo + avatar, stats par jeu
-  app/rooms/       tables : sièges, WebSocket, chat, emotes, timer de tour, revanche, bots
-  app/games/       base.py (contrat GameSpec), registry.py, puis un dossier par jeu
-frontend/
-  src/app/         / (identité) puis une route par jeu : /<slug>, /<slug>/table/[code]
-  src/components/  partagés : avatars, cartes, feuilles, chat, vols de cartes, verrou mobile
-  src/games/       un dossier par jeu (écrans, socket, types)
-  src/lib/         api, identité, catalogue des jeux (games.ts), sons, préférences
-deploy/            services systemd + configuration nginx
-docs/              un dossier par jeu : règles, architecture du module, bots
-ml/                entraînement des bots, un dossier par jeu (torch, hors production)
+backend/app/
+  core/         config, base, JWT, rate limiting
+  players/      identité pseudo + PIN, stats et classements par jeu
+  rooms/        tables : sièges, WebSocket, chat, emotes, timer, revanche, bots
+  admin/        le bureau : joueurs, tables, maintenance
+  games/        base.py (contrat GameSpec), registry.py, un dossier par jeu
+frontend/src/
+  app/          routes : / (identité), /games, puis /<slug>
+  games/        un dossier par jeu : écrans, socket, moteur client
+  components/   partagés : avatars, cartes, chat, feuilles, chargements
+  lib/          api, identité, catalogue des jeux (games.ts), sons, i18n FR/EN
+ml/             entraînement des bots (torch, hors production)
+docs/           un dossier par jeu : règles, arbitrages, architecture
+deploy/         systemd, nginx, page de maintenance
 ```
 
----
+## Démarrer en local
+
+```bash
+docker compose up -d                        # PostgreSQL sur 127.0.0.1:5435
+
+cd backend
+cp .env.example .env                        # DATABASE_URL → games:games@127.0.0.1:5435/games
+uv sync && uv run alembic upgrade head
+uv run uvicorn app.main:app --port 8004 --reload
+
+cd frontend
+echo 'NEXT_PUBLIC_API_URL=http://localhost:8004' > .env.local
+pnpm install && pnpm dev                    # http://localhost:3003
+```
+
+Qualité : `uv run pytest`, `uv run ruff check app`, `pnpm lint`. Docker ne sert qu'en
+local, la prod utilise le PostgreSQL du VPS.
 
 ## Ajouter un jeu
 
-Tout ce qui est commun existe déjà : identité, tables, sièges, WebSocket, reconnexion,
-chat, emotes, timer de tour, revanche, stats, PWA. Un jeu n'écrit que ses règles, sa vue
-et ses écrans.
+Identité, tables, sièges, WebSocket, reconnexion, chat, timer, revanche, stats et PWA
+existent déjà. Un jeu n'écrit que ses règles, sa vue et ses écrans.
 
-**Backend** — `backend/app/games/<slug>/` :
+| Côté | À écrire |
+|---|---|
+| **Backend** `app/games/<slug>/` | `engine/` (règles pures, testées) · `views.py` (ce que voit chaque siège) · `spec.py` (une `GameSpec`) · une ligne dans `registry.py` |
+| **Frontend** `src/games/<slug>/` | `types.ts` · `socket.ts` (`useRoomSocket`) · les écrans · deux routes dans `src/app/<slug>/` · une entrée dans `lib/games.ts` |
+| **Doc** | `docs/<slug>/README.md` |
 
-1. `engine/` : les règles, pures (aucune I/O), avec leurs tests dans `tests/`. L'état
-   utilise `GameStatus` de `app.games.base` (lobby / playing / finished) et lève
-   `GameError` (ou une sous-classe) sur coup illégal.
-2. `views.py` : ce que chaque siège a le droit de voir (jamais les cartes des autres).
-3. `spec.py` : une sous-classe de `GameSpec` (`app/games/base.py`) — création d'état,
-   `handle_action` (messages WebSocket → moteur), `view`, `auto_play` (timer écoulé),
-   `results` (gagnant, perdant), et les bots si le jeu en a.
-4. Une ligne dans `app/games/registry.py`.
+Les stats sont stockées par slug : pas de migration pour un nouveau jeu. Un jeu solo sans
+table passe par `SOLO_GAMES` et ses propres routes, comme le Solitaire.
 
-**Frontend** — `frontend/src/games/<slug>/` et `frontend/src/app/<slug>/` :
+## Production
 
-1. `types.ts` : `RoomView` / `PlayerView` du jeu, qui étendent `BaseRoomView` /
-   `BasePlayerView` de `src/lib/types.ts` (mêmes champs que `views.py`).
-2. `socket.ts` : `useRoomSocket<RoomView>` + les actions du jeu via `send`.
-3. Les écrans (accueil du jeu, lobby, table), puis deux routes minces dans
-   `src/app/<slug>/page.tsx` et `src/app/<slug>/table/[code]/page.tsx`.
-4. Une entrée dans `src/lib/games.ts` (le catalogue affiché à la sélection).
-
-**Doc** — `docs/<slug>/README.md` : règles, arbitrages, architecture du module.
-
-**Serveur** — rien de spécifique : `./deploy.sh` (voir « Mises à jour »). Les stats par
-jeu sont stockées par slug, aucune migration n'est nécessaire pour un nouveau jeu.
-
----
-
-## Déploiement en production — `games.matthieuguiot.dev`
-
-Même VPS que `portfolio-2026`, `concreteFencing` et `invoice_Maker` (Ubuntu 24.04,
-utilisateur `matthieu`, nginx + certbot + PostgreSQL + uv + Node 22 + pnpm déjà installés).
-La préparation du serveur (SSH, swap, réglages nginx communs dont la vraie IP Cloudflare,
-sauvegardes) est décrite dans le README de `portfolio-2026`, section 0.
+`games.matthieuguiot.dev`, sur le VPS partagé avec `portfolio-2026` (Ubuntu 24.04, nginx,
+certbot, PostgreSQL, uv, Node 22, pnpm). La préparation du serveur est dans le README de
+`portfolio-2026`, section 0.
 
 | | |
 |---|---|
 | Dossier | `/var/www/games` |
-| Services | `games-backend` (port 8003) · `games-frontend` (port 3003) |
-| Ports déjà pris | 8000/3000 portfolio · 8001/3001 concrete · 8002/3002 invoice |
+| Services | `games-backend` :8003 · `games-frontend` :3003 |
 | Base | rôle et base PostgreSQL `games` |
 
-### 0. DNS
+### Mettre à jour
 
-Chez Cloudflare (zone `matthieuguiot.dev`), un enregistrement **A** :
-
-```
-games.matthieuguiot.dev  →  IP du VPS
+```bash
+cd /var/www/games && ./deploy.sh
 ```
 
-En « DNS only » (nuage gris) le temps de générer le certificat.
+1. **Avant** : ouvrir le bureau (`/admin`, onglet Maintenance) et lancer la maintenance.
+   Plus personne ne lance de partie ; quand la dernière se termine, le bureau affiche
+   « Tu peux déployer ».
+2. `deploy.sh` enchaîne `git pull`, `uv sync`, migrations, build du front dans
+   `.next-build` puis bascule d'un coup, et redémarre les services. L'app se recharge seule
+   sur la nouvelle version.
+3. En cas de souci : `./rollback.sh` remet le commit et le build précédents. Les migrations
+   ne sont pas défaites, `alembic downgrade` à la main si besoin.
 
-### 1. PostgreSQL — rôle et base dédiés
+Si `deploy.sh` lui-même a changé, faire `git pull` à part avant de le lancer.
+
+<details>
+<summary><b>Installation initiale du serveur</b></summary>
+
+#### 0. DNS
+
+Chez Cloudflare, zone `matthieuguiot.dev` : un enregistrement **A**
+`games.matthieuguiot.dev → IP du VPS`, en « DNS only » le temps de générer le certificat.
+
+#### 1. PostgreSQL
 
 ```bash
 sudo -u postgres psql
@@ -98,47 +149,39 @@ sudo -u postgres psql
 ```sql
 CREATE ROLE games WITH LOGIN PASSWORD 'MOT_DE_PASSE_FORT';
 CREATE DATABASE games OWNER games;
-\q
 ```
 
-### 2. Récupérer le code
+#### 2. Code
 
-Une deploy key GitHub est scopée à un seul repo : en créer une dédiée.
+Une deploy key GitHub dédiée, en lecture seule, sur `Defint4/Games` :
 
 ```bash
 ssh-keygen -t ed25519 -f ~/.ssh/github_games -C "vps-games-deploy" -N ""
-cat ~/.ssh/github_games.pub
+cat ~/.ssh/github_games.pub          # à coller dans Settings → Deploy keys
 ```
 
-Coller la clé publique dans GitHub → repo `Defint4/Games` → *Settings → Deploy keys*
-(lecture seule). Puis :
+Dans `~/.ssh/config` :
 
-```bash
-cat >> ~/.ssh/config << 'EOF'
-
+```
 Host github-games
     HostName github.com
     User git
     IdentityFile ~/.ssh/github_games
     IdentitiesOnly yes
-EOF
+```
 
-sudo mkdir -p /var/www/games
-sudo chown matthieu:www-data /var/www/games
+```bash
+sudo mkdir -p /var/www/games && sudo chown matthieu:www-data /var/www/games
 git clone github-games:Defint4/Games.git /var/www/games
 chmod +x /var/www/games/deploy.sh
 ```
 
-### 3. Backend
+#### 3. Backend
 
 ```bash
 cd /var/www/games/backend
-cp .env.example .env
-nano .env
-chmod 600 .env                 # secrets : lisible par le seul compte matthieu (celui des services)
+cp .env.example .env && nano .env && chmod 600 .env
 ```
-
-À renseigner :
 
 ```
 DATABASE_URL=postgresql+asyncpg://games:MOT_DE_PASSE_FORT@localhost:5432/games
@@ -149,175 +192,82 @@ BOT_TIME_BUDGET=0.5
 BOT_THREADS=1
 ```
 
-`JWT_SECRET` est obligatoire : l'API refuse de démarrer s'il fait moins de 32 caractères.
-`BOT_TIME_BUDGET` / `BOT_THREADS` bornent le CPU consommé par le bot Difficile de Nine to
-One (voir [docs/nine-to-one](docs/nine-to-one/README.md)).
+`JWT_SECRET` fait au moins 32 caractères, sinon l'API refuse de démarrer.
+`BOT_TIME_BUDGET` et `BOT_THREADS` bornent le CPU du bot Difficile de Nine to One.
 
 ```bash
-uv sync
-uv run alembic upgrade head
-mkdir -p logs
-
-# Test rapide (puis Ctrl+C)
-.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8003
-curl http://127.0.0.1:8003/api/health      # {"status":"ok"}
+uv sync && uv run alembic upgrade head && mkdir -p logs
+.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8003   # test, puis Ctrl+C
+curl http://127.0.0.1:8003/api/health                          # {"status":"ok"}
 ```
 
-`uv sync` construit `.venv`. Le service systemd lance ensuite `.venv/bin/uvicorn`
-directement, sans passer par `uv` : le durcissement du service interdit d'écrire dans
-`~/.cache/uv`. Ne pas remplacer `ExecStart` par `uv run`, le service ne démarrerait plus.
+Le service lance `.venv/bin/uvicorn` directement : le durcissement systemd interdit
+`~/.cache/uv`, ne pas passer par `uv run` dans `ExecStart`.
 
-Un seul worker uvicorn, toujours : les tables vivent dans la mémoire du processus.
-Ne jamais ajouter `--workers`.
-
-### 4. Frontend
-
-L'adresse de l'API est embarquée dans le build (`NEXT_PUBLIC_API_URL`) : REST et
-WebSocket passent par nginx sur le même domaine.
+#### 4. Frontend
 
 ```bash
 cd /var/www/games/frontend
 cp .env.example .env.production
-pnpm install --frozen-lockfile
-pnpm build
+pnpm install --frozen-lockfile && pnpm build
 ```
 
-### 5. Services systemd
+`NEXT_PUBLIC_API_URL` est embarquée au build : REST et WebSocket passent par nginx sur le
+même domaine.
+
+#### 5. Services
 
 ```bash
-sudo cp /var/www/games/deploy/games-backend.service /etc/systemd/system/
-sudo cp /var/www/games/deploy/games-frontend.service /etc/systemd/system/
+sudo cp /var/www/games/deploy/games-{backend,frontend}.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now games-backend games-frontend
-sudo systemctl status games-backend games-frontend
 ```
 
-### 6. Nginx + HTTPS
+#### 6. Nginx et HTTPS
 
-`deploy/nginx-games.conf` est la config complète du serveur, lignes certbot comprises :
-au tout premier déploiement (certificat pas encore créé), retirer les lignes
-« managed by Certbot » et le second bloc `server`, puis lancer certbot qui les rajoute.
-Elle inclut `/etc/nginx/snippets/cloudflare-real-ip.conf`, créé à la préparation du serveur
-(même contenu que `deploy/nginx-cloudflare-real-ip.conf`).
+`deploy/nginx-games.conf` est la config complète, lignes certbot comprises. Au tout premier
+déploiement, retirer les lignes « managed by Certbot » et le second bloc `server`, certbot
+les remet. Elle inclut `/etc/nginx/snippets/cloudflare-real-ip.conf` (copie de
+`deploy/nginx-cloudflare-real-ip.conf`).
 
 ```bash
 sudo cp /var/www/games/deploy/nginx-games.conf /etc/nginx/sites-available/games
 sudo ln -s /etc/nginx/sites-available/games /etc/nginx/sites-enabled/
-sudo nginx -t
-sudo systemctl reload nginx
-
+sudo nginx -t && sudo systemctl reload nginx
 sudo certbot --nginx -d games.matthieuguiot.dev
 ```
 
-Ce qu'elle fait :
-- les WebSockets (`/api/rooms/<code>/ws` et `/api/rooms/live`) restent ouverts une heure
-  sans parler, sinon nginx les couperait après 60 s de silence en lobby ; le reste de
-  l'API garde le délai normal ;
-- connexions gardées ouvertes vers l'API et Next (`upstream` + `keepalive`, 4 s, sous les
-  5 s d'uvicorn et de Node) ;
-- pendant un redémarrage de l'app, nginx sert `deploy/maintenance.html` (503, se recharge
-  seule) au lieu d'une erreur 502.
+WebSockets ouverts une heure sans trafic, keepalive vers l'API et Next, et pendant un
+redémarrage nginx sert `deploy/maintenance.html` (503, rechargement automatique) plutôt
+qu'une 502. Une fois le certificat posé, le DNS peut repasser en proxy Cloudflare.
 
-### 7. Vérifications
+#### 7. Le bureau
 
-```bash
-curl https://games.matthieuguiot.dev/api/health
-sudo systemctl is-enabled games-backend games-frontend
-sudo journalctl -u games-backend -n 30 --no-pager
-```
-
-Dans le navigateur, sur téléphone : entrer un pseudo, ouvrir Nine to One, créer une
-table, ajouter un bot Difficile depuis le lobby (bouton « + » à droite des places libres),
-se déclarer prêt et jouer une manche. Une fois le certificat en place, repasser l'entrée
-DNS en proxy Cloudflare (nuage orange) si souhaité : le WebSocket passe sans réglage
-particulier.
-
-### 8. Mises à jour
-
-```bash
-cd /var/www/games
-./deploy.sh
-```
-
-`git pull` → `uv sync` + migrations → `pnpm install` + build → restart des deux services.
-Ajouter un jeu en production, c'est exactement cette commande. Si `deploy.sh` lui-même a
-changé, faire `git pull` à part avant de le lancer (bash lit le script pendant qu'il
-s'exécute).
-
-Le build se fait dans `frontend/.next-build`, à côté de la version en ligne, puis remplace
-`.next` d'un coup : le site ne sert jamais une version à moitié construite. Le commit sert
-d'identifiant de version (`NEXT_DEPLOYMENT_ID`, et `.next/DEPLOYMENT_ID` relu par
-`next start`) : une app restée ouverte sur l'ancienne version se recharge au lieu de
-planter, et les fichiers JS de la version précédente restent servis.
-
-Le redémarrage vide les tables en mémoire : avant de déployer, ouvrir le bureau
-(onglet Maintenance) et lancer la maintenance. Plus personne ne peut lancer de partie ;
-à la fin de la dernière, l'app se ferme d'elle-même aux joueurs (écran de maintenance) et
-le bureau affiche « Tu peux déployer ». Le redémarrage rouvre l'app, qui se recharge seule
-sur la nouvelle version.
-
-### 9. Panneau d'administration (une seule fois)
-
-Le bureau (`/admin`) n'est accessible qu'au compte désigné ici, avec son code PIN **et** un
-mot de passe propre au panneau. Le compte doit déjà exister dans l'app.
+`/admin` n'est ouvert qu'au compte désigné, avec son PIN **et** un mot de passe propre au
+panneau (le compte doit exister dans l'app) :
 
 ```bash
 cd /var/www/games/backend
-.venv/bin/python -m app.admin set-password Matthieu   # saisie masquée, 12 caractères minimum
+.venv/bin/python -m app.admin set-password Matthieu    # 12 caractères minimum
+.venv/bin/python -m app.admin remove                   # retirer l'administrateur
 ```
 
-Le mot de passe est stocké haché en base : les déploiements suivants n'y touchent pas.
-Il est redemandé après 30 jours sans ouvrir le bureau. Relancer la commande change le mot
-de passe et referme les sessions admin ouvertes ; `.venv/bin/python -m app.admin remove`
-retire l'administrateur. Le compte reste admin s'il est renommé, un autre ne le devient
-pas en reprenant son pseudo.
+Mot de passe haché en base, redemandé après 30 jours sans visite.
 
-### Commandes utiles
+</details>
+
+<details>
+<summary><b>Commandes utiles</b></summary>
 
 ```bash
 sudo journalctl -u games-backend -f
 sudo journalctl -u games-frontend -f
 sudo systemctl restart games-backend games-frontend
-curl https://games.matthieuguiot.dev/api/status          # état de la maintenance
-sudo -u postgres /usr/local/bin/pg-backup                 # export immédiat (sinon chaque nuit, voir portfolio-2026)
+curl https://games.matthieuguiot.dev/api/health
+curl https://games.matthieuguiot.dev/api/status           # état de la maintenance
+sudo -u postgres psql -d games                            # console SQL de prod
+sudo -u postgres /usr/local/bin/pg-backup                 # export immédiat (sinon chaque nuit)
 sudo -u postgres pg_restore --clean -d games /var/backups/postgresql/games-AAAA-MM-JJ.dump
 ```
 
----
-
-## Développement local
-
-```bash
-docker compose up -d                       # PostgreSQL sur 127.0.0.1:5435
-
-cd backend
-cp .env.example .env                       # DATABASE_URL → games:games@127.0.0.1:5435/games,
-                                           # ENVIRONMENT=development, CORS_ORIGINS=["http://localhost:3003"]
-uv sync && uv run alembic upgrade head
-uv run pytest                              # tests des moteurs de règles
-uv run ruff check app && uv run ruff format --check app
-uv run uvicorn app.main:app --port 8004 --reload
-
-cd frontend
-echo 'NEXT_PUBLIC_API_URL=http://localhost:8004' > .env.local
-pnpm install && pnpm dev                   # http://localhost:3003
-pnpm lint
-```
-
-Docker ne sert qu'ici : en production la base est le PostgreSQL du VPS.
-
----
-
-## Comment ça tient ensemble
-
-- **Identité** : pas de compte. `POST /api/players/enter` avec un pseudo et un avatar
-  renvoie un jeton JWT longue durée, gardé sur l'appareil. Le pseudo est la clé (insensible
-  à la casse). Les stats sont stockées par jeu (`player_game_stats`).
-- **Tables** : `POST /api/rooms` avec le slug du jeu, `POST /api/rooms/{code}/join`,
-  `GET /api/rooms?game=<slug>`. Puis `WS /api/rooms/{code}/ws?token=…`. Les codes (4
-  chiffres) sont uniques tous jeux confondus ; la vue porte le champ `game`.
-- **Le serveur est seul juge** : le client envoie des intentions (`{"action": …}`), reçoit
-  une vue filtrée à chaque changement (`{"type": "state", "view", "events"}`). Les actions
-  communes sont traitées par `app/rooms/router.py`, le reste va à `GameSpec.handle_action`.
-- **Mobile** : sur téléphone, le site exige l'installation en PWA (`MobileGate.tsx`) ;
-  sur ordinateur le navigateur suffit.
+</details>
