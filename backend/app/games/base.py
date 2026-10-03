@@ -38,7 +38,10 @@ class GameError(Exception):
 
 # Jeux en développement : ouverts au seul compte admin (miroir de `available: "dev"` dans
 # frontend/src/lib/games.ts), 404 pour les autres, et sans stats dans le classement du hub.
-DEV_GAMES = frozenset({"rt1"})
+DEV_GAMES: frozenset[str] = frozenset()
+# Jeux en bêta : ouverts à tous (miroir de `beta: true`), mais toujours sans stats dans le
+# classement du hub tant qu'ils ne sont pas finis.
+BETA_GAMES = frozenset({"rt1"})
 
 
 def is_open(slug: str, admin: bool) -> bool:

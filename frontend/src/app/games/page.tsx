@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { bungee } from "@/games/rt1/meta";
 import Avatar from "@/components/Avatar";
+import BetaBadge from "@/components/BetaBadge";
 import Brand from "@/components/Brand";
 import { leaderboardPath } from "@/components/Leaderboard";
 import { LoadingScreen } from "@/components/Loading";
@@ -240,8 +241,9 @@ function GameTile({
         className="pointer-events-none absolute inset-0 bg-[linear-gradient(160deg,rgba(255,255,255,0.08),transparent_45%)]"
       />
       <div className="relative z-10 flex flex-col gap-1 pr-28">
-        <h2 className="text-3xl font-extrabold leading-none tracking-tight">
+        <h2 className="flex items-center gap-2 text-3xl font-extrabold leading-none tracking-tight">
           {game.name[lang]}
+          {game.beta && <BetaBadge />}
         </h2>
         <p className="text-sm font-semibold text-ivory-dim/85">
           {game.players[lang]}

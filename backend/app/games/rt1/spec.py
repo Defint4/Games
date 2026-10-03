@@ -22,7 +22,7 @@ from dataclasses import dataclass, field
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.games.base import DEV_GAMES, AfterMove, Event, GameError, GameSpec, GameStatus
+from app.games.base import BETA_GAMES, DEV_GAMES, AfterMove, Event, GameError, GameSpec, GameStatus
 from app.games.rt1 import rules, service
 from app.players import service as players_service
 from app.rooms.manager import Room, manager
@@ -464,9 +464,9 @@ class Rt1Race(GameSpec):
             pilot.level_before = arrival.level_before
             pilot.level = rules.level_for(arrival.state.xp)
         results = self.results(room)
-        # Tant que le jeu est en développement, rien dans les stats du hub (ses essais ne
-        # doivent pas peser dans le classement général).
-        if results is not None and self.slug not in DEV_GAMES:
+        # Tant que le jeu est en développement ou en bêta, rien dans les stats du hub (ses
+        # essais ne doivent pas peser dans le classement général).
+        if results is not None and self.slug not in DEV_GAMES | BETA_GAMES:
             winner, loser = results
             await players_service.record_game_results(
                 db,

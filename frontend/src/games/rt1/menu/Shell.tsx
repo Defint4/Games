@@ -7,6 +7,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect } from "react";
+import BetaBadge from "@/components/BetaBadge";
 import { HUB_PATH } from "@/lib/games";
 import { useLang, useT } from "@/lib/i18n";
 import { currentProfile } from "@/lib/identity";
@@ -56,6 +57,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
         >
           RT1
         </span>
+        <BetaBadge />
         <div className="ml-auto flex items-center gap-2">
           <Chip>
             <CoinIcon className="size-4 text-[#F4B942]" />

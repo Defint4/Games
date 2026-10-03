@@ -22,6 +22,9 @@ export type GameMeta = {
   /* Faux tant que le jeu n'est pas jouable : sa tuile est visible mais inerte.
      "dev" : en développement, ouvert au seul compte admin, « Bientôt » pour les autres. */
   available: boolean | "dev";
+  /* Jouable mais pas fini : pastille « Beta », et hors classement (BETA_GAMES côté
+     serveur). */
+  beta?: boolean;
   /* Un mot pour quelqu'un, écrit à la main sur la tuile. */
   dedication?: Dict<string>;
   /* Jeu chronométré : le meilleur temps s'affiche à côté des victoires (hors tri). */
@@ -107,7 +110,8 @@ export const GAMES: GameMeta[] = [
     path: "/rt1",
     // Le lagon qui tourne à la terre rouge.
     mat: "radial-gradient(130% 110% at 85% 15%, #2ec4c6 0%, #0f6f8f 50%, #5a2414 100%)",
-    available: "dev",
+    available: true,
+    beta: true,
   },
 ];
 
