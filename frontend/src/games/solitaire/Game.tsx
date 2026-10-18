@@ -4,7 +4,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "motion/react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import LangSwitch from "@/components/LangSwitch";
 import { TransitionOverlay } from "@/components/Loading";
 import { LookPrefs } from "@/components/SettingsSheet";
@@ -16,6 +16,7 @@ import { formatDuration } from "@/lib/duration";
 import { tr, useLang, useT } from "@/lib/i18n";
 import type { StoredProfile } from "@/lib/identity";
 import { isMaintenanceError, maintenanceBlocks, showMaintenanceNotice } from "@/lib/maintenance";
+import { reportError } from "@/lib/report";
 import { sfx, vibrate } from "@/lib/sound";
 import { COMMON } from "@/lib/texts";
 import {
@@ -33,10 +34,13 @@ import Board from "./Board";
 import {
   allRevealed,
   apply,
-  deal as dealState,
   finishingMoves,
+  isDeadEnd,
   isWon,
+  progressKey,
   rank,
+  replayMoves,
+  type Played,
   type State,
 } from "./engine";
 import { T } from "./i18n";
@@ -49,26 +53,23 @@ import WinCascade from "./WinCascade";
    fin automatique et la victoire. Les coups sont gardés sur l'appareil à chaque geste ;
    à la victoire, ils partent au serveur qui les rejoue avant de compter la partie. */
 
-type Played = { history: State[]; moves: string[] };
-
 /* idle : on joue ; auto : la partie est gagnée d'avance, les cartes montent seules ;
    won : toutes les cartes sont sur les fondations. */
 type Phase = "idle" | "auto" | "won";
 
 const AUTO_STEP = 95;
+/* Victoire pas encore enregistrée (réseau, serveur indisponible) : on renvoie seul. */
+const RETRY_EVERY_MS = 10000;
+/* L'impasse se cherche une fois les cartes posées, pas pendant leur vol. */
+const DEAD_END_DELAY_MS = 600;
+/* Le serveur efface une partie ouverte depuis 8 h : on prévient une demi-heure avant. */
+const EXPIRY_WARN_MS = 7.5 * 3600 * 1000;
 
-function replayMoves(deck: string, moves: string[]): Played {
-  let state = dealState(deck);
-  const history = [state];
-  const kept: string[] = [];
-  for (const move of moves) {
-    const next = apply(state, move);
-    if (!next) break;
-    state = next;
-    history.push(next);
-    kept.push(move);
-  }
-  return { history, moves: kept };
+/* Un refus que renvoyer ne changera pas : donne introuvable ou déjà fermée, partie que
+   le serveur ne reconnaît pas gagnée, session révoquée. Tout le reste (réseau coupé,
+   délai dépassé, 5xx, 429, blocage d'un intermédiaire) se retente. */
+function isFinalRefusal(e: unknown): boolean {
+  return e instanceof ApiError && [401, 404, 409, 422].includes(e.status);
 }
 
 export default function Game({
@@ -91,7 +92,12 @@ export default function Game({
   const [dealing, setDealing] = useState(initialMoves.length === 0);
   const [phase, setPhase] = useState<Phase>(() => (isWon(state) ? "won" : "idle"));
   const [geo, setGeo] = useState<{ g: Geometry; board: DOMRect } | null>(null);
-  const [sheet, setSheet] = useState<null | "menu" | "rules" | "deal" | "abandon">(null);
+  const [sheet, setSheet] = useState<null | "menu" | "rules" | "deal" | "abandon" | "dead">(
+    null,
+  );
+  // Impasses déjà signalées (clé d'avancement) : on ne le redit pas tant que rien n'a
+  // avancé, ni pendant que le joueur revient en arrière.
+  const deadEndsShown = useRef(new Set<string>());
   const [leaving, setLeaving] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -122,6 +128,19 @@ export default function Game({
     setPlayed((p) => ({ history: p.history.slice(0, -1), moves: p.moves.slice(0, -1) }));
   };
 
+  // --- Impasse -----------------------------------------------------------------
+
+  useEffect(() => {
+    if (phase !== "idle" || dealing) return;
+    const timer = setTimeout(() => {
+      const key = progressKey(state);
+      if (deadEndsShown.current.has(key) || !isDeadEnd(state)) return;
+      deadEndsShown.current.add(key);
+      setSheet((open) => open ?? "dead");
+    }, DEAD_END_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [state, phase, dealing]);
+
   // --- Victoire ----------------------------------------------------------------
 
   const finish = useMutation({
@@ -132,8 +151,34 @@ export default function Game({
       forgetMoves();
       void queryClient.invalidateQueries({ queryKey: ["me", profile.pseudo] });
     },
+    // Refus définitif : les coups gardés ne valent plus rien, et l'accueil ne doit pas
+    // renvoyer ici croyant à une victoire en attente.
+    onError: (e) => {
+      reportError(e, "solitaire-finish");
+      if (isFinalRefusal(e)) forgetMoves();
+      if (e instanceof ApiError && e.status === 404) vanished();
+    },
   });
   const submit = finish.mutate;
+  // Gagnée mais pas enregistrée : tant que ça dure, aucune nouvelle donne (elle
+  // compterait cette partie perdue), et on renvoie seul.
+  const unsaved = phase !== "idle" && finish.isError && !isFinalRefusal(finish.error);
+  // Idem pendant l'envoi (la montée automatique des cartes dure plusieurs secondes) :
+  // une donne demandée à ce moment-là écraserait la victoire côté serveur.
+  const locked = unsaved || (phase !== "idle" && !finish.isSuccess && !finish.isError);
+
+  useEffect(() => {
+    if (!unsaved) return;
+    const again = () => submit(played.moves);
+    const timer = setInterval(again, RETRY_EVERY_MS);
+    window.addEventListener("online", again);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener("online", again);
+    };
+    // Les coups ne bougent plus une fois la partie gagnée.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [unsaved]);
 
   // Plus aucune carte cachée : la partie est gagnée d'avance, le chrono s'arrête et les
   // cartes montent seules.
@@ -179,11 +224,32 @@ export default function Game({
 
   // --- Donne, abandon ------------------------------------------------------------
 
+  // Partie expirée côté serveur (8 h) : plus rien à jouer ici, la page remonte à
+  // l'accueil en voyant la partie courante à null.
+  const vanished = () => {
+    forgetMoves();
+    queryClient.setQueryData(currentKey(profile.pseudo), null);
+  };
+
   const fail = (e: unknown) => {
     setLeaving(null);
     if (isMaintenanceError(e)) showMaintenanceNotice();
+    else if (e instanceof ApiError && e.status === 404) vanished();
     else setError(e instanceof ApiError ? e.message : tr(T).home.unreachable);
   };
+
+  // Passé 7 h 30, prévenir : à 8 h la partie disparaît, chrono compris.
+  const warnedExpiry = useRef(false);
+  useEffect(() => {
+    const check = () => {
+      if (warnedExpiry.current || Date.now() - startedAt < EXPIRY_WARN_MS) return;
+      warnedExpiry.current = true;
+      setError(tr(T).play.expiring);
+    };
+    check();
+    const timer = setInterval(check, 60000);
+    return () => clearInterval(timer);
+  }, [startedAt]);
   // Nouvelle donne = nouvelle partie : refusée pendant une maintenance (la donne en
   // cours, elle, reste jouable).
   const dealAgain = () => {
@@ -281,7 +347,7 @@ export default function Game({
         <button
           type="button"
           onClick={newGame}
-          disabled={busy || dealing}
+          disabled={busy || dealing || locked}
           className="flex items-center gap-2 rounded-2xl bg-black/25 px-4 py-3 text-sm font-bold text-ivory-dim ring-1 ring-white/10 enabled:active:translate-y-0.5 disabled:opacity-40"
         >
           <DealIcon />
@@ -307,10 +373,11 @@ export default function Game({
             victory={finish.data ?? null}
             pending={finish.isPending}
             failed={finish.isError ? errorText(finish.error) : null}
+            retrying={unsaved}
             moves={played.moves.length}
             onRetry={() => finish.mutate(played.moves)}
             onAgain={dealAgain}
-            busy={busy}
+            busy={busy || locked}
           />
         )}
       </AnimatePresence>
@@ -356,6 +423,37 @@ export default function Game({
           onConfirm={dealAgain}
           onClose={() => setSheet(null)}
         />
+      )}
+      {sheet === "dead" && (
+        <Sheet onClose={() => setSheet(null)}>
+          <h2 className="text-center text-lg font-extrabold">{t.dead.title}</h2>
+          <p className="mt-2 text-center text-sm text-ivory-dim/80">{t.dead.body}</p>
+          {deal.winnable && (
+            <p className="mt-2 text-center text-sm font-semibold text-gold/90">
+              {t.dead.winnable}
+            </p>
+          )}
+          <div className="mt-5 flex flex-col gap-3">
+            <button
+              type="button"
+              onClick={() => {
+                setSheet(null);
+                undo();
+              }}
+              disabled={played.moves.length === 0}
+              className="rounded-2xl bg-gold p-4 font-extrabold text-ink enabled:active:translate-y-0.5 disabled:opacity-40"
+            >
+              {t.dead.undo}
+            </button>
+            <button
+              type="button"
+              onClick={dealAgain}
+              className="rounded-2xl bg-black/25 p-4 font-bold ring-1 ring-white/10 active:translate-y-0.5"
+            >
+              {t.dead.deal}
+            </button>
+          </div>
+        </Sheet>
       )}
       {sheet === "abandon" && (
         <Confirm
@@ -457,6 +555,7 @@ function WinPanel({
   victory,
   pending,
   failed,
+  retrying,
   moves,
   onRetry,
   onAgain,
@@ -465,6 +564,8 @@ function WinPanel({
   victory: Victory | null;
   pending: boolean;
   failed: string | null;
+  /* Échec passager : on renvoie seul, la nouvelle donne attend. */
+  retrying: boolean;
   moves: number;
   onRetry: () => void;
   onAgain: () => void;
@@ -508,6 +609,7 @@ function WinPanel({
         ) : failed ? (
           <div className="mt-3 flex flex-col items-center gap-2">
             <p className="text-sm text-card-red">{failed}</p>
+            {retrying && <p className="text-xs text-ivory-dim/70">{t.retrying}</p>}
             <button
               type="button"
               onClick={onRetry}

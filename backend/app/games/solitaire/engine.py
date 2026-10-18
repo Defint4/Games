@@ -30,7 +30,9 @@ SUITS = "hdcs"
 RED = {"h", "d"}
 COLUMNS = 7
 FOUNDATIONS = 4
-MAX_MOVES = 5000
+# Le rejeu coûte quelques microsecondes par coup : la borne protège seulement d'un corps
+# absurde. Une partie humaine très longue (des heures de pioche) reste loin dessous.
+MAX_MOVES = 20000
 
 
 def new_deck() -> str:
@@ -118,7 +120,8 @@ class Klondike:
     def _pile(self, name: str) -> tuple[str, int]:
         if name == "w":
             return "w", 0
-        if len(name) == 2 and name[0] in "tf" and name[1].isdigit():
+        # Pas isdigit() : il accepte « ² » et int() lèverait hors de toute GameError.
+        if len(name) == 2 and name[0] in "tf" and name[1] in "0123456789":
             index = int(name[1])
             if index < (COLUMNS if name[0] == "t" else FOUNDATIONS):
                 return name[0], index

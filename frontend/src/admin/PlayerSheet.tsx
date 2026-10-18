@@ -17,6 +17,7 @@ import {
   type PlayerDetail,
 } from "./api";
 import { useAdminQuery, useToken } from "./hooks";
+import { IncidentList } from "./Incidents";
 import {
   Badge,
   ConfirmAction,
@@ -95,6 +96,14 @@ export default function PlayerSheet({ id, onClose }: { id: string; onClose: () =
           <Identity player={data} now={now} />
           <Stats player={data} />
           {data.tables.length > 0 && <Tables player={data} />}
+          {data.incidents.length > 0 && (
+            <section>
+              <SectionTitle aside={plural(data.incidents.length, "récent")}>
+                Ses incidents
+              </SectionTitle>
+              <IncidentList rows={data.incidents} compact />
+            </section>
+          )}
           {data.admin ? (
             <p className="rounded-2xl bg-gold/10 px-4 py-3 text-sm leading-snug text-ivory-dim/85 ring-1 ring-gold/30">
               C’est ton compte. Code, déconnexion et pseudo se changent depuis ton profil.

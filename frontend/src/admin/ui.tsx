@@ -391,6 +391,12 @@ export const Icon = {
       <path d="M16 4.7a3.5 3.5 0 0 1 0 6.6M18.5 14.8c1.6.8 2.6 2.6 3 5.2" />
     </Stroke>
   ),
+  incidents: (p: { className?: string }) => (
+    <Stroke {...p}>
+      <path d="M12 3.5 2.8 19.5h18.4L12 3.5Z" />
+      <path d="M12 9.5v4.5M12 17h.01" strokeWidth="2.5" />
+    </Stroke>
+  ),
   maintenance: (p: { className?: string }) => (
     <Stroke {...p}>
       <path d="M14.7 6.3a4 4 0 0 0 5 5L21 13l-8 8-3-3 1.3-1.3M14.7 6.3 13 4.6a4 4 0 0 0-5.6 5.6l1.3 1.3L3 17.2V21h3.8l5.7-5.7" />

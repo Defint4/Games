@@ -1,4 +1,5 @@
 import { dict, tr } from "./i18n";
+import { reportApiFailure } from "./report";
 import { serverText } from "./serverMessages";
 import type { LeaderboardPage, MyProfile, OpenRoom, PlayerProfile } from "./types";
 
@@ -30,12 +31,31 @@ export class ApiError extends Error {
    requête échoue et l'écran affiche une erreur plutôt qu'un chargement sans fin. */
 const TIMEOUT_MS = 15000;
 
+/* Un signal qui abandonne au bout de `ms`. AbortSignal.timeout manque sur Safari avant
+   16 et Firefox avant 100 : sans ce repli, le TypeError tombe avant même le fetch et
+   l'app entière passe pour injoignable. */
+export function timeoutSignal(ms: number): AbortSignal {
+  if (typeof AbortSignal.timeout === "function") return AbortSignal.timeout(ms);
+  const controller = new AbortController();
+  setTimeout(() => controller.abort(), ms);
+  return controller.signal;
+}
+
 export async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_URL}${path}`, {
-    signal: AbortSignal.timeout(TIMEOUT_MS),
-    ...init,
-    headers: { "Content-Type": "application/json", ...init?.headers },
-  });
+  const method = init?.method ?? "GET";
+  let res: Response;
+  try {
+    res = await fetch(`${API_URL}${path}`, {
+      signal: timeoutSignal(TIMEOUT_MS),
+      ...init,
+      headers: { "Content-Type": "application/json", ...init?.headers },
+    });
+  } catch (e) {
+    // Réseau coupé, délai dépassé, requête bloquée en route : le serveur n'en saura
+    // rien de lui-même, on le lui dit (si le réseau le permet).
+    reportApiFailure(method, path, e);
+    throw e;
+  }
   if (!res.ok) {
     let detail = tr(T).unexpected;
     try {
@@ -44,7 +64,9 @@ export async function request<T>(path: string, init?: RequestInit): Promise<T> {
     } catch {
       /* réponse sans corps JSON */
     }
-    throw new ApiError(res.status, detail);
+    const error = new ApiError(res.status, detail);
+    if (res.status >= 500) reportApiFailure(method, path, error);
+    throw error;
   }
   if (res.status === 204) return undefined as T;
   return res.json();

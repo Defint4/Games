@@ -134,6 +134,34 @@ class TableOut(BaseModel):
     connected: bool
 
 
+class AppEventOut(BaseModel):
+    """Une ligne du journal de l'app (app.journal)."""
+
+    id: int
+    at: datetime
+    level: str
+    kind: str
+    game: str | None
+    player_id: uuid.UUID | None
+    pseudo: str | None
+    room: str | None
+    message: str
+    detail: dict | None
+    path: str | None
+    ip: str | None
+    user_agent: str | None
+
+    model_config = {"from_attributes": True}
+
+
+class IncidentsOut(BaseModel):
+    # Entrées des dernières 24 h par niveau, quel que soit le filtre demandé.
+    counts: dict[str, int]
+    entries: list[AppEventOut]
+    # L'id à passer en `before` pour la page suivante, None à la fin.
+    next: int | None
+
+
 class PlayerDetailOut(BaseModel):
     id: uuid.UUID
     pseudo: str
@@ -148,6 +176,8 @@ class PlayerDetailOut(BaseModel):
     online: bool
     tables: list[TableOut]
     stats: dict[str, StatsOut]
+    # Ses derniers incidents (avertissements et erreurs), du plus récent au plus ancien.
+    incidents: list[AppEventOut]
 
 
 class EventOut(BaseModel):

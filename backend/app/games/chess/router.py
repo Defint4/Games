@@ -20,6 +20,7 @@ from app.games.base import GameError
 from app.games.chess import service
 from app.games.chess.engine import BOT_ELO_RANGE, MAX_PLIES, TIME_CONTROLS
 from app.games.chess.models import ChessGame
+from app.journal import record
 from app.players.dependencies import get_current_player
 from app.players.models import Player
 
@@ -150,7 +151,25 @@ async def save_bot_game(
             payload.termination,
         )
     except GameError as exc:
+        record(
+            "warning",
+            "bot_game_refused",
+            str(exc),
+            game="chess",
+            detail={
+                "bot_elo": payload.bot_elo,
+                "result": payload.result,
+                "plies": len(payload.moves),
+            },
+        )
         raise HTTPException(status_code=422, detail=str(exc)) from None
+    record(
+        "info",
+        "bot_game",
+        f"Partie contre le bot {payload.bot_elo} : {payload.result} ({payload.termination})",
+        game="chess",
+        detail={"plies": len(payload.moves), "time_control": payload.time_control},
+    )
     return _summary(game, _accuracy(game))
 
 
@@ -209,6 +228,9 @@ async def save_analysis(
     except service.GameNotFound:
         raise HTTPException(status_code=404, detail="Partie introuvable.") from None
     except GameError as exc:
+        record(
+            "warning", "analysis_refused", str(exc), game="chess", detail={"game_id": str(game_id)}
+        )
         raise HTTPException(status_code=422, detail=str(exc)) from None
     return {
         **_summary(found, _accuracy(found)),

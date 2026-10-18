@@ -13,12 +13,16 @@ from app.core.rate_limit import limiter
 from app.core.version import COMMIT
 from app.games.chess.router import router as chess_router
 from app.games.rt1.router import router as rt1_router
+from app.games.solitaire import service as solitaire_service
 from app.games.solitaire.router import router as solitaire_router
+from app.journal.service import JournalMiddleware, install_logging
+from app.journal.service import writer_loop as journal_writer_loop
 from app.players.router import router as players_router
 from app.rooms import lobby
 from app.rooms.manager import manager
 from app.rooms.router import announce_maintenance
 from app.rooms.router import router as rooms_router
+from app.telemetry.router import router as telemetry_router
 
 if len(settings.jwt_secret) < 32:
     raise RuntimeError(
@@ -35,9 +39,14 @@ async def on_rooms_deleted(game: str) -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    install_logging()
+    journal_task = asyncio.create_task(journal_writer_loop())
     cleanup_task = asyncio.create_task(manager.cleanup_loop(on_delete=on_rooms_deleted))
+    purge_task = asyncio.create_task(solitaire_service.purge_loop())
     yield
     cleanup_task.cancel()
+    purge_task.cancel()
+    journal_task.cancel()
     await engine.dispose()
 
 
@@ -55,6 +64,10 @@ async def rate_limited(request: Request, exc: RateLimitExceeded) -> JSONResponse
     )
 
 
+# Le journal enveloppe tout (ajouté en premier = le plus à l'intérieur des middlewares
+# utilisateur, mais autour des routes) : il voit le statut final et les exceptions.
+app.add_middleware(JournalMiddleware)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
@@ -69,6 +82,7 @@ app.include_router(solitaire_router)
 app.include_router(chess_router)
 app.include_router(rt1_router)
 app.include_router(admin_router)
+app.include_router(telemetry_router)
 
 
 @app.get("/api/health")

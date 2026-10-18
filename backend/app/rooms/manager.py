@@ -24,6 +24,7 @@ from fastapi import WebSocket
 
 from app.core.config import settings
 from app.games.base import GameError, GameSpec, GameStatus
+from app.journal import record
 
 logger = logging.getLogger(__name__)
 
@@ -209,6 +210,14 @@ class RoomManager:
                     if room.connected_count() == 0 and now - room.last_activity > ttl:
                         self.delete(code)
                         touched.add(room.game)
+                        record(
+                            "info",
+                            "room_expired",
+                            f"Table {code} fantôme supprimée ({room.status.value})",
+                            game=room.game,
+                            room=code,
+                            detail={"players": [s.pseudo for s in room.seats if s.bot is None]},
+                        )
                 if on_delete is not None:
                     for game in touched:
                         await on_delete(game)

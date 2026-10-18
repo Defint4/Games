@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.security import decode_player_token
+from app.journal import bind_player
 from app.players import service
 from app.players.models import Player
 
@@ -39,4 +40,5 @@ async def get_current_player(
         raise HTTPException(status_code=401, detail=SESSION_REVOKED)
     if player.suspended_at is not None:
         raise HTTPException(status_code=403, detail=SUSPENDED)
+    bind_player(player)
     return player

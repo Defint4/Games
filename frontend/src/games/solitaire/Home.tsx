@@ -21,11 +21,13 @@ import {
   fetchCurrent,
   forgetMoves,
   newDeal,
+  savedMoves,
   setWantsWinnable,
   wantsWinnable,
   type Deal,
 } from "./api";
 import { preloadAssets } from "./assets";
+import { isWon, replayMoves } from "./engine";
 import { T } from "./i18n";
 import { GAME, PLAY_PATH } from "./meta";
 import Rules from "./Rules";
@@ -97,6 +99,13 @@ function Desk({ profile }: { profile: StoredProfile }) {
     refetchOnMount: "always",
   });
   const open = current.isFetchedAfterMount ? current.data : undefined;
+  // Partie gagnée sur l'appareil mais pas encore enregistrée (envoi échoué) : retour à
+  // la table, qui renvoie seule. Une nouvelle donne d'ici la compterait perdue.
+  const unsavedWin =
+    !!open && isWon(replayMoves(open.deck, savedMoves(open.id)).history.slice(-1)[0]);
+  useEffect(() => {
+    if (unsavedWin) router.replace(PLAY_PATH);
+  }, [unsavedWin, router]);
 
   const deal = useMutation({
     mutationFn: () => newDeal(profile.token, winnable),
@@ -117,11 +126,12 @@ function Desk({ profile }: { profile: StoredProfile }) {
       else setError(e instanceof ApiError ? e.message : tr(T).home.unreachable);
     },
   });
-  const busy = leaving !== null;
+  const overlay = leaving ?? (unsavedWin ? tr(T).home.resuming : null);
+  const busy = overlay !== null;
 
   return (
     <section className="flex grow flex-col gap-5">
-      <TransitionOverlay label={leaving} />
+      <TransitionOverlay label={overlay} />
       <div className="flex items-center gap-3 rounded-2xl bg-black/25 p-3 ring-1 ring-white/10">
         <Avatar id={profile.avatar} size="lg" />
         <div className="grow">
@@ -164,7 +174,7 @@ function Desk({ profile }: { profile: StoredProfile }) {
           if (open) setSheet("confirm");
           else deal.mutate();
         }}
-        disabled={busy || !current.isFetchedAfterMount}
+        disabled={busy || !current.isFetchedAfterMount || unsavedWin}
         className="rounded-2xl bg-gold py-5 text-xl font-extrabold text-ink shadow-card enabled:active:translate-y-0.5 disabled:opacity-40"
       >
         {t.newDeal}

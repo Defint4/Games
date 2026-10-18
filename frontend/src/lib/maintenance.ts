@@ -10,7 +10,7 @@
    ailleurs, par /api/status (voir MaintenanceGate). */
 
 import { useSyncExternalStore } from "react";
-import { API_URL, ApiError } from "./api";
+import { API_URL, ApiError, timeoutSignal } from "./api";
 import { serverText } from "./serverMessages";
 
 export type Phase = "off" | "draining" | "locked";
@@ -137,7 +137,7 @@ async function fetchPhase(): Promise<Phase | null> {
   try {
     const res = await fetch(`${API_URL}/api/status`, {
       cache: "no-store",
-      signal: AbortSignal.timeout(10000),
+      signal: timeoutSignal(10000),
     });
     if (!res.ok) return null;
     const body = (await res.json()) as { maintenance?: unknown; version?: unknown };

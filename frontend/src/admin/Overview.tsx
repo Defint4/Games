@@ -4,6 +4,7 @@ import { motion } from "motion/react";
 import { GAMES } from "@/lib/games";
 import type { Overview as OverviewData } from "./api";
 import { useOverview, type Tab } from "./hooks";
+import { useIncidentCounts } from "./Incidents";
 import { GameSwatch, Icon, Panel, SectionTitle, Spinner, errorText, plural, span } from "./ui";
 
 export default function Overview({ onOpen }: { onOpen: (tab: Tab) => void }) {
@@ -39,6 +40,7 @@ export default function Overview({ onOpen }: { onOpen: (tab: Tab) => void }) {
       )}
 
       <Live data={data} onOpen={onOpen} />
+      <Trouble onOpen={onOpen} />
       <Ledger data={data} onOpen={onOpen} />
       <Games data={data} />
       <Server data={data} />
@@ -85,6 +87,49 @@ function Live({ data, onOpen }: { data: OverviewData; onOpen: (tab: Tab) => void
         </button>
       )}
     </section>
+  );
+}
+
+/* Les dernières 24 h côté incidents : une ligne verte quand tout va bien, un appel
+   vers l'onglet sinon. */
+function Trouble({ onOpen }: { onOpen: (tab: Tab) => void }) {
+  const counts = useIncidentCounts();
+  if (!counts.data) return null;
+  const { error, warning } = counts.data;
+  const calm = error === 0 && warning === 0;
+  const parts = [
+    error ? plural(error, "erreur") : null,
+    warning ? plural(warning, "alerte") : null,
+  ].filter(Boolean);
+  return (
+    <button
+      type="button"
+      onClick={() => onOpen("incidents")}
+      className={`flex items-center gap-3 rounded-2xl px-4 py-3 text-left ring-1 active:translate-y-0.5 ${
+        error
+          ? "bg-card-red/10 ring-card-red/40"
+          : calm
+            ? "bg-black/25 ring-white/10"
+            : "bg-gold/10 ring-gold/40"
+      }`}
+    >
+      {calm ? (
+        <Icon.check className="size-6 shrink-0 text-[#8be8b8]" />
+      ) : (
+        <Icon.incidents
+          className={`size-6 shrink-0 ${error ? "text-[#ff9a88]" : "text-gold"}`}
+        />
+      )}
+      <span className="min-w-0 grow text-sm leading-snug">
+        <span className="font-extrabold">
+          {calm ? "Rien à signaler" : parts.join(" et ")}
+        </span>{" "}
+        <span className="text-ivory-dim/75">ces dernières 24 h.</span>
+      </span>
+      <span className="shrink-0 text-xs font-semibold text-ivory-dim/70 underline underline-offset-4">
+        Journal
+      </span>
+    </button>
   );
 }
 

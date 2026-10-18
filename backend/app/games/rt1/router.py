@@ -26,6 +26,7 @@ from app.core.database import get_db
 from app.core.rate_limit import limiter
 from app.games.registry import is_open
 from app.games.rt1 import rules, service
+from app.journal import record
 from app.players.dependencies import get_current_player
 from app.players.models import Player
 
@@ -174,8 +175,22 @@ async def start(
             None if bots is None else service.BotsResult(bots.level, bots.count, 0),
         )
     except service.NotOwned:
+        record(
+            "warning",
+            "race_refused",
+            f"Départ refusé : {NOT_OWNED}",
+            game="rt1",
+            detail={"circuit": payload.circuit, "vehicle": payload.vehicle},
+        )
         raise HTTPException(status_code=422, detail=NOT_OWNED) from None
     except service.RegionLocked:
+        record(
+            "warning",
+            "race_refused",
+            f"Départ refusé : {REGION_LOCKED}",
+            game="rt1",
+            detail={"circuit": payload.circuit},
+        )
         raise HTTPException(status_code=403, detail=REGION_LOCKED) from None
     return StartOut(race_id=race.id)
 
@@ -227,9 +242,35 @@ async def finish(
             db, player.id, p.race_id, p.time_ms, p.splits, ghost, p.place, p.pi
         )
     except service.NotOwned:
+        record(
+            "warning",
+            "race_refused",
+            f"Arrivée refusée : {NOT_OWNED}",
+            game="rt1",
+            detail={"race_id": str(p.race_id)},
+        )
         raise HTTPException(status_code=422, detail=NOT_OWNED) from None
     except service.RaceError as exc:
+        # Ticket inconnu, temps impossible, fantôme incohérent : l'anti-triche parle ici.
+        record(
+            "warning",
+            "race_refused",
+            f"Arrivée refusée : {exc}",
+            game="rt1",
+            detail={"race_id": str(p.race_id), "time_ms": p.time_ms, "place": p.place, "pi": p.pi},
+        )
         raise HTTPException(status_code=422, detail=str(exc)) from None
+    record(
+        "info",
+        "race_finished",
+        f"Course finie en {p.time_ms / 1000:.3f} s" + (" (record)" if arrival.record else ""),
+        game="rt1",
+        detail={
+            "race_id": str(p.race_id),
+            "place": p.place,
+            "gains": [g.kind for g in arrival.gains],
+        },
+    )
     return FinishOut(
         record=arrival.record,
         best_ms=arrival.best_ms,

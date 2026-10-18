@@ -5,7 +5,7 @@ import { createContext, useContext, useEffect } from "react";
 import { ApiError } from "@/lib/api";
 import { fetchOverview } from "./api";
 
-export type Tab = "overview" | "tables" | "players" | "maintenance";
+export type Tab = "overview" | "tables" | "players" | "incidents" | "maintenance";
 
 export const SESSION_KEY = ["admin", "session"];
 

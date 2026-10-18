@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import { HUB_PATH } from "@/lib/games";
 import { dict, useT } from "@/lib/i18n";
+import { reportError } from "@/lib/report";
 
 const T = dict({
   fr: {
@@ -27,6 +28,7 @@ export default function Crash({ error }: { error: Error }) {
   const t = useT(T);
   useEffect(() => {
     console.error(error);
+    reportError(error, "render");
   }, [error]);
   return (
     <main className="flex h-full grow flex-col items-center justify-center gap-4 px-6 text-center text-ivory-dim">

@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { ApiError, refreshSession } from "@/lib/api";
 import { getLang } from "@/lib/i18n";
 import { currentProfile, saveProfile } from "@/lib/identity";
+import { installErrorReporting } from "@/lib/report";
 import { installClickSound } from "@/lib/sound";
 
 /* La session vit 30 jours sans venir : chaque ouverture (ou retour dans l'app restée en
@@ -58,9 +59,11 @@ export default function Providers({ children }: { children: React.ReactNode }) {
     };
     document.addEventListener("visibilitychange", onVisible);
     const uninstallClick = installClickSound();
+    const uninstallReporting = installErrorReporting();
     return () => {
       document.removeEventListener("visibilitychange", onVisible);
       uninstallClick();
+      uninstallReporting();
     };
   }, []);
   return <QueryClientProvider client={client}>{children}</QueryClientProvider>;

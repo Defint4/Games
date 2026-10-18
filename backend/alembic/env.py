@@ -12,6 +12,7 @@ from app.core.database import Base
 from app.games.chess import models as _chess_models  # noqa: F401  (chess_games)
 from app.games.rt1 import models as _rt1_models  # noqa: F401  (rt1_profiles, rt1_records)
 from app.games.solitaire import models as _solitaire_models  # noqa: F401  (solitaire_games)
+from app.journal import models as _journal_models  # noqa: F401  (app_events)
 from app.players import models as _players_models  # noqa: F401  (players, player_game_stats)
 
 config = context.config

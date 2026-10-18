@@ -7,6 +7,7 @@ from app.core.database import get_db
 from app.core.rate_limit import limiter
 from app.core.security import create_player_token
 from app.games.registry import get_game, is_game
+from app.journal import record
 from app.players import service
 from app.players.dependencies import SUSPENDED, get_current_player
 from app.players.models import Player
@@ -44,8 +45,17 @@ async def enter(
     try:
         player = await service.enter(db, payload.pseudo, payload.pin, payload.avatar)
     except service.WrongPin:
+        record(
+            "warning", "pin_failed", f"Code PIN refusé pour {payload.pseudo}", pseudo=payload.pseudo
+        )
         raise HTTPException(status_code=403, detail="Code PIN incorrect.") from None
     except service.PinLocked:
+        record(
+            "warning",
+            "pin_locked",
+            f"{payload.pseudo} bloqué : trop d'essais",
+            pseudo=payload.pseudo,
+        )
         raise HTTPException(status_code=423, detail=PIN_LOCKED) from None
     except service.AvatarRequired:
         raise HTTPException(status_code=422, detail="Choisis un avatar.") from None

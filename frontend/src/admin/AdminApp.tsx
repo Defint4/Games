@@ -11,6 +11,7 @@ import { currentProfile, type StoredProfile } from "@/lib/identity";
 import { checkSession, closeSession } from "./api";
 import Gate from "./Gate";
 import { SESSION_KEY, TokenContext, retry, useOverview, type Tab } from "./hooks";
+import Incidents from "./Incidents";
 import Maintenance from "./Maintenance";
 import Overview from "./Overview";
 import Players from "./Players";
@@ -21,6 +22,7 @@ const TABS: { id: Tab; label: string; icon: keyof typeof Icon }[] = [
   { id: "overview", label: "Aperçu", icon: "overview" },
   { id: "tables", label: "Tables", icon: "tables" },
   { id: "players", label: "Joueurs", icon: "players" },
+  { id: "incidents", label: "Incidents", icon: "incidents" },
   { id: "maintenance", label: "Maintenance", icon: "maintenance" },
 ];
 
@@ -101,6 +103,7 @@ export default function AdminApp() {
               {tab === "overview" && <Overview onOpen={setTab} />}
               {tab === "tables" && <Tables />}
               {tab === "players" && <Players />}
+              {tab === "incidents" && <Incidents />}
               {tab === "maintenance" && <Maintenance />}
             </motion.div>
           </AnimatePresence>
@@ -149,7 +152,7 @@ function TabBar({ tab, onChange }: { tab: Tab; onChange: (tab: Tab) => void }) {
   const maintenance = overview.data?.maintenance ?? false;
   return (
     <nav className="shrink-0 border-t border-white/10 bg-felt-900/80 px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-1.5 backdrop-blur">
-      <ul className="grid grid-cols-4">
+      <ul className="grid grid-cols-5">
         {TABS.map(({ id, label, icon }) => {
           const Glyph = Icon[icon];
           const active = id === tab;

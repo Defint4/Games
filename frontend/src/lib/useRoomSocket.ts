@@ -9,6 +9,7 @@ import {
   setPhase,
   showMaintenanceNotice,
 } from "./maintenance";
+import { reportError } from "./report";
 import { serverText } from "./serverMessages";
 import { sfx } from "./sound";
 import type {
@@ -181,9 +182,19 @@ export function useRoomSocket<V extends BaseRoomView>(
         }
         const terminal = tr(CLOSE_REASONS)[event.code];
         if (terminal) {
+          // Table disparue ou session tombée en pleine partie : le joueur voit un écran
+          // de fin, le serveur doit savoir que ça lui est arrivé.
+          if (event.code !== 4000)
+            reportError(new Error(`WebSocket fermé ${event.code}`), "socket", { room: code });
           setClosedReason(terminal);
           return;
         }
+        // Troisième coupure d'affilée sans réponse (1006, 1008, 1013…) : ce n'est plus
+        // un aléa de réseau mobile, on le signale une fois.
+        if (retryRef.current === 3)
+          reportError(new Error(`WebSocket coupé en boucle (${event.code})`), "socket", {
+            room: code,
+          });
         retryLater();
       };
     }

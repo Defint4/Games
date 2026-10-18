@@ -9,6 +9,8 @@ export type Deal = {
   deck: string;
   /* Temps déjà écoulé côté serveur au moment de la réponse. */
   elapsed_ms: number;
+  /* Donne choisie gagnante par le solveur du serveur. */
+  winnable: boolean;
   /* Heure locale de la réponse : le chrono part de receivedAt - elapsed_ms, quelle que
      soit l'heure de l'appareil. Ajouté ici, pas envoyé par le serveur. */
   receivedAt: number;

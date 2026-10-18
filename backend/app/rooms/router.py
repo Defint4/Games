@@ -15,6 +15,7 @@ import logging
 import re
 import time
 import uuid
+from datetime import UTC, datetime
 
 import jwt
 from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket, WebSocketDisconnect
@@ -27,6 +28,7 @@ from app.core.rate_limit import limiter
 from app.core.security import decode_player_token
 from app.games.base import GameError, GameSpec, GameStatus
 from app.games.registry import get_game, is_open
+from app.journal import bind_player, record
 from app.players import service as players_service
 from app.players.dependencies import get_current_player
 from app.players.models import Player
@@ -90,7 +92,9 @@ async def create_room(
     try:
         room = manager.create(spec, _seat(player, spec), payload.options)
     except GameError as exc:
+        record("warning", "room_refused", str(exc), game=spec.slug, detail=payload.options)
         raise HTTPException(status_code=422, detail=str(exc)) from None
+    record("info", "room_created", f"Table {room.code} créée", game=room.game, room=room.code)
     await lobby.notify(room.game)
     return RoomOut(code=room.code, game=room.game)
 
@@ -118,8 +122,10 @@ async def join_room(
         try:
             room.spec.add_player(room.state, player.pseudo)
         except GameError as exc:
+            record("info", "join_refused", str(exc), game=room.game, room=room.code)
             raise HTTPException(status_code=409, detail=str(exc)) from None
         room.seats.append(_seat(player, room.spec))
+        record("info", "room_joined", f"{player.pseudo} s'assoit", game=room.game, room=room.code)
         joined = {"type": "player_joined", "pseudo": player.pseudo}
         if room.status is GameStatus.PLAYING:
             # Jeu qui démarre dès que la table est pleine (échecs) : pendules, liste des
@@ -172,19 +178,32 @@ async def room_ws(websocket: WebSocket, code: str) -> None:
     try:
         player_id, version = decode_player_token(websocket.query_params.get("token") or "")
     except jwt.InvalidTokenError:
+        record("info", "ws_refused", f"Table {code} : jeton invalide (4401)", room=code)
         await websocket.close(code=4401)
         return
     # Jeton d'avant un changement de code PIN : cet appareil a été déconnecté.
     async with async_session_maker() as db:
         current = await db.scalar(select(Player.token_version).where(Player.id == player_id))
     if current != version:
+        record("info", "ws_refused", f"Table {code} : session révoquée (4401)", room=code)
         await websocket.close(code=4401)
         return
     room = manager.get(code)
     if room is None:
+        record(
+            "info", "ws_refused", f"Table {code} introuvable (4404)", room=code, player=player_id
+        )
         await websocket.close(code=4404)
         return
     if room.seat_of(player_id) is None:
+        record(
+            "warning",
+            "ws_refused",
+            f"Table {code} : pas assis (4403)",
+            game=room.game,
+            room=code,
+            player=player_id,
+        )
         await websocket.close(code=4403)  # s'asseoir d'abord via REST join
         return
 
@@ -195,6 +214,7 @@ async def room_ws(websocket: WebSocket, code: str) -> None:
             await websocket.close(code=4403)
             return
         seat = room.seats[seat_index]
+        bind_player(seat)
         if seat.socket is not None:
             # Nouvelle connexion (autre onglet / retour d'app) : elle remplace l'ancienne.
             try:
@@ -224,6 +244,13 @@ async def room_ws(websocket: WebSocket, code: str) -> None:
             tokens = min(WS_BURST, tokens + (now - last) * WS_RATE)
             last = now
             if tokens < 1:
+                record(
+                    "warning",
+                    "ws_flood",
+                    f"{seat.pseudo} coupé : plus de {WS_RATE:g} messages/s",
+                    game=room.game,
+                    room=room.code,
+                )
                 await websocket.close(code=1008)
                 break
             tokens -= 1
@@ -243,6 +270,16 @@ async def _handle_disconnect(room: Room, player_id: uuid.UUID, websocket: WebSoc
             return  # déjà remplacé par une connexion plus récente
         room.seats[seat_index].socket = None
         room.touch()
+        if room.status is GameStatus.PLAYING:
+            # Le joueur verra une reconnexion ; s'il se plaint d'un blocage, c'est ici.
+            record(
+                "info",
+                "disconnected",
+                f"{room.seats[seat_index].pseudo} déconnecté en pleine partie",
+                game=room.game,
+                room=room.code,
+                player=room.seats[seat_index],
+            )
         if room.status is GameStatus.LOBBY:
             # En lobby, le siège n'est libéré qu'après un délai de grâce : un refresh
             # de page ne doit pas éjecter le joueur. En partie, le siège attend
@@ -268,10 +305,20 @@ async def _expire_lobby_seat(
 
 async def _free_seat(room: Room, seat_index: int) -> None:
     """Libère un siège de lobby ; supprime la table s'il n'y reste aucun humain."""
+    left = room.seats[seat_index]
     room.spec.remove_player(room.state, seat_index)
     room.seats.pop(seat_index)
+    record(
+        "info",
+        "seat_freed",
+        f"{left.pseudo} quitte la table en attente",
+        game=room.game,
+        room=room.code,
+        player=left,
+    )
     if room.human_count() == 0:
         manager.delete(room.code)
+        record("info", "room_deleted", f"Table {room.code} vidée", game=room.game, room=room.code)
         await lobby.notify(room.game)
         return
     room.humans_first()
@@ -391,13 +438,37 @@ async def _handle_message(
             else:
                 events = room.spec.handle_action(room, seat_index, action, message)
                 if events is None:
+                    record(
+                        "warning",
+                        "unknown_action",
+                        f"Action inconnue « {action[:30]} »",
+                        game=room.game,
+                        room=room.code,
+                    )
                     await _send_error(websocket, "Action inconnue.")
                 else:
                     room.seats[seat_index].missed = 0
                     await _after_move(room, events)
         except GameError as exc:
+            # Un coup refusé par les règles : normal de temps en temps, révélateur en
+            # série (client qui croit à un autre état que le serveur).
+            record(
+                "info",
+                "action_refused",
+                f"{action[:30]} : {exc}",
+                game=room.game,
+                room=room.code,
+            )
             await _send_error(websocket, str(exc))
-        except (KeyError, TypeError, ValueError, OverflowError):
+        except (KeyError, TypeError, ValueError, OverflowError) as exc:
+            record(
+                "warning",
+                "malformed_message",
+                f"{action[:30]} : {type(exc).__name__}: {exc}",
+                game=room.game,
+                room=room.code,
+                detail={"message": _compact(message)},
+            )
             await _send_error(websocket, "Message mal formé.")
 
 
@@ -405,6 +476,7 @@ async def _after_move(room: Room, events: list[dict]) -> None:
     """Après tout changement d'état de jeu : compteurs, stats, timer, diffusion, bots."""
     room.touch()
     room.spec.on_events(room, events)
+    _journal_events(room, events)
     finished = room.status is GameStatus.FINISHED and not room.stats_recorded
     if finished:
         room.stats_recorded = True
@@ -414,6 +486,18 @@ async def _after_move(room: Room, events: list[dict]) -> None:
         await _record_stats(room)
         manager.last_game_end = time.monotonic()
         room.spec.on_game_over(room)
+        record(
+            "info",
+            "game_finished",
+            f"Partie {room.code} terminée",
+            game=room.game,
+            room=room.code,
+            detail={
+                "players": [s.pseudo for s in room.seats],
+                "bots": sum(1 for s in room.seats if s.bot),
+                "duration_s": int((datetime.now(UTC) - room.created_at).total_seconds()),
+            },
+        )
     _schedule_turn_timer(room)
     await _broadcast_state(room, events)
     # La liste des tables ouvertes bouge tant qu'on est en lobby, et au démarrage.
@@ -425,6 +509,56 @@ async def _after_move(room: Room, events: list[dict]) -> None:
     if finished and manager.maintenance:
         # Peut-être la dernière partie en cours : la fermeture approche.
         await announce_maintenance()
+
+
+def _journal_events(room: Room, events: list[dict]) -> None:
+    """Ce que la plateforme retient des événements d'un coup : début de partie, coup
+    joué d'office pour un absent, remplacement par un bot."""
+    for event in events:
+        kind = event.get("type")
+        if kind == "game_started":
+            record(
+                "info",
+                "game_started",
+                f"Partie {room.code} commencée",
+                game=room.game,
+                room=room.code,
+                detail={
+                    "players": [s.pseudo for s in room.seats],
+                    "turn_seconds": room.turn_seconds,
+                },
+            )
+        elif kind in ("auto_played", "replaced_by_bot"):
+            index = event.get("player", event.get("seat"))
+            seat = (
+                room.seats[index]
+                if isinstance(index, int) and 0 <= index < len(room.seats)
+                else None
+            )
+            who = seat.pseudo if seat else "?"
+            if kind == "auto_played":
+                record(
+                    "info",
+                    "auto_played",
+                    f"Coup joué d'office pour {who}",
+                    game=room.game,
+                    room=room.code,
+                    player=seat,
+                )
+            else:
+                record(
+                    "warning",
+                    "replaced_by_bot",
+                    f"{who} remplacé par un bot (absent)",
+                    game=room.game,
+                    room=room.code,
+                    player=seat,
+                )
+
+
+def _compact(message: dict) -> dict:
+    """Un message client borné, pour le journal (pas de corps géant)."""
+    return {str(k)[:30]: str(v)[:80] for k, v in list(message.items())[:10]}
 
 
 def _schedule_turn_timer(room: Room) -> None:
@@ -573,6 +707,14 @@ async def _handle_rematch(room: Room, websocket: WebSocket) -> None:
             )
     room.rematch_code = new_room.code
     room.touch()
+    record(
+        "info",
+        "rematch",
+        f"Revanche de {room.code} : table {new_room.code}",
+        game=room.game,
+        room=new_room.code,
+        detail={"players": [s.pseudo for s in connected]},
+    )
     await _broadcast(room, {"type": "rematch", "code": new_room.code})
     await lobby.notify(room.game)
     # Maintenance lancée pendant les envois ci-dessus : ses bots attendront la réouverture.
@@ -670,6 +812,12 @@ async def send_bounded(socket: WebSocket, message: dict) -> None:
     try:
         await asyncio.wait_for(socket.send_json(message), SEND_TIMEOUT)
     except TimeoutError:
+        record(
+            "warning",
+            "ws_slow_client",
+            f"Client coupé : {SEND_TIMEOUT:g} s sans vider son tampon",
+            detail={"message": message.get("type")},
+        )
         asyncio.get_running_loop().create_task(drop_socket(socket))
     except Exception:
         pass

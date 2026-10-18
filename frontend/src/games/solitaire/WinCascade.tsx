@@ -116,7 +116,7 @@ function sprite(card: Card, w: number, h: number, dpr: number, font: string) {
   const x = canvas.getContext("2d")!;
   x.scale(dpr, dpr);
   x.beginPath();
-  x.roundRect(0.5, 0.5, w - 1, h - 1, w * 0.1);
+  roundedRect(x, 0.5, 0.5, w - 1, h - 1, w * 0.1);
   x.fillStyle = "#fbf8ef";
   x.fill();
   // Un liseré : c'est lui qui dessine chaque copie de la traînée.
@@ -145,7 +145,7 @@ function sprite(card: Card, w: number, h: number, dpr: number, font: string) {
     // Le cadre des figures (voir Face) : liseré et fond à l'encre de la couleur.
     const frameH = h - w * 0.62;
     x.beginPath();
-    x.roundRect(w * 0.1, w * 0.52, w * 0.8, frameH, w * 0.06);
+    roundedRect(x, w * 0.1, w * 0.52, w * 0.8, frameH, w * 0.06);
     x.fillStyle = `${ink}0f`;
     x.fill();
     x.strokeStyle = `${ink}59`;
@@ -158,4 +158,27 @@ function sprite(card: Card, w: number, h: number, dpr: number, font: string) {
   }
   sprites.set(key, canvas);
   return canvas;
+}
+
+/* roundRect manque sur Safari avant 16.4 et Firefox avant 112 : à la main sinon, plutôt
+   qu'un TypeError qui arrête la cascade à la première carte. */
+function roundedRect(
+  x: CanvasRenderingContext2D,
+  left: number,
+  top: number,
+  width: number,
+  height: number,
+  radius: number,
+) {
+  if (typeof x.roundRect === "function") {
+    x.roundRect(left, top, width, height, radius);
+    return;
+  }
+  const r = Math.min(radius, width / 2, height / 2);
+  x.moveTo(left + r, top);
+  x.arcTo(left + width, top, left + width, top + height, r);
+  x.arcTo(left + width, top + height, left, top + height, r);
+  x.arcTo(left, top + height, left, top, r);
+  x.arcTo(left, top, left + width, top, r);
+  x.closePath();
 }

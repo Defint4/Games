@@ -21,6 +21,7 @@ from app.admin.models import AdminCredential, AdminEvent
 from app.core.security import hash_password, verify_password
 from app.core.version import VERSION
 from app.games.base import GameStatus
+from app.journal import service as journal
 from app.players import service as players_service
 from app.players.models import Player, PlayerGameStats
 from app.rooms import lobby
@@ -383,6 +384,7 @@ async def player_detail(db: AsyncSession, player: Player) -> dict:
             }
             for s in player.stats
         },
+        "incidents": await journal.player_events(db, player.id),
     }
 
 

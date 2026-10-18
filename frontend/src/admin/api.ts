@@ -98,7 +98,39 @@ export type PlayerDetail = {
   online: boolean;
   tables: { code: string; game: string; status: Room["status"]; connected: boolean }[];
   stats: Record<string, GameStats>;
+  /* Ses derniers incidents (avertissements et erreurs), du plus récent au plus ancien. */
+  incidents: AppEvent[];
 };
+
+export type Level = "info" | "warning" | "error";
+
+/* Une ligne du journal de l'app (backend app.journal) : ce qui s'est passé, pour qui,
+   où, et de quoi comprendre (détail JSON, trace). */
+export type AppEvent = {
+  id: number;
+  at: string;
+  level: Level;
+  kind: string;
+  game: string | null;
+  player_id: string | null;
+  pseudo: string | null;
+  room: string | null;
+  message: string;
+  detail: Record<string, unknown> | null;
+  path: string | null;
+  ip: string | null;
+  user_agent: string | null;
+};
+
+export type Incidents = {
+  /* Dernières 24 h, par niveau, quel que soit le filtre. */
+  counts: Record<Level, number>;
+  entries: AppEvent[];
+  /* L'id à passer en `before` pour la page suivante, null à la fin. */
+  next: number | null;
+};
+
+export type IncidentsFilter = { level: Level; game: string | null; q: string };
 
 export type AdminEvent = {
   id: number;
@@ -159,3 +191,13 @@ export const deletePlayer = (token: string, id: string, confirm: string) =>
 
 export const fetchEvents = (token: string, offset: number) =>
   admin<Page<AdminEvent>>(token, `/events?offset=${offset}&limit=${EVENTS_PAGE}`);
+
+export const INCIDENTS_PAGE = 50;
+
+export function fetchIncidents(token: string, filter: IncidentsFilter, before: number | null) {
+  const params = new URLSearchParams({ level: filter.level, limit: String(INCIDENTS_PAGE) });
+  if (filter.game) params.set("game", filter.game);
+  if (filter.q) params.set("q", filter.q);
+  if (before !== null) params.set("before", String(before));
+  return admin<Incidents>(token, `/incidents?${params}`);
+}

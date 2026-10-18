@@ -228,6 +228,120 @@ export function tapMove(state: State, where: Where): string | null {
   return empty !== null ? moveString(src, `t${empty}`, n) : null;
 }
 
+/* --- Impasse ----------------------------------------------------------------------- */
+
+/* Au-delà, on renonce à conclure : mieux vaut rater une impasse qu'en annoncer une à tort. */
+const DEAD_END_MAX_STATES = 4000;
+
+/* Ce qu'une partie a d'acquis : cartes en fondation, cartes encore cachées, cartes
+   encore dans le cycle talon-défausse. Tout coup irréversible change cette clé, aucun
+   coup réversible (pioche, séquence déplacée entre colonnes) ne la change. */
+export function progressKey(state: State): string {
+  const up = state.foundations.reduce((n, f) => n + f.length, 0);
+  const hidden = state.tableau.reduce((n, c) => n + c.filter((s) => !s.up).length, 0);
+  return `${up}/${hidden}/${state.stock.length + state.waste.length}`;
+}
+
+function stateKey(state: State): string {
+  const tableau = state.tableau
+    .map((c) => c.map((s) => (s.up ? s.card : `.${s.card}`)).join(""))
+    .join("|");
+  const tops = state.foundations.map((f) => f[f.length - 1] ?? "-").join("");
+  return `${tableau}#${state.stock.join("")}#${state.waste.join("")}#${tops}`;
+}
+
+/* Les coups légaux depuis un état, chacun dit s'il fait avancer la partie : monter une
+   carte en fondation, sortir une carte de la défausse ou retourner une carte cachée
+   sont irréversibles ; le reste (pioche, séquences déplacées entre colonnes, carte
+   redescendue d'une fondation) se défait. */
+function successors(state: State): { move: string; progress: boolean }[] {
+  const out: { move: string; progress: boolean }[] = [];
+  if (state.stock.length || state.waste.length) out.push({ move: "d", progress: false });
+
+  const top = state.waste[state.waste.length - 1];
+  if (top) {
+    state.foundations.forEach((f, i) => {
+      if (fitsFoundation(f, top)) out.push({ move: `w>f${i}`, progress: true });
+    });
+    state.tableau.forEach((column, c) => {
+      if (fitsColumn(column, top)) out.push({ move: `w>t${c}`, progress: true });
+    });
+  }
+
+  state.tableau.forEach((column, c) => {
+    if (!column.length) return;
+    const last = column[column.length - 1].card;
+    state.foundations.forEach((f, i) => {
+      if (fitsFoundation(f, last)) out.push({ move: `t${c}>f${i}`, progress: true });
+    });
+    // Les cartes visibles d'une colonne forment toujours une suite valide : chaque fin
+    // de suite peut partir.
+    let first = column.findIndex((s) => s.up);
+    if (first < 0) first = column.length;
+    for (let i = first; i < column.length; i++) {
+      const card = column[i].card;
+      const n = column.length - i;
+      const reveals = i > 0 && !column[i - 1].up;
+      state.tableau.forEach((target, d) => {
+        if (d === c || !fitsColumn(target, card)) return;
+        // Une colonne entière vers une colonne vide : rien ne change.
+        if (i === 0 && !target.length) return;
+        out.push({ move: moveString(`t${c}`, `t${d}`, n), progress: reveals });
+      });
+    }
+  });
+
+  state.foundations.forEach((f, i) => {
+    const card = f[f.length - 1];
+    if (!card) return;
+    state.tableau.forEach((column, c) => {
+      if (fitsColumn(column, card)) out.push({ move: `f${i}>t${c}`, progress: false });
+    });
+  });
+  return out;
+}
+
+/* Impasse : plus aucun coup qui fasse avancer la partie, quel que soit le nombre de
+   tours de talon ni les déplacements de séquences entre colonnes. On parcourt tout ce
+   que les coups réversibles permettent d'atteindre, parce que l'un d'eux peut en
+   préparer un utile : passer un 7 rouge d'un 8 noir à l'autre libère le premier pour le
+   7 de la défausse. */
+export function isDeadEnd(state: State): boolean {
+  if (isWon(state)) return false;
+  const seen = new Set<string>([stateKey(state)]);
+  const queue = [state];
+  for (let i = 0; i < queue.length; i++) {
+    for (const { move, progress } of successors(queue[i])) {
+      if (progress) return false;
+      const next = apply(queue[i], move)!;
+      const key = stateKey(next);
+      if (seen.has(key)) continue;
+      if (seen.size >= DEAD_END_MAX_STATES) return false;
+      seen.add(key);
+      queue.push(next);
+    }
+  }
+  return true;
+}
+
+export type Played = { history: State[]; moves: string[] };
+
+/* Les coups rejoués sur une donne, en s'arrêtant au premier illégal (coups sauvegardés
+   d'une version qui ne les acceptait pas de la même façon). */
+export function replayMoves(deck: string, moves: string[]): Played {
+  let state = deal(deck);
+  const history = [state];
+  const kept: string[] = [];
+  for (const move of moves) {
+    const next = apply(state, move);
+    if (!next) break;
+    state = next;
+    history.push(next);
+    kept.push(move);
+  }
+  return { history, moves: kept };
+}
+
 /* Plus aucune carte cachée dans les colonnes : la partie est gagnée d'avance (on
    peut toujours jouer la plus petite carte restante). */
 export function allRevealed(state: State): boolean {

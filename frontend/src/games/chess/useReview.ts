@@ -2,6 +2,7 @@
 
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useState } from "react";
+import { timeoutSignal } from "@/lib/api";
 import { ANALYSIS_DEPTH, ANALYSIS_VERSION, analyseGame, type GameReview, type OpeningBook } from "./analysis";
 import { saveAnalysis } from "./api";
 import { engine, preloadEngine } from "./engine";
@@ -12,7 +13,7 @@ let book: Promise<OpeningBook> | null = null;
 /* Les ouvertures (public/chess/openings.json, 60 Ko compressés) : chargées une fois,
    seulement pour le bilan. */
 function loadBook(): Promise<OpeningBook> {
-  book ??= fetch("/chess/openings.json", { signal: AbortSignal.timeout(20000) })
+  book ??= fetch("/chess/openings.json", { signal: timeoutSignal(20000) })
     .then((res) => res.json() as Promise<OpeningBook>)
     .catch(() => {
       book = null;

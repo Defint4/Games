@@ -4,6 +4,8 @@
    Chaque son existe en FLAC (sans perte, identique au WAV, deux fois plus léger) et en
    WAV, le repli des navigateurs qui ne décoderaient pas le FLAC (voir soundFormat). */
 
+import { timeoutSignal } from "@/lib/api";
+
 const KEY = "games:muted";
 let ctx: AudioContext | null = null;
 const raw = new Map<string, ArrayBuffer>();
@@ -74,7 +76,7 @@ const loading = new Map<string, Promise<void>>();
 let format: Promise<"flac" | "wav"> | null = null;
 
 function soundFormat(): Promise<"flac" | "wav"> {
-  format ??= fetch("/sounds/chip-lay-1.flac", { signal: AbortSignal.timeout(15000) })
+  format ??= fetch("/sounds/chip-lay-1.flac", { signal: timeoutSignal(15000) })
     .then((res) => {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       return res.arrayBuffer();
@@ -97,7 +99,7 @@ function load(name: string): Promise<void> {
   let pending = loading.get(name);
   if (!pending) {
     pending = soundFormat()
-      .then((ext) => fetch(`/sounds/${name}.${ext}`, { signal: AbortSignal.timeout(15000) }))
+      .then((ext) => fetch(`/sounds/${name}.${ext}`, { signal: timeoutSignal(15000) }))
       .then((res) => res.arrayBuffer())
       .then((buf) => {
         raw.set(name, buf);

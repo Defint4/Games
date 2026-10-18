@@ -15,10 +15,12 @@ POST   /api/admin/players/{id}/sign-out   déconnecte tous ses appareils
 PUT    /api/admin/players/{id}/suspended  suspend ou réactive
 PATCH  /api/admin/players/{id}            renomme
 DELETE /api/admin/players/{id}            supprime (pseudo retapé)
-GET    /api/admin/events                  journal
+GET    /api/admin/events                  journal du bureau
+GET    /api/admin/incidents               journal de l'app (app.journal), filtré
 """
 
 import uuid
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -36,6 +38,7 @@ from app.admin.models import AdminCredential
 from app.admin.schemas import (
     DeleteRequest,
     EventsOut,
+    IncidentsOut,
     LoginRequest,
     MaintenanceRequest,
     OverviewOut,
@@ -47,6 +50,7 @@ from app.admin.schemas import (
 )
 from app.core.database import get_db
 from app.core.rate_limit import limiter
+from app.journal import service as journal
 from app.players import service as players_service
 from app.players.models import Player
 from app.rooms.manager import manager
@@ -316,6 +320,28 @@ async def delete(
 # ---------------------------------------------------------------------------
 # Journal
 # ---------------------------------------------------------------------------
+
+
+@router.get("/incidents", response_model=IncidentsOut)
+async def incidents(
+    level: journal.Level = Query("warning"),
+    game: str | None = Query(None, max_length=20),
+    q: str | None = Query(None, max_length=40),
+    before: int | None = Query(None, ge=1),
+    limit: int = Query(50, ge=1, le=100),
+    _: Player = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Le journal de l'app, du plus récent au plus ancien : au moins `level`, un jeu, un
+    mot (pseudo, message, type, code de table). Pagination par curseur (`before`)."""
+    entries = await journal.list_events(
+        db, level=level, game=game, query=(q or "").strip() or None, before=before, limit=limit
+    )
+    return {
+        "counts": await journal.counts_since(db, datetime.now(UTC) - timedelta(days=1)),
+        "entries": entries,
+        "next": entries[-1].id if len(entries) == limit else None,
+    }
 
 
 @router.get("/events", response_model=EventsOut)
