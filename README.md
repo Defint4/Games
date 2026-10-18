@@ -105,13 +105,15 @@ table passe par `SOLO_GAMES` et ses propres routes, comme le Solitaire.
 
 ## Production
 
-Un VPS Ubuntu 24.04 avec nginx, certbot, PostgreSQL, uv, Node 22 et pnpm installés.
-L'instance de référence tourne sur `games.matthieuguiot.dev`.
+Un VPS Ubuntu 24.04 partagé avec d'autres sites ; tout ce qui est commun au serveur (SSH,
+pare-feu Cloudflare, fail2ban, nginx, PostgreSQL, sauvegardes) est documenté dans le README
+de `portfolio-2026`, partie « Serveur ». L'instance de référence tourne sur
+`games.matthieuguiot.dev`.
 
 | | |
 |---|---|
 | Dossier | `/var/www/games` |
-| Services | `games-backend` :8003 · `games-frontend` :3003 |
+| Services | `games-backend` :8003 · `games-frontend` :3003, sous l'utilisateur `app-games` |
 | Base | rôle et base PostgreSQL `games` |
 
 ### Mettre à jour
@@ -129,15 +131,18 @@ cd /var/www/games && ./deploy.sh
 3. En cas de souci : `./rollback.sh` remet le commit et le build précédents. Les migrations
    ne sont pas défaites, `alembic downgrade` à la main si besoin.
 
-Si `deploy.sh` lui-même a changé, faire `git pull` à part avant de le lancer.
+Si `deploy.sh` lui-même a changé, faire `git pull` à part avant de le lancer. Le code
+appartient à `matthieu`, le service lit et n'écrit que dans `frontend/.next` et
+`backend/logs` (`umask 022` pour le code, `umask 002` pour le build).
 
 <details>
-<summary><b>Installation initiale du serveur</b></summary>
+<summary><b>Installation du site</b></summary>
 
 #### 0. DNS
 
 Chez Cloudflare, zone `matthieuguiot.dev` : un enregistrement **A**
-`games.matthieuguiot.dev → IP du VPS`, en « DNS only » le temps de générer le certificat.
+`games.matthieuguiot.dev → IP du VPS`, proxié (le pare-feu n'accepte le challenge certbot
+que via Cloudflare).
 
 #### 1. PostgreSQL
 
@@ -148,6 +153,7 @@ sudo -u postgres psql
 ```sql
 CREATE ROLE games WITH LOGIN PASSWORD 'MOT_DE_PASSE_FORT';
 CREATE DATABASE games OWNER games;
+REVOKE CONNECT, TEMP ON DATABASE games FROM PUBLIC;
 ```
 
 #### 2. Code
@@ -170,16 +176,14 @@ Host github-games
 ```
 
 ```bash
-sudo mkdir -p /var/www/games && sudo chown $USER:www-data /var/www/games
 git clone github-games:Defint4/Games.git /var/www/games
-chmod +x /var/www/games/deploy.sh
 ```
 
 #### 3. Backend
 
 ```bash
 cd /var/www/games/backend
-cp .env.example .env && nano .env && chmod 600 .env
+cp .env.example .env && nano .env
 ```
 
 ```
@@ -200,21 +204,34 @@ uv sync && uv run alembic upgrade head && mkdir -p logs
 curl http://127.0.0.1:8003/api/health                          # {"status":"ok"}
 ```
 
-Le service lance `.venv/bin/uvicorn` directement : le durcissement systemd interdit
-`~/.cache/uv`, ne pas passer par `uv run` dans `ExecStart`.
+Le service lance `.venv/bin/uvicorn` directement : le durcissement systemd interdit le
+cache d'uv, ne pas passer par `uv run` dans `ExecStart`.
 
 #### 4. Frontend
 
 ```bash
 cd /var/www/games/frontend
 cp .env.example .env.production
-pnpm install --frozen-lockfile && pnpm build
+pnpm install --frozen-lockfile && (umask 002 && pnpm build)
 ```
 
 `NEXT_PUBLIC_API_URL` est embarquée au build : REST et WebSocket passent par nginx sur le
 même domaine.
 
-#### 5. Services
+#### 5. Utilisateur du service et droits
+
+```bash
+sudo useradd --system --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin --user-group app-games
+sudo usermod -aG app-games matthieu              # effectif à la prochaine session SSH
+d=/var/www/games
+sudo chgrp -R app-games $d && sudo chmod -R g-w,o-w $d && sudo find $d -type d -exec chmod g+s {} +
+sudo chmod -R g+w $d/frontend/.next $d/backend/logs
+sudo chmod 640 $d/backend/.env $d/frontend/.env.production
+```
+
+Pas `games` : ce compte existe déjà sur Ubuntu.
+
+#### 6. Services
 
 ```bash
 sudo cp /var/www/games/deploy/games-{backend,frontend}.service /etc/systemd/system/
@@ -222,25 +239,21 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now games-backend games-frontend
 ```
 
-#### 6. Nginx et HTTPS
-
-`deploy/nginx-games.conf` est la config complète, lignes certbot comprises. Au tout premier
-déploiement, retirer les lignes « managed by Certbot » et le second bloc `server`, certbot
-les remet. Elle inclut `/etc/nginx/snippets/cloudflare-real-ip.conf` (copie de
-`deploy/nginx-cloudflare-real-ip.conf`).
+#### 7. Certificat et nginx
 
 ```bash
+sudo certbot certonly --nginx -d games.matthieuguiot.dev
 sudo cp /var/www/games/deploy/nginx-games.conf /etc/nginx/sites-available/games
 sudo ln -s /etc/nginx/sites-available/games /etc/nginx/sites-enabled/
 sudo nginx -t && sudo systemctl reload nginx
-sudo certbot --nginx -d games.matthieuguiot.dev
 ```
 
-WebSockets ouverts une heure sans trafic, keepalive vers l'API et Next, et pendant un
-redémarrage nginx sert `deploy/maintenance.html` (503, rechargement automatique) plutôt
-qu'une 502. Une fois le certificat posé, le DNS peut repasser en proxy Cloudflare.
+La config est complète et s'appuie sur les fichiers communs du serveur (`snippets/tls.conf`,
+format de log `main`, IP réelle Cloudflare). WebSockets ouverts une heure sans trafic,
+keepalive vers l'API et Next, et pendant un redémarrage nginx sert
+`deploy/maintenance.html` (503, rechargement automatique) plutôt qu'une 502.
 
-#### 7. Le bureau
+#### 8. Le bureau
 
 `/admin` n'est ouvert qu'au compte désigné, avec son PIN **et** un mot de passe propre au
 panneau (le compte doit exister dans l'app) :
