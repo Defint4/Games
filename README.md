@@ -105,9 +105,8 @@ table passe par `SOLO_GAMES` et ses propres routes, comme le Solitaire.
 
 ## Production
 
-`games.matthieuguiot.dev`, sur le VPS partagé avec `portfolio-2026` (Ubuntu 24.04, nginx,
-certbot, PostgreSQL, uv, Node 22, pnpm). La préparation du serveur est dans le README de
-`portfolio-2026`, section 0.
+Un VPS Ubuntu 24.04 avec nginx, certbot, PostgreSQL, uv, Node 22 et pnpm installés.
+L'instance de référence tourne sur `games.matthieuguiot.dev`.
 
 | | |
 |---|---|
