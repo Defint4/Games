@@ -105,10 +105,8 @@ table passe par `SOLO_GAMES` et ses propres routes, comme le Solitaire.
 
 ## Production
 
-Un VPS Ubuntu 24.04 partagé avec d'autres sites ; tout ce qui est commun au serveur (SSH,
-pare-feu Cloudflare, fail2ban, nginx, PostgreSQL, sauvegardes) est documenté dans le README
-de `portfolio-2026`, partie « Serveur ». L'instance de référence tourne sur
-`games.matthieuguiot.dev`.
+Un VPS Ubuntu 24.04 avec nginx, certbot, PostgreSQL, uv, Node 22 et pnpm installés, derrière
+Cloudflare. L'instance de référence tourne sur `games.matthieuguiot.dev`.
 
 | | |
 |---|---|
