@@ -170,7 +170,7 @@ Host github-games
 ```
 
 ```bash
-sudo mkdir -p /var/www/games && sudo chown matthieu:www-data /var/www/games
+sudo mkdir -p /var/www/games && sudo chown $USER:www-data /var/www/games
 git clone github-games:Defint4/Games.git /var/www/games
 chmod +x /var/www/games/deploy.sh
 ```
@@ -247,7 +247,7 @@ panneau (le compte doit exister dans l'app) :
 
 ```bash
 cd /var/www/games/backend
-.venv/bin/python -m app.admin set-password Matthieu    # 12 caractères minimum
+.venv/bin/python -m app.admin set-password <pseudo>    # 12 caractères minimum
 .venv/bin/python -m app.admin remove                   # retirer l'administrateur
 ```
 
@@ -265,8 +265,8 @@ sudo systemctl restart games-backend games-frontend
 curl https://games.matthieuguiot.dev/api/health
 curl https://games.matthieuguiot.dev/api/status           # état de la maintenance
 sudo -u postgres psql -d games                            # console SQL de prod
-sudo -u postgres /usr/local/bin/pg-backup                 # export immédiat (sinon chaque nuit)
-sudo -u postgres pg_restore --clean -d games /var/backups/postgresql/games-AAAA-MM-JJ.dump
+sudo -u postgres pg_dump -Fc games > games-$(date +%F).dump   # export de la base
+sudo -u postgres pg_restore --clean -d games games-AAAA-MM-JJ.dump
 ```
 
 </details>
