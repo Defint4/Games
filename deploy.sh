@@ -33,19 +33,22 @@ rm -rf .next/types
 VERSION="$(git rev-parse --short HEAD)"
 # NEXT_PUBLIC_BUILD_ID : le commit connu du front, comparé à celui qu'annonce /api/status
 # (une app restée ouverte sur l'ancienne version se recharge, voir lib/maintenance.ts).
-NEXT_DIST_DIR=.next-build NEXT_DEPLOYMENT_ID="$VERSION" NEXT_PUBLIC_BUILD_ID="$VERSION" pnpm build
-# Relu par next.config.ts au lancement de `next start` (voir deploymentId) : sans lui,
-# les pages rendues à la demande partiraient sans identifiant de version.
-echo "$VERSION" > .next-build/DEPLOYMENT_ID
-# Les fichiers JS de la version précédente restent servis : une app restée ouverte qui
-# en charge un à la demande (la 3D du Perudo…) le trouve encore. Sans écraser ceux du
-# nouveau build.
-if [ -d .next/static ]; then cp -r --update=none .next/static/. .next-build/static/; fi
+# Le build est le seul dossier où le service écrit (cache d'images, pages régénérées) :
+# créé en 664/775 pour le groupe du site, sans chmod après coup.
+(
+  umask 002
+  NEXT_DIST_DIR=.next-build NEXT_DEPLOYMENT_ID="$VERSION" NEXT_PUBLIC_BUILD_ID="$VERSION" pnpm build
+  # Relu par next.config.ts au lancement de `next start` (voir deploymentId) : sans lui,
+  # les pages rendues à la demande partiraient sans identifiant de version.
+  echo "$VERSION" > .next-build/DEPLOYMENT_ID
+  # Les fichiers JS de la version précédente restent servis : une app restée ouverte qui
+  # en charge un à la demande (la 3D du Perudo…) le trouve encore. Sans écraser ceux du
+  # nouveau build.
+  if [ -d .next/static ]; then cp -r --update=none .next/static/. .next-build/static/; fi
+)
 rm -rf .next-old
 if [ -d .next ]; then mv .next .next-old; fi
 mv .next-build .next
-# Le service écrit dans .next/ (cache d'images, pages régénérées) : seul dossier en écriture.
-chmod -R g+w .next
 cd ..
 
 # Migrations juste avant le redémarrage : l'ancien backend ne tourne pas des minutes (le

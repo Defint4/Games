@@ -49,7 +49,9 @@ AmbientCapabilities=
 SystemCallArchitectures=native
 SystemCallFilter=@system-service
 SystemCallErrorNumber=EPERM
-UMask=0027
+# Fichiers créés en 664/775 (groupe du site) : matthieu, membre du groupe, peut les
+# supprimer ou reconstruire au déploiement suivant.
+UMask=0002
 
 [Install]
 WantedBy=multi-user.target
