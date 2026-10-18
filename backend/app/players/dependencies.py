@@ -40,5 +40,5 @@ async def get_current_player(
         raise HTTPException(status_code=401, detail=SESSION_REVOKED)
     if player.suspended_at is not None:
         raise HTTPException(status_code=403, detail=SUSPENDED)
-    bind_player(player)
+    bind_player(player.id, player.pseudo)
     return player

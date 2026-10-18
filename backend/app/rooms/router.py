@@ -214,7 +214,7 @@ async def room_ws(websocket: WebSocket, code: str) -> None:
             await websocket.close(code=4403)
             return
         seat = room.seats[seat_index]
-        bind_player(seat)
+        bind_player(seat.player_id, seat.pseudo)
         if seat.socket is not None:
             # Nouvelle connexion (autre onglet / retour d'app) : elle remplace l'ancienne.
             try:

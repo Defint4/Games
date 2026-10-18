@@ -56,12 +56,12 @@ class RequestInfo:
 _request: ContextVar[RequestInfo | None] = ContextVar("journal_request", default=None)
 
 
-def bind_player(player: Any) -> None:
+def bind_player(player_id: uuid.UUID, pseudo: str) -> None:
     """Le joueur authentifié de la requête en cours (players.dependencies, WebSocket)."""
     info = _request.get()
     if info is not None:
-        info.player_id = player.id
-        info.pseudo = player.pseudo
+        info.player_id = player_id
+        info.pseudo = pseudo
 
 
 # Jeu déduit du chemin d'une API solo (les tables disent le leur elles-mêmes).
