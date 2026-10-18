@@ -22,6 +22,7 @@ fi
 rm -rf .next-bad
 mv .next .next-bad
 mv .next-old .next
+chmod -R g+w .next
 cd ..
 
 echo "==> Redémarrage des services"

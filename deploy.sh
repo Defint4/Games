@@ -3,6 +3,10 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
+# Le code appartient à matthieu et les services tournent sous `app-games` : tout ce qui est
+# créé ici doit être lisible du groupe mais pas modifiable (README du portfolio, section 0).
+umask 022
+
 # Le commit en ligne avant la mise à jour : rollback.sh y revient.
 git rev-parse HEAD > .deploy-previous
 
@@ -40,6 +44,8 @@ if [ -d .next/static ]; then cp -r --update=none .next/static/. .next-build/stat
 rm -rf .next-old
 if [ -d .next ]; then mv .next .next-old; fi
 mv .next-build .next
+# Le service écrit dans .next/ (cache d'images, pages régénérées) : seul dossier en écriture.
+chmod -R g+w .next
 cd ..
 
 # Migrations juste avant le redémarrage : l'ancien backend ne tourne pas des minutes (le

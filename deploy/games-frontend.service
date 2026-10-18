@@ -3,14 +3,45 @@ Description=Games web (Next.js)
 After=network.target
 
 [Service]
-User=matthieu
-Group=www-data
+# Même isolation que le backend : utilisateur dédié, code en lecture seule, écriture
+# limitée à .next/ (cache d'images, pages régénérées).
+User=app-games
+Group=app-games
 WorkingDirectory=/var/www/games/frontend
+Environment=NODE_ENV=production
+# Sans home, Next ne peut pas écrire sa config de télémétrie : on la coupe.
+Environment=NEXT_TELEMETRY_DISABLED=1
 # `next start` directement, pas `pnpm start` : pnpm garderait un processus Node inutile
 # (~115 Mo) à côté du serveur. Écoute sur 127.0.0.1 seulement : nginx est le seul client.
 ExecStart=/var/www/games/frontend/node_modules/.bin/next start --port 3003 --hostname 127.0.0.1
 Restart=always
 RestartSec=5
+
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/www/games/frontend/.next
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+RestrictNamespaces=true
+LockPersonality=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+CapabilityBoundingSet=
+AmbientCapabilities=
+SystemCallArchitectures=native
+# Node tente io_uring au démarrage : un EPERM plutôt qu'un SIGSYS, il retombe sur son
+# threadpool.
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+UMask=0027
 
 [Install]
 WantedBy=multi-user.target

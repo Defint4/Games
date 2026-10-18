@@ -3,8 +3,11 @@ Description=Games API (FastAPI)
 After=network.target postgresql.service
 
 [Service]
-User=matthieu
-Group=www-data
+# Utilisateur système dédié (sans shell, sans sudo, sans home) : une faille dans l'API ne
+# donne accès ni au compte de déploiement ni aux autres sites. Le code appartient à
+# matthieu, le groupe `app-games` le lit ; seul logs/ (journal des parties) est en écriture.
+User=app-games
+Group=app-games
 WorkingDirectory=/var/www/games/backend
 # Derrière nginx : sans cette variable, uvicorn voit 127.0.0.1 pour tout le monde et le
 # rate limiting (entrée par pseudo, création de table) devient un quota global.
@@ -13,8 +16,8 @@ Environment=FORWARDED_ALLOW_IPS=127.0.0.1
 # autant que de cœurs et le serveur s'écroule dès que deux bots réfléchissent.
 Environment=OMP_NUM_THREADS=1
 Environment=OPENBLAS_NUM_THREADS=1
-# Le binaire du venv directement, pas `uv run` : uv voudrait écrire dans ~/.cache/uv, ce
-# que le durcissement ci-dessous interdit. Le venv est construit par `uv sync` (deploy.sh).
+# Le binaire du venv directement, pas `uv run` : uv voudrait écrire dans un cache, ce que
+# le durcissement interdit. Le venv est construit par `uv sync` (deploy.sh).
 # Un seul worker, obligatoire : les tables vivent en mémoire du processus.
 ExecStart=/var/www/games/backend/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8003 --proxy-headers --ws-max-size 1048576
 Restart=always
@@ -22,13 +25,31 @@ RestartSec=5
 # Les réflexions du bot Difficile passent après les autres sites du serveur.
 Nice=5
 
-# Durcissement : rien lu dans /home, écriture limitée au dossier du backend
-# (journal des parties dans logs/, __pycache__).
+# Durcissement (systemd-analyze security) : système en lecture seule sauf logs/, pas de
+# /home, pas de périphériques, aucune capacité, appels système d'un service.
 NoNewPrivileges=true
 PrivateTmp=true
+PrivateDevices=true
 ProtectSystem=strict
-ProtectHome=read-only
-ReadWritePaths=/var/www/games/backend
+ProtectHome=true
+ReadWritePaths=/var/www/games/backend/logs
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+RestrictNamespaces=true
+LockPersonality=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+CapabilityBoundingSet=
+AmbientCapabilities=
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+UMask=0027
 
 [Install]
 WantedBy=multi-user.target
