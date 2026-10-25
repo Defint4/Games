@@ -4,7 +4,9 @@
    - public/icon-192.png, icon-512.png, icon-maskable-512.png, apple-touch-icon.png,
      et src/app/apple-icon.png ;
    - src/app/favicon.ico (16/32/48) et src/app/icon.svg : version réduite, lisible en 16 px ;
-   - src/app/opengraph-image.png : l'aperçu affiché sous le lien partagé.
+   - src/app/opengraph-image.png : l'aperçu affiché sous le lien partagé ;
+   - src/components/logo-scene.ts : la même scène, chaque morceau nommé par une classe,
+     pour l'animation de lancement (composant Splash).
    La version riche (chaises, carte, dé) ne sert qu'à partir de 48 px ; en dessous,
    la version réduite ne garde que l'anneau d'or et les places. */
 
@@ -44,41 +46,59 @@ function defs(p) {
   </defs>`;
 }
 
+/* Les morceaux de la scène animée : un attribut class, ou rien pour le logo statique.
+   Le groupe tourné (transform SVG) reste à part : une transformation CSS l'écraserait. */
+const part = (parts, name, i) =>
+  parts ? ` class="sp-${name}"${i === undefined ? "" : ` style="--i:${i}"`}` : "";
+
 /* Une chaise, dessinée à la place du bas puis tournée autour du centre. */
-function chair(p, angle) {
+function chair(p, angle, parts, i) {
   const fill = `url(#${p}chI)`;
-  return `<g transform="rotate(${angle - 180} 50 50)">
+  return `<g transform="rotate(${angle - 180} 50 50)"><g${part(parts, "chair", i)}>
     <g transform="translate(0 1.6)" fill="#000" opacity=".32">
       <rect x="41.5" y="80" width="17" height="8.5" rx="3"/><rect x="39.5" y="87" width="21" height="5.5" rx="2.6"/>
     </g>
     <rect x="41.5" y="80" width="17" height="8.5" rx="3" fill="${fill}"/>
     <rect x="39.5" y="87" width="21" height="5.5" rx="2.6" fill="${fill}"/>
     <rect x="40.5" y="87.4" width="19" height="1.1" rx=".5" fill="#fff" opacity=".45"/>
-  </g>`;
+  </g></g>`;
+}
+
+/* L'anneau d'or. Dans la scène animée il est un trait épais (même emprise : de r 23,6 à
+   28,5) qui se dessine en tournant depuis le haut (stroke-dashoffset, voir globals.css),
+   avec un éclat (sp-glint) qui court en tête du trait puis fait le tour de l'anneau.
+   Le tiret dépasse un peu la circonférence : à 100 pile, une couture reste visible. */
+function rim(p, parts) {
+  return parts
+    ? `<circle class="sp-rim" cx="50" cy="50" r="26.05" fill="none" stroke="url(#${p}rim)" stroke-width="4.9" pathLength="100" stroke-dasharray="100.5" stroke-dashoffset="100.5" transform="rotate(-90 50 50)"/>
+    <circle class="sp-glint" cx="50" cy="50" r="26.05" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" pathLength="100" stroke-dasharray="12 88" stroke-dashoffset="12" transform="rotate(-90 50 50)"/>`
+    : `<circle cx="50" cy="50" r="28.5" fill="url(#${p}rim)"/>`;
 }
 
 /* La scène riche, dans un carré de 100 : table, chaises, une carte retournée et un dé. */
-function scene(p) {
+function scene(p, parts = false) {
   return `
-    <ellipse cx="50" cy="53" rx="35" ry="34" fill="url(#${p}shadow)"/>
-    ${SEATS.map((a) => chair(p, a)).join("")}
-    <circle cx="50" cy="50" r="28.5" fill="url(#${p}rim)"/>
-    <path d="M26.4 42a24.6 24.6 0 0 1 47.2 0" fill="none" stroke="#fff" stroke-opacity=".5" stroke-width=".9" stroke-linecap="round"/>
+    <ellipse${part(parts, "shadow")} cx="50" cy="53" rx="35" ry="34" fill="url(#${p}shadow)"/>
+    ${SEATS.map((a, i) => chair(p, a, parts, i)).join("")}
+    ${rim(p, parts)}
+    <path${part(parts, "shine")} d="M26.4 42a24.6 24.6 0 0 1 47.2 0" fill="none" stroke="#fff" stroke-opacity=".5" stroke-width=".9" stroke-linecap="round"/>
+    <g${part(parts, "felt")}>
     <circle cx="50" cy="50" r="23.6" fill="url(#${p}felt)"/>
     <circle cx="50" cy="50" r="23.6" fill="none" stroke="#000" stroke-opacity=".35" stroke-width="1.2"/>
     <circle cx="50" cy="50" r="16.5" fill="none" stroke="#faf7ee" stroke-opacity=".17" stroke-width=".7"/>
-    <g transform="rotate(-16 44 48)">
+    </g>
+    <g transform="rotate(-16 44 48)"><g${part(parts, "card")}>
       <rect x="38.6" y="41.4" width="11" height="15.4" rx="1.8" fill="#000" opacity=".3" transform="translate(.6 1)"/>
       <rect x="38.6" y="41.4" width="11" height="15.4" rx="1.8" fill="#faf7ee"/>
       <rect x="39.9" y="42.7" width="8.4" height="12.8" rx="1" fill="url(#${p}back)"/>
       <path d="M44.1 45.6l2.1 3.5-2.1 3.5-2.1-3.5z" fill="#faf7ee" opacity=".55"/>
-    </g>
-    <g transform="rotate(14 57 53)">
+    </g></g>
+    <g transform="rotate(14 57 53)"><g${part(parts, "die")}>
       <rect x="52.6" y="49.2" width="9" height="9" rx="2.2" fill="#000" opacity=".3" transform="translate(.6 1)"/>
       <rect x="52.6" y="49.6" width="9" height="9" rx="2.2" fill="#d9d0b9"/>
       <rect x="52.6" y="48.6" width="9" height="9" rx="2.2" fill="#faf7ee"/>
       <circle cx="54.9" cy="50.9" r="1" fill="#20241f"/><circle cx="57.1" cy="53.1" r="1" fill="#20241f"/><circle cx="59.3" cy="55.3" r="1" fill="#20241f"/>
-    </g>`;
+    </g></g>`;
 }
 
 const svg = (viewBox, body) =>
@@ -96,6 +116,14 @@ const appIcon = (scale) => {
 
 /* La marque seule, sans fond. */
 const mark = svg("4 4 92 92", defs("") + scene(""));
+
+/* La scène animée, en ligne dans la page (les classes ne s'animent pas dans une <img>).
+   Préfixe « sp » sur les dégradés : le logo statique peut être affiché à côté. */
+const animated = `/* Généré par brand/brand.mjs (pnpm brand) : ne pas éditer à la main.
+   La scène du logo, chaque morceau nommé par une classe (sp-rim, sp-chair…), animée
+   par le composant Splash et les règles .sp-* de globals.css. */
+export const LOGO_SCENE = \`${svg("4 4 92 92", defs("sp") + scene("sp", true))}\`;
+`;
 
 /* Version réduite : formes pleines, aucun trait sous 1,5 px en 16 px. */
 const favicon = svg(
@@ -168,6 +196,7 @@ const out = (path, data) => {
 };
 
 out("public/logo.svg", mark);
+out("src/components/logo-scene.ts", animated);
 out("public/icon-192.png", await png(appIcon(0.92), 192));
 out("public/icon-512.png", await png(appIcon(0.92), 512));
 out("public/icon-maskable-512.png", await png(appIcon(0.8), 512));

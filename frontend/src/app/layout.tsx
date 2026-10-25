@@ -4,6 +4,7 @@ import "./globals.css";
 import MaintenanceGate from "@/components/MaintenanceGate";
 import MobileGate from "@/components/MobileGate";
 import { APP_NAME, APP_SHORT_NAME } from "@/lib/games";
+import Splash from "@/components/Splash";
 import Providers from "./providers";
 
 const bricolage = Bricolage_Grotesque({
@@ -54,6 +55,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <MaintenanceGate>{children}</MaintenanceGate>
           </MobileGate>
         </Providers>
+        <Splash />
       </body>
     </html>
   );

@@ -238,3 +238,403 @@ html[data-felt="chess"] {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* L'animation de lancement (composant Splash). Tout est calé en secondes depuis le
+   départ (data-play) ; le composant joue les sons aux mêmes instants. Les morceaux du
+   logo (logo-scene.ts) attendent invisibles, chacun à sa place. La scène a les
+   dimensions exactes du logo de l'accueil (Brand lg), grossie par --sp-zoom : à la
+   sortie (data-exit) elle rejoint sa place sur l'accueil d'un seul mouvement, les
+   variables --sp-dx/dy/to étant posées par le composant (sinon elle se soulève).
+   Un seul mouvement continu, pas une suite d'étapes : chaque morceau part avant que le
+   précédent soit posé, les courbes sont longues (sorties exponentielles), la caméra
+   avance lentement et la table finit de tourner pendant toute la durée.
+   Grille : 0 feutre · 0,15→0,95 anneau et éclat · 0,9 flash, onde · 0,7+ chaises ·
+   1,3 carte · 1,6 dé · 1,9 nom · 2,3 pastille · 2,9 second éclat · 3,55→4,2 sortie.
+   Rien de coûteux pour le rendu (pas de flou ni de clip-path animés). */
+.sp-root {
+  background: radial-gradient(
+    120vmax 90vmax at 50% 30%,
+    var(--color-felt-700) 0%,
+    var(--color-felt-800) 55%,
+    var(--color-felt-900) 100%
+  );
+}
+
+/* Page jamais démarrée (JS perdu) : le voile se retire tout seul au bout de 6 s. */
+.sp-root:not([data-play]) {
+  animation: sp-vanish 0.3s ease 6s forwards;
+}
+
+.sp-scene {
+  --sp-zoom: 1.27;
+  transform: scale(var(--sp-zoom));
+}
+
+.sp-table svg {
+  width: 100%;
+  height: 100%;
+  /* Les chaises arrivent de l'extérieur du cadre. */
+  overflow: visible;
+}
+
+.sp-shadow,
+.sp-felt,
+.sp-shine,
+.sp-glint,
+.sp-chair,
+.sp-card,
+.sp-die,
+.sp-name,
+.sp-pill,
+.sp-glow,
+.sp-wave {
+  opacity: 0;
+}
+
+.sp-shadow,
+.sp-felt,
+.sp-chair,
+.sp-card,
+.sp-die {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+/* Le halo derrière la table : de la lumière ajoutée (screen), pas de la peinture, pour
+   que l'or reste de l'or sur le vert. Un flash à la fermeture de l'anneau, une
+   pulsation quand le nom s'allume, puis il respire. L'onde : un cercle émis à la
+   fermeture. */
+.sp-glow {
+  position: absolute;
+  inset: -40%;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle,
+    rgba(246, 217, 138, 0.42) 0%,
+    rgba(246, 217, 138, 0.16) 32%,
+    transparent 64%
+  );
+  mix-blend-mode: screen;
+}
+
+.sp-wave {
+  position: absolute;
+  inset: 17%;
+  border-radius: 50%;
+  border: 2px solid rgba(246, 217, 138, 0.5);
+}
+
+.sp-word {
+  position: relative;
+}
+
+/* Le passage de lumière sur les lettres : le même mot par-dessus, peint d'une bande
+   blanche qui traverse pendant que le nom monte. */
+.sp-word::after {
+  content: "Le spot";
+  position: absolute;
+  inset: 0;
+  color: transparent;
+  text-shadow: none;
+  background: linear-gradient(100deg, transparent 30%, #fff 50%, transparent 70%);
+  background-size: 250% 100%;
+  background-position: 120% 0;
+  -webkit-background-clip: text;
+  background-clip: text;
+  opacity: 0;
+}
+
+[data-play] .sp-scene {
+  animation: sp-drift 3.55s cubic-bezier(0.25, 0.1, 0.25, 1) forwards;
+}
+[data-play] .sp-turn {
+  animation: sp-turn 3.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+[data-play] .sp-shadow,
+[data-play] .sp-felt {
+  animation: sp-felt 0.9s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+[data-play] .sp-rim {
+  animation: sp-rim 0.8s cubic-bezier(0.65, 0, 0.35, 1) 0.15s forwards;
+}
+[data-play] .sp-glint {
+  animation:
+    sp-glint-trace 1.5s linear 0.15s forwards,
+    sp-glint-sweep 0.9s cubic-bezier(0.4, 0, 0.2, 1) 2.9s forwards;
+}
+[data-play] .sp-glow {
+  animation: sp-glow 3.05s linear 0.5s forwards;
+}
+[data-play] .sp-wave {
+  animation: sp-wave 1.4s cubic-bezier(0.16, 1, 0.3, 1) 0.9s forwards;
+}
+[data-play] .sp-shine {
+  animation: sp-fade 0.6s ease-out 0.9s forwards;
+}
+[data-play] .sp-chair {
+  animation: sp-pop 0.9s cubic-bezier(0.22, 1.3, 0.36, 1) calc(0.7s + var(--i) * 0.09s)
+    forwards;
+}
+[data-play] .sp-card {
+  animation: sp-card 0.7s cubic-bezier(0.16, 1, 0.3, 1) 1.3s forwards;
+}
+[data-play] .sp-die {
+  animation: sp-die 0.75s ease-in-out 1.6s forwards;
+}
+[data-play] .sp-name {
+  animation: sp-name 0.8s cubic-bezier(0.16, 1, 0.3, 1) 1.9s forwards;
+}
+[data-play] .sp-word::after {
+  animation: sp-word-light 0.9s ease-out 2.05s forwards;
+}
+[data-play] .sp-pill {
+  animation: sp-pill 0.6s cubic-bezier(0.22, 1, 0.36, 1) 2.3s forwards;
+}
+[data-exit] .sp-scene {
+  animation: sp-morph 0.45s cubic-bezier(0.65, 0, 0.35, 1) forwards;
+}
+/* Le voile ne se fond qu'une fois le logo posé : jamais deux logos décalés à l'écran. */
+.sp-root[data-exit] {
+  animation: sp-vanish 0.18s ease 0.45s forwards;
+}
+
+@keyframes sp-vanish {
+  to {
+    opacity: 0;
+    visibility: hidden;
+  }
+}
+
+@keyframes sp-fade {
+  to {
+    opacity: 1;
+  }
+}
+
+/* La caméra avance doucement pendant toute la construction. */
+@keyframes sp-drift {
+  from {
+    transform: scale(calc(var(--sp-zoom) * 0.93));
+  }
+  to {
+    transform: scale(var(--sp-zoom));
+  }
+}
+
+/* La table finit de tourner, longtemps : les chaises arrivent sur un plateau qui bouge. */
+@keyframes sp-turn {
+  from {
+    transform: rotate(-14deg);
+  }
+  to {
+    transform: rotate(0deg);
+  }
+}
+
+@keyframes sp-felt {
+  from {
+    opacity: 0;
+    transform: scale(0.5);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes sp-rim {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* L'éclat court en tête du trait (même courbe que l'anneau, jusqu'à 53,3 % = 0,8 s),
+   puis fait un tour de plus en s'éteignant. */
+@keyframes sp-glint-trace {
+  0% {
+    opacity: 1;
+    stroke-dashoffset: 12;
+    animation-timing-function: cubic-bezier(0.65, 0, 0.35, 1);
+  }
+  53.3% {
+    opacity: 1;
+    stroke-dashoffset: -88;
+    animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  85% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    stroke-dashoffset: -188;
+  }
+}
+
+@keyframes sp-glint-sweep {
+  0% {
+    opacity: 0.9;
+    stroke-dashoffset: 12;
+  }
+  80% {
+    opacity: 0.9;
+  }
+  100% {
+    opacity: 0;
+    stroke-dashoffset: -88;
+  }
+}
+
+/* 0,5 → 3,55 s : flash à 0,95 (fermeture de l'anneau), retombée, pulsation à 2,1
+   (nom), puis une respiration lente jusqu'à la sortie. */
+@keyframes sp-glow {
+  0% {
+    opacity: 0;
+    transform: scale(0.7);
+  }
+  15% {
+    opacity: 1;
+    transform: scale(1.05);
+  }
+  40% {
+    opacity: 0.2;
+    transform: scale(1);
+  }
+  48% {
+    opacity: 0.2;
+  }
+  55% {
+    opacity: 0.42;
+    transform: scale(1.03);
+  }
+  75% {
+    opacity: 0.18;
+    transform: scale(1);
+  }
+  100% {
+    opacity: 0.3;
+    transform: scale(1.04);
+  }
+}
+
+@keyframes sp-wave {
+  from {
+    opacity: 0.35;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(2.3);
+  }
+}
+
+/* Une chaise : elle arrive de loin (le bas de son propre repère), pleine dès le premier
+   tiers, et se pose avec un léger élan. */
+@keyframes sp-pop {
+  0% {
+    opacity: 0;
+    transform: translateY(24px) scale(0.6);
+  }
+  30% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* La carte glisse en tournant, dépasse à peine sa place et revient. */
+@keyframes sp-card {
+  0% {
+    opacity: 0;
+    transform: translate(-24px, 20px) rotate(-55deg) scale(1.4);
+  }
+  20% {
+    opacity: 1;
+  }
+  70% {
+    transform: translate(1px, -1px) rotate(4deg) scale(1);
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Le dé tombe de haut, rebondit deux fois. */
+@keyframes sp-die {
+  0% {
+    opacity: 0;
+    transform: translateY(-22px) scale(2.1);
+  }
+  10% {
+    opacity: 1;
+  }
+  45% {
+    transform: translateY(0) scale(1);
+  }
+  62% {
+    transform: translateY(-4px) scale(1.06);
+  }
+  78% {
+    transform: translateY(0) scale(1);
+  }
+  88% {
+    transform: translateY(-1.5px) scale(1.02);
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Le nom monte de sous la table et s'éclaire. */
+@keyframes sp-name {
+  from {
+    opacity: 0;
+    transform: translateY(22px) scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes sp-word-light {
+  0% {
+    opacity: 1;
+    background-position: 120% 0;
+  }
+  85% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    background-position: -60% 0;
+  }
+}
+
+@keyframes sp-pill {
+  0% {
+    opacity: 0;
+    transform: scale(0) rotate(-40deg);
+  }
+  55% {
+    opacity: 1;
+    transform: scale(1.12) rotate(13deg);
+  }
+  80% {
+    transform: scale(0.97) rotate(6deg);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) rotate(8deg);
+  }
+}
+
+/* Vers sa place sur l'accueil (variables posées par le composant), sinon un soulèvement. */
+@keyframes sp-morph {
+  to {
+    transform: translate(var(--sp-dx, 0px), var(--sp-dy, -12px)) scale(var(--sp-to, 0.94));
+  }
+}

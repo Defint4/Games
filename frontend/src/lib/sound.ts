@@ -45,6 +45,9 @@ const PACKS = {
     "piece-capture-3",
     "piece-castle",
   ],
+  /* Animation de lancement (Splash) : le mélange en fond, la carte et le dé qui se
+     posent, la pastille. Tous repris des packs des jeux, téléchargés une seule fois. */
+  splash: ["shuffle", "place-1", "die-throw-1", "chip-lay-1"],
 } as const;
 
 export type SoundPack = keyof typeof PACKS;
@@ -263,6 +266,17 @@ export const sfx = {
   tick: () => tone(1760, 0, 0.05, 0.05),
   /* Petit "pop" à la réception d'un message. */
   pop: () => tone(980, 0, 0.07, 0.07),
+  /* Animation de lancement : le mélange de cartes en fond, la carte et le dé qui se
+     posent sur la table, l'accord quand le nom s'allume, la pastille 3.0 qui claque. */
+  splashShuffle: () => sample(["shuffle"], 0.35),
+  cardLand: () => sample(["place-1"], 0.8),
+  dieLand: () => sample(["die-throw-1"], 0.8),
+  chord: () => {
+    tone(523, 0, 0.5, 0.07);
+    tone(659, 0.1, 0.5, 0.07);
+    tone(784, 0.2, 0.8, 0.08);
+  },
+  pill: () => sample(["chip-lay-1"], 0.8),
   /* Touche du pavé du code PIN : un clic à peine audible. */
   key: () => tone(1320, 0, 0.035, 0.035),
   /* Bouton ou lien touché : un souffle de bruit filtré dans les aigus, 25 ms, le
