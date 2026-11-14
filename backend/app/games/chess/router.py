@@ -203,7 +203,8 @@ class OpeningIn(BaseModel):
 class GameReviewIn(BaseModel):
     """Le bilan tel que le client le calcule (frontend/src/games/chess/analysis.ts)."""
 
-    v: int = Field(ge=1)
+    # Plafonné : un bilan d'une version démesurée ne serait plus jamais remplacé.
+    v: int = Field(ge=1, le=99)
     depth: int = Field(ge=1, le=40)
     start: int
     plies: list[PlyReviewIn] = Field(max_length=MAX_PLIES)
@@ -224,7 +225,7 @@ async def save_analysis(
     """Le premier appareil qui ouvre le bilan le calcule et l'envoie ; les suivants le
     lisent. Un bilan d'une version plus récente de l'analyse remplace l'ancien."""
     try:
-        found = await service.save_analysis(db, game_id, payload.model_dump())
+        found = await service.save_analysis(db, game_id, player.id, payload.model_dump())
     except service.GameNotFound:
         raise HTTPException(status_code=404, detail="Partie introuvable.") from None
     except GameError as exc:

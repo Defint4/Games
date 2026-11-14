@@ -1,3 +1,6 @@
+import time
+from collections import deque
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -24,6 +27,33 @@ from app.players.schemas import (
 router = APIRouter(prefix="/api/players", tags=["players"])
 
 PIN_LOCKED = "Trop d'essais : ce compte est bloqué un moment."
+WEAK_PIN = "Choisis un autre code que 0000."
+
+# Codes refusés par adresse, tous pseudos confondus. Le blocage par compte n'arrête pas
+# celui qui essaie un seul code sur chaque pseudo du classement ; celui-ci, oui. Large :
+# derrière un opérateur mobile, plusieurs joueurs sortent par la même adresse.
+IP_MAX_FAILURES = 20
+IP_WINDOW = 3600.0
+_ip_failures: dict[str, deque[float]] = {}
+
+
+def _ip_blocked(ip: str) -> bool:
+    failures = _ip_failures.get(ip)
+    if not failures:
+        return False
+    limit = time.monotonic() - IP_WINDOW
+    while failures and failures[0] < limit:
+        failures.popleft()
+    if not failures:
+        del _ip_failures[ip]
+        return False
+    return len(failures) >= IP_MAX_FAILURES
+
+
+def _ip_failed(ip: str) -> None:
+    if len(_ip_failures) > 10_000:  # garde-fou mémoire : on repart de zéro
+        _ip_failures.clear()
+    _ip_failures.setdefault(ip, deque()).append(time.monotonic())
 
 
 async def _me(db: AsyncSession, player: Player) -> MeOut:
@@ -42,13 +72,21 @@ async def _session(db: AsyncSession, player: Player) -> EnterResponse:
 async def enter(
     request: Request, payload: EnterRequest, db: AsyncSession = Depends(get_db)
 ) -> EnterResponse:
+    ip = request.client.host if request.client else ""
+    if _ip_blocked(ip):
+        raise HTTPException(
+            status_code=429, detail="Trop de tentatives : réessaie dans quelques minutes."
+        )
     try:
         player = await service.enter(db, payload.pseudo, payload.pin, payload.avatar)
     except service.WrongPin:
+        _ip_failed(ip)
         record(
             "warning", "pin_failed", f"Code PIN refusé pour {payload.pseudo}", pseudo=payload.pseudo
         )
         raise HTTPException(status_code=403, detail="Code PIN incorrect.") from None
+    except service.WeakPin:
+        raise HTTPException(status_code=422, detail=WEAK_PIN) from None
     except service.PinLocked:
         record(
             "warning",
@@ -97,6 +135,8 @@ async def change_pin(
     """Nouveau jeton en retour : l'ancien, comme ceux des autres appareils, est révoqué."""
     try:
         player = await service.change_pin(db, player, payload.current_pin, payload.new_pin)
+    except service.WeakPin:
+        raise HTTPException(status_code=422, detail=WEAK_PIN) from None
     except service.WrongPin:
         raise HTTPException(status_code=403, detail="Code PIN actuel incorrect.") from None
     except service.PinLocked:

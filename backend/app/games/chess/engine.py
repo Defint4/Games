@@ -12,6 +12,7 @@ le moteur se teste sans horloge.
 
 from __future__ import annotations
 
+import math
 import random
 from dataclasses import dataclass, field
 
@@ -211,6 +212,11 @@ def play_move(
         raise GameError("La partie n'est pas en cours.")
     if seat != state.to_move():
         raise GameError("Ce n'est pas ton tour.")
+    # NaN traverse min/max sans être borné : la pendule deviendrait NaN, les vues suivantes
+    # du JSON invalide, et l'adversaire perdrait au temps sans rien recevoir. Seul le temps
+    # serveur compte alors.
+    if think is not None and not math.isfinite(think):
+        think = None
     try:
         move = chess.Move.from_uci(uci)
     except ValueError:

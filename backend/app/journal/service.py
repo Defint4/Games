@@ -32,6 +32,9 @@ FLUSH_EVERY_S = 1.0
 # Requête HTTP jugée lente (le client abandonne à 15 s ; à 2 s il attend déjà trop).
 SLOW_REQUEST_S = 2.0
 MESSAGE_MAX = 300
+# Tailles des colonnes de Entry (journal/models.py).
+ROOM_MAX = 8
+PATH_MAX = 200
 TRACEBACK_MAX = 4000
 
 # Ce logger est celui du journal lui-même : chaque entrée sort aussi ici (journalctl), et
@@ -132,9 +135,11 @@ def record(
         game=game or _game_of(info.path if info else None),
         player_id=player_id,
         pseudo=pseudo,
-        room=room,
+        # `room` et `path` viennent parfois tels quels de l'URL : au-delà de la taille de la
+        # colonne, l'INSERT échouerait et emporterait tout le lot d'entrées avec lui.
+        room=room[:ROOM_MAX] if room else None,
         detail=detail,
-        path=path or (info.path if info else None),
+        path=(path or (info.path if info else None) or "")[:PATH_MAX] or None,
         ip=info.ip if info else None,
         user_agent=info.user_agent if info else None,
     )

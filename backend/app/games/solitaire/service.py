@@ -129,8 +129,11 @@ async def deal(db: AsyncSession, player_id: uuid.UUID, winnable: bool) -> Solita
     if today is not None and today >= DEALS_PER_DAY:
         raise TooManyDeals
     # Le solveur occupe le processeur quelques dixièmes de seconde : hors de la boucle,
-    # un seul à la fois, et avant le verrou.
+    # un seul à la fois, et avant le verrou. La transaction est close avant d'attendre son
+    # tour : sinon chaque demande en file garde une connexion, et le pool se vide pour tout
+    # le site.
     if winnable:
+        await db.commit()
         async with _solver_slot:
             deck = await asyncio.to_thread(winnable_deck)
     else:

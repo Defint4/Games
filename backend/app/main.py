@@ -76,6 +76,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+@app.middleware("http")
+async def no_store(request: Request, call_next):
+    """Les réponses de l'API sont propres à un joueur ou changent à chaque instant : jamais
+    de cache, même si une règle du CDN venait à déborder sur /api/."""
+    response = await call_next(request)
+    response.headers.setdefault("Cache-Control", "no-store")
+    return response
+
+
 app.include_router(players_router)
 app.include_router(rooms_router)
 app.include_router(solitaire_router)

@@ -21,8 +21,21 @@ from app.rooms.schemas import open_room_summary
 logger = logging.getLogger(__name__)
 
 _watchers: dict[str, set[WebSocket]] = defaultdict(set)
+_per_ip: dict[str, int] = defaultdict(int)
+# Jeux dont la liste a changé et n'a pas encore été poussée (voir notify).
+_pending: set[str] = set()
+_tasks: set[asyncio.Task] = set()
 
 SEND_TIMEOUT = 5.0
+# Connexions anonymes, tenues ouvertes des heures : sans plafond, quelques centaines
+# suffiraient à épuiser les descripteurs du service ou les connexions de nginx, que les
+# trois sites du serveur partagent. Le plafond par adresse reste large : derrière un
+# opérateur mobile, beaucoup de joueurs sortent par la même.
+MAX_WATCHERS = 500
+MAX_WATCHERS_PER_IP = 20
+# Les changements d'une table arrivent par rafales (bots ajoutés puis retirés) : la liste
+# part au plus une fois par NOTIFY_DELAY, avec l'état du moment.
+NOTIFY_DELAY = 0.3
 
 
 def _payload(game: str) -> dict:
@@ -31,8 +44,14 @@ def _payload(game: str) -> dict:
 
 async def watch(websocket: WebSocket, game: str) -> None:
     """Tient la connexion d'un accueil de jeu ouverte jusqu'à son départ."""
+    ip = websocket.client.host if websocket.client else ""
     await websocket.accept()
+    if watcher_count() >= MAX_WATCHERS or _per_ip[ip] >= MAX_WATCHERS_PER_IP:
+        # 1013 : « réessaie plus tard ». La liste reste disponible en REST.
+        await websocket.close(code=1013)
+        return
     _watchers[game].add(websocket)
+    _per_ip[ip] += 1
     try:
         await websocket.send_json(_payload(game))
         while True:
@@ -42,6 +61,9 @@ async def watch(websocket: WebSocket, game: str) -> None:
         pass
     finally:
         _watchers[game].discard(websocket)
+        _per_ip[ip] -= 1
+        if _per_ip[ip] <= 0:
+            del _per_ip[ip]
 
 
 def watcher_count() -> int:
@@ -81,9 +103,21 @@ async def broadcast_all(message: dict) -> None:
 async def notify(game: str) -> None:
     """À appeler après tout changement d'une table en lobby de ce jeu.
 
-    Souvent appelé sous le verrou d'une table : tous les écrans en même temps, et un
-    écran dont la connexion ne suit plus est lâché au bout de SEND_TIMEOUT au lieu de
-    retenir la table."""
+    Souvent appelé sous le verrou d'une table : l'envoi part donc à part, sans retenir la
+    table, et plusieurs changements rapprochés ne donnent qu'un envoi."""
+    if game in _pending or not _watchers.get(game):
+        return
+    _pending.add(game)
+    task = asyncio.get_running_loop().create_task(_push(game))
+    _tasks.add(task)
+    task.add_done_callback(_tasks.discard)
+
+
+async def _push(game: str) -> None:
+    """Tous les écrans en même temps ; un écran dont la connexion ne suit plus est lâché
+    au bout de SEND_TIMEOUT."""
+    await asyncio.sleep(NOTIFY_DELAY)
+    _pending.discard(game)
     sockets = _watchers.get(game)
     if not sockets:
         return

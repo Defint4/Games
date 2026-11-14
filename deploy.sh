@@ -7,16 +7,22 @@ cd "$(dirname "$0")"
 # créé ici doit être lisible du groupe mais pas modifiable (README du portfolio, section 0).
 umask 022
 
+# Les tables vivent en mémoire du backend : le redémarrer hors maintenance efface les
+# parties en cours, classées comprises. Le bureau (/admin, onglet Maintenance) doit
+# afficher « Tu peux déployer ». Backend déjà tombé : rien à protéger, on continue.
+# FORCE=1 ./deploy.sh pour passer outre.
+phase="$(curl -fsS --max-time 5 http://127.0.0.1:8003/api/status 2>/dev/null \
+  | sed -n 's/.*"maintenance":"\([a-z]*\)".*/\1/p')" || phase=""
+if [ "${FORCE:-0}" != 1 ] && [ -n "$phase" ] && [ "$phase" != locked ]; then
+  echo "Maintenance « $phase » : lance-la depuis le bureau et attends « Tu peux déployer »." >&2
+  exit 1
+fi
+
 # Le commit en ligne avant la mise à jour : rollback.sh y revient.
 git rev-parse HEAD > .deploy-previous
 
 echo "==> git pull"
-git pull
-
-echo "==> Backend : dépendances"
-cd backend
-uv sync --locked
-cd ..
+git pull --ff-only
 
 echo "==> Frontend : dépendances + build"
 cd frontend
@@ -51,15 +57,33 @@ if [ -d .next ]; then mv .next .next-old; fi
 mv .next-build .next
 cd ..
 
-# Migrations juste avant le redémarrage : l'ancien backend ne tourne pas des minutes (le
-# temps du build) sur un schéma qu'il ne connaît pas.
-echo "==> Migrations"
+# Dépendances et migrations juste avant le redémarrage : l'ancien backend ne tourne pas
+# des minutes (le temps du build) sur un venv ou un schéma qu'il ne connaît pas.
+echo "==> Backend : dépendances"
 cd backend
-uv run alembic upgrade head
+uv sync --locked --no-dev
 cd ..
+
+echo "==> Sauvegarde des bases, puis migrations"
+sudo -u postgres /usr/local/bin/pg-backup
+(cd backend && .venv/bin/alembic upgrade head)
 
 echo "==> Redémarrage des services"
 sudo systemctl restart games-backend games-frontend
 
-echo "==> Déploiement terminé"
+echo "==> Contrôle"
+ok=0
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  if curl -fsS -o /dev/null http://127.0.0.1:8003/api/health \
+    && curl -fsS -o /dev/null http://127.0.0.1:3003/; then
+    ok=1
+    break
+  fi
+  sleep 2
+done
 sudo systemctl status games-backend games-frontend --no-pager -l | head -20
+if [ "$ok" != 1 ]; then
+  echo "ÉCHEC : l'API ou le front ne répond pas. Revenir en arrière : ./rollback.sh" >&2
+  exit 1
+fi
+echo "==> Déploiement terminé"

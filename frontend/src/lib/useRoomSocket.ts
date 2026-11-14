@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ApiError, joinRoom, wsUrl } from "./api";
+import { ApiError, joinRoom, wsProtocols, wsUrl } from "./api";
 import { dict, tr } from "./i18n";
 import {
   isMaintenanceError,
@@ -99,7 +99,7 @@ export function useRoomSocket<V extends BaseRoomView>(
     }
 
     function connect() {
-      const socket = new WebSocket(wsUrl(code, token!));
+      const socket = new WebSocket(wsUrl(code), wsProtocols(token!));
       socketRef.current = socket;
       // Réseau mobile bloqué : le socket peut rester des minutes « en connexion » sans
       // échouer. On l'abandonne (onclose relance) plutôt que de laisser l'écran attendre.

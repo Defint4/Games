@@ -11,7 +11,7 @@ echo "==> Retour au commit $PREV"
 git checkout --detach "$PREV"
 
 echo "==> Backend : dépendances"
-(cd backend && uv sync --locked)
+(cd backend && uv sync --locked --no-dev)
 
 echo "==> Front : build précédent"
 cd frontend

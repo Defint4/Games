@@ -242,7 +242,10 @@ async def _choose_hard(room: Room, view: dict) -> tuple[int, int, Comparator | N
     boucle d'événements continue de servir les autres tables)."""
     seat = view["your_seat"]
     mem = room.data.bot_memory or botbrain.Memory(len(view["players"]))
-    if HARD_SEARCH:
+    # Table sans aucun humain connecté (joueurs partis, les bots finissent seuls) : le coup
+    # glouton suffit. La recherche y tiendrait un cœur du serveur pour une partie que
+    # personne ne regarde.
+    if HARD_SEARCH and room.connected_count() > 0:
         action = await asyncio.get_running_loop().run_in_executor(
             SEARCH_POOL,
             botbrain.search_action,

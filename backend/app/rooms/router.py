@@ -1,7 +1,7 @@
 """REST (créer / rejoindre / lister) + WebSocket temps réel d'une table, tous jeux.
 
 Flux : POST /api/rooms (jeu choisi) ou /api/rooms/{code}/join (authentifié) pour
-s'asseoir, puis WS /api/rooms/{code}/ws?token=... pour jouer. Le serveur est seul
+s'asseoir, puis WS /api/rooms/{code}/ws (jeton en sous-protocole) pour jouer. Le serveur est seul
 juge des règles : le client n'envoie que des intentions, jamais d'état.
 
 La plateforme traite les actions communes (chat, emotes, bots, timer, revanche,
@@ -33,7 +33,7 @@ from app.players import service as players_service
 from app.players.dependencies import get_current_player
 from app.players.models import Player
 from app.rooms import lobby
-from app.rooms.manager import Room, Seat, manager
+from app.rooms.manager import MAX_ROOMS_PER_PLAYER, Room, Seat, manager
 from app.rooms.schemas import CreateRoomRequest, RoomOut, RoomStatusOut, open_room_summary
 from app.rooms.views import room_view
 
@@ -89,6 +89,11 @@ async def create_room(
         raise HTTPException(status_code=404, detail="Jeu inconnu.")
     if manager.maintenance:
         raise HTTPException(status_code=503, detail=MAINTENANCE)
+    if manager.active_rooms_of(player.id) >= MAX_ROOMS_PER_PLAYER:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Tu es déjà à {MAX_ROOMS_PER_PLAYER} tables : quittes-en une d'abord.",
+        )
     try:
         room = manager.create(spec, _seat(player, spec), payload.options)
     except GameError as exc:
@@ -173,19 +178,41 @@ async def live_rooms(websocket: WebSocket, game: str) -> None:
 # ---------------------------------------------------------------------------
 
 
+def _ws_token(websocket: WebSocket) -> tuple[str, str | None]:
+    """Le jeton du joueur et le sous-protocole à confirmer. Le jeton voyage dans l'en-tête
+    Sec-WebSocket-Protocol (« bearer, <jeton> »), le seul qu'un navigateur laisse poser sur
+    un WebSocket : dans l'URL, il finissait en clair dans le journal d'accès d'uvicorn.
+    `?token=` reste lu pour les apps encore ouvertes sur la version précédente."""
+    offered = [p.strip() for p in websocket.headers.get("sec-websocket-protocol", "").split(",")]
+    if len(offered) == 2 and offered[0] == "bearer":
+        return offered[1], "bearer"
+    return websocket.query_params.get("token") or "", None
+
+
 @router.websocket("/{code}/ws")
 async def room_ws(websocket: WebSocket, code: str) -> None:
+    token, subprotocol = _ws_token(websocket)
     try:
-        player_id, version = decode_player_token(websocket.query_params.get("token") or "")
+        player_id, version = decode_player_token(token)
     except jwt.InvalidTokenError:
         record("info", "ws_refused", f"Table {code} : jeton invalide (4401)", room=code)
         await websocket.close(code=4401)
         return
     # Jeton d'avant un changement de code PIN : cet appareil a été déconnecté.
     async with async_session_maker() as db:
-        current = await db.scalar(select(Player.token_version).where(Player.id == player_id))
-    if current != version:
+        row = (
+            await db.execute(
+                select(Player.token_version, Player.suspended_at).where(Player.id == player_id)
+            )
+        ).first()
+    if row is None or row.token_version != version:
         record("info", "ws_refused", f"Table {code} : session révoquée (4401)", room=code)
+        await websocket.close(code=4401)
+        return
+    # Compte suspendu : refusé ici comme en REST (get_current_player), sinon il continuerait
+    # à jouer sur les tables où il est déjà assis.
+    if row.suspended_at is not None:
+        record("info", "ws_refused", f"Table {code} : compte suspendu (4401)", room=code)
         await websocket.close(code=4401)
         return
     room = manager.get(code)
@@ -207,7 +234,7 @@ async def room_ws(websocket: WebSocket, code: str) -> None:
         await websocket.close(code=4403)  # s'asseoir d'abord via REST join
         return
 
-    await websocket.accept()
+    await websocket.accept(subprotocol=subprotocol)
     async with room.lock:
         seat_index = room.seat_of(player_id)
         if seat_index is None:
@@ -259,6 +286,13 @@ async def room_ws(websocket: WebSocket, code: str) -> None:
         pass
     except RuntimeError:
         pass  # socket déjà fermé (remplacé par une connexion plus récente)
+    except ValueError:
+        # Trame qui n'est pas du JSON : ce n'est pas un client du jeu, on coupe sans bruit
+        # (sinon une entrée « exception » au journal par trame).
+        try:
+            await websocket.close(code=1003)
+        except Exception:
+            pass
     finally:
         await _handle_disconnect(room, player_id, websocket)
 

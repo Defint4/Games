@@ -151,10 +151,14 @@ async def get_game(db: AsyncSession, game_id: uuid.UUID) -> ChessGame | None:
     return await db.get(ChessGame, game_id)
 
 
-async def save_analysis(db: AsyncSession, game_id: uuid.UUID, analysis: dict) -> ChessGame:
-    """Garde le bilan s'il n'y en a pas, ou s'il vient d'une version plus récente."""
+async def save_analysis(
+    db: AsyncSession, game_id: uuid.UUID, player_id: uuid.UUID, analysis: dict
+) -> ChessGame:
+    """Garde le bilan s'il n'y en a pas, ou s'il vient d'une version plus récente. Seuls
+    les deux joueurs de la partie peuvent l'écrire (même réponse que pour une partie
+    inconnue, pour ne rien révéler des parties des autres)."""
     game = await db.scalar(select(ChessGame).where(ChessGame.id == game_id).with_for_update())
-    if game is None:
+    if game is None or player_id not in (game.white_id, game.black_id):
         raise GameNotFound
     if len(analysis["plies"]) != len(game.moves.split()):
         raise GameError("Ce bilan ne correspond pas à la partie.")

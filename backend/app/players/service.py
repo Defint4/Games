@@ -33,6 +33,10 @@ class AvatarRequired(Exception):
     pass
 
 
+class WeakPin(Exception):
+    pass
+
+
 class Suspended(Exception):
     pass
 
@@ -73,6 +77,10 @@ async def enter(db: AsyncSession, pseudo: str, pin: str, avatar: str | None) -> 
     if player is None:
         if avatar is None:
             raise AvatarRequired
+        # Le code des comptes d'avant les PIN (DEFAULT_PIN) : le seul refusé, chacun choisit
+        # le sien pour le reste.
+        if pin == DEFAULT_PIN:
+            raise WeakPin
         pin_hash = await asyncio.to_thread(hash_pin, pin)
         player = Player(pseudo_key=key, pseudo=pseudo, avatar=avatar, pin_hash=pin_hash)
         db.add(player)
@@ -95,6 +103,8 @@ async def enter(db: AsyncSession, pseudo: str, pin: str, avatar: str | None) -> 
 async def change_pin(db: AsyncSession, player: Player, current_pin: str, new_pin: str) -> Player:
     """Nouveau code, après vérification de l'actuel. Les autres appareils sont déconnectés :
     leur jeton porte l'ancienne version."""
+    if new_pin == DEFAULT_PIN:
+        raise WeakPin
     await db.refresh(player, with_for_update=True)
     await _check_pin(db, player, current_pin)
     player.pin_hash = await asyncio.to_thread(hash_pin, new_pin)

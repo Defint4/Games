@@ -21,6 +21,7 @@ const nextConfig: NextConfig = {
   // .next d'un coup : le site en ligne ne sert jamais une version à moitié construite.
   distDir,
   deploymentId: deploymentId(),
+  poweredByHeader: false,
   // Le badge dev de Next recouvre la barre du bas du jeu sur mobile et
   // intercepte les taps (dev uniquement) : on le coupe.
   devIndicators: false,

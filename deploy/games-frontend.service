@@ -16,6 +16,10 @@ Environment=NEXT_TELEMETRY_DISABLED=1
 ExecStart=/var/www/games/frontend/node_modules/.bin/next start --port 3003 --hostname 127.0.0.1
 Restart=always
 RestartSec=5
+# Garde-fou : le serveur héberge trois sites sur 3,7 Go. Au-delà de MemoryHigh le noyau
+# freine et récupère la mémoire du service ; à MemoryMax il le tue, systemd le relance.
+MemoryHigh=350M
+MemoryMax=450M
 
 NoNewPrivileges=true
 PrivateTmp=true

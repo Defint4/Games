@@ -35,6 +35,9 @@ MAINTENANCE_GRACE_SECONDS = 10
 CHAT_HISTORY_SIZE = 100
 # Tables en RAM au plus (les codes sont à 4 chiffres).
 MAX_ROOMS = 2000
+# Tables en attente ou en cours où un même joueur est assis : sans plafond, un seul compte
+# remplissait MAX_ROOMS et laissait autant de parties de bots tourner seules.
+MAX_ROOMS_PER_PLAYER = 3
 
 
 @dataclass
@@ -155,6 +158,14 @@ class RoomManager:
 
     def delete(self, code: str) -> None:
         self.rooms.pop(code, None)
+
+    def active_rooms_of(self, player_id: uuid.UUID) -> int:
+        """Tables en attente ou en cours où ce joueur est assis."""
+        return sum(
+            1
+            for room in self.rooms.values()
+            if room.status is not GameStatus.FINISHED and room.seat_of(player_id) is not None
+        )
 
     def grace_left(self) -> float:
         """Secondes restantes du délai de grâce qui suit la dernière partie terminée."""

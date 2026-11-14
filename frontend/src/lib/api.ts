@@ -10,9 +10,16 @@ const T = dict({
 
 export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
-export function wsUrl(code: string, token: string): string {
+export function wsUrl(code: string): string {
   const base = API_URL.replace(/^http/, "ws");
-  return `${base}/api/rooms/${code}/ws?token=${encodeURIComponent(token)}`;
+  return `${base}/api/rooms/${code}/ws`;
+}
+
+/* Le jeton du joueur part en sous-protocole (en-tête Sec-WebSocket-Protocol), le seul
+   en-tête qu'un navigateur laisse poser sur un WebSocket : dans l'URL, il finissait en
+   clair dans les journaux du serveur. */
+export function wsProtocols(token: string): string[] {
+  return ["bearer", token];
 }
 
 /* Liste des tables ouvertes d'un jeu, poussée à chaque changement. */

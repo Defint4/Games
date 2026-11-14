@@ -22,6 +22,14 @@ Environment=OPENBLAS_NUM_THREADS=1
 ExecStart=/var/www/games/backend/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8003 --proxy-headers --ws-max-size 1048576
 Restart=always
 RestartSec=5
+# Garde-fous : le serveur héberge trois sites sur 2 vCPU et 3,7 Go. Au-delà de MemoryHigh
+# le noyau freine et récupère la mémoire du service ; à MemoryMax il le tue, systemd le
+# relance. CPUQuota : un cœur et demi au plus, il en reste toujours pour les autres sites.
+# LimitNOFILE : chaque WebSocket ouvert tient un descripteur.
+MemoryHigh=500M
+MemoryMax=700M
+CPUQuota=150%
+LimitNOFILE=4096
 # Les réflexions du bot Difficile passent après les autres sites du serveur.
 Nice=5
 
