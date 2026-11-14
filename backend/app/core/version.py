@@ -8,10 +8,13 @@ from pathlib import Path
 
 
 def _version() -> str | None:
+    # Le dépôt appartient au compte de déploiement, le service tourne sous un autre : sans
+    # safe.directory, git refuse de le lire (« dubious ownership ») et la version reste vide.
+    repo = Path(__file__).resolve().parents[3]
     try:
         out = subprocess.run(
-            ["git", "log", "-1", "--format=%h %cI"],
-            cwd=Path(__file__).resolve().parent,
+            ["git", "-c", f"safe.directory={repo}", "log", "-1", "--format=%h %cI"],
+            cwd=repo,
             capture_output=True,
             text=True,
             timeout=2,
