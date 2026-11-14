@@ -86,4 +86,6 @@ if [ "$ok" != 1 ]; then
   echo "ÉCHEC : l'API ou le front ne répond pas. Revenir en arrière : ./rollback.sh" >&2
   exit 1
 fi
+# Cloudflare garde le HTML en cache : sans purge, il servirait encore l'ancienne version.
+if [ -x /usr/local/bin/cf-purge ]; then /usr/local/bin/cf-purge; fi
 echo "==> Déploiement terminé"
