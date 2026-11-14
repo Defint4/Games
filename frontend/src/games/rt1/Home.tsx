@@ -137,7 +137,7 @@ export default function Home() {
             <div>
               <p className="text-[11px] font-bold uppercase tracking-wide text-white/50">{t.record}</p>
               <p className={`${bungee.className} text-xl tabular-nums text-[#8CE6D2]`}>
-                {pending ? <Pending /> : best != null ? formatTime(best) : "—"}
+                {pending ? <Pending /> : best != null ? formatTime(best) : "-"}
               </p>
             </div>
             <button
@@ -189,7 +189,7 @@ export default function Home() {
                     </span>
                     {open && (
                       <span className={`${bungee.className} shrink-0 text-sm tabular-nums ${bests[c.slug] != null ? "text-[#8CE6D2]" : "text-white/35"}`}>
-                        {pending ? <Pending /> : bests[c.slug] != null ? formatTime(bests[c.slug]) : "—"}
+                        {pending ? <Pending /> : bests[c.slug] != null ? formatTime(bests[c.slug]) : "-"}
                       </span>
                     )}
                   </button>

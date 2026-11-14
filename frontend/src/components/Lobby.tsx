@@ -16,7 +16,7 @@ import type { RoomSocket } from "@/lib/useRoomSocket";
 const T = dict({
   fr: {
     table: "Table",
-    share: "Partage ce code — la partie démarre quand tout le monde est prêt.",
+    share: "Partage ce code. La partie démarre quand tout le monde est prêt.",
     freeSeats: (n: number) => `${n} place${n > 1 ? "s" : ""} libre${n > 1 ? "s" : ""}`,
     addBot: "Ajouter un bot",
     turnTime: "Temps par tour",

@@ -63,7 +63,7 @@ export default function Profile() {
                 <span className="grow text-white/80">{c.name[lang]}</span>
                 {rec && <span className="text-xs text-white/50">{t.place(rec.rank)}</span>}
                 <span className={`${bungee.className} tabular-nums`}>
-                  {!state ? <Pending /> : time != null ? formatTime(time) : "—"}
+                  {!state ? <Pending /> : time != null ? formatTime(time) : "-"}
                 </span>
               </li>
             );

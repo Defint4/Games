@@ -278,7 +278,7 @@ function Stepper({ value, onChange }: { value: number | null; onChange: (n: numb
       <button type="button" onClick={() => step(-1)} className="size-10 rounded-lg bg-white/10 text-lg font-bold active:scale-95">
         −
       </button>
-      <span className={`${bungee.className} w-12 text-center text-xl tabular-nums`}>{value === null ? "—" : n}</span>
+      <span className={`${bungee.className} w-12 text-center text-xl tabular-nums`}>{value === null ? "-" : n}</span>
       <button type="button" onClick={() => step(1)} className="size-10 rounded-lg bg-white/10 text-lg font-bold active:scale-95">
         +
       </button>
