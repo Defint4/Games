@@ -74,8 +74,8 @@ sudo systemctl restart games-backend games-frontend
 echo "==> Contrôle"
 ok=0
 for _ in 1 2 3 4 5 6 7 8 9 10; do
-  if curl -fsS -o /dev/null http://127.0.0.1:8003/api/health \
-    && curl -fsS -o /dev/null http://127.0.0.1:3003/; then
+  if curl -fs -o /dev/null http://127.0.0.1:8003/api/health \
+    && curl -fs -o /dev/null http://127.0.0.1:3003/; then
     ok=1
     break
   fi
