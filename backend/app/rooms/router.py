@@ -50,7 +50,8 @@ LOBBY_SEAT_GRACE_SECONDS = 10
 REMATCH_SEAT_GRACE_SECONDS = 45
 # Joueur déconnecté à son tour : coup joué d'office au bout de GameSpec.absent_seconds
 # (même sur une table sans timer), et un bot prend sa place après ABSENT_STRIKES coups
-# d'affilée.
+# d'affilée. Tout cela tant qu'il reste quelqu'un à la table : sinon la partie attend
+# (voir _asleep).
 ABSENT_STRIKES = 3
 REPLACEMENT_BOT = "normal"
 MAINTENANCE = "Mise à jour imminente : les nouvelles parties reviennent dans quelques minutes."
@@ -236,6 +237,11 @@ async def room_ws(websocket: WebSocket, code: str) -> None:
 
     await websocket.accept(subprotocol=subprotocol)
     async with room.lock:
+        if manager.get(code) is not room:
+            # Supprimée pendant l'ouverture du socket (cleanup_loop) : s'y asseoir, ce
+            # serait jouer sur une table où plus aucun timer ni bot ne répond.
+            await websocket.close(code=4404)
+            return
         seat_index = room.seat_of(player_id)
         if seat_index is None:
             await websocket.close(code=4403)
@@ -248,13 +254,26 @@ async def room_ws(websocket: WebSocket, code: str) -> None:
                 await seat.socket.close(code=4000)
             except Exception:
                 pass
+        # La partie attendait un joueur (voir _asleep) : son retour la relance.
+        resumed = _asleep(room)
         seat.socket = websocket
         seat.missed = 0
         room.touch()
+        if resumed:
+            record(
+                "info",
+                "room_resumed",
+                f"Partie {room.code} reprise : {seat.pseudo} est de retour",
+                game=room.game,
+                room=room.code,
+                player=seat,
+            )
         if seat.replaced:
             # De retour : il reprend sa place au bot qui jouait pour lui.
             seat.bot = None
             seat.replaced = False
+            resumed = True
+        if resumed:
             _schedule_turn_timer(room)
             room.spec.schedule_bots(room, _after_move)
         await _send_view(room, seat_index)
@@ -319,6 +338,15 @@ async def _handle_disconnect(room: Room, player_id: uuid.UUID, websocket: WebSoc
             # de page ne doit pas éjecter le joueur. En partie, le siège attend
             # la reconnexion sans limite.
             asyncio.get_running_loop().create_task(_expire_lobby_seat(room, player_id))
+        elif _asleep(room):
+            _sleep(room)
+            record(
+                "info",
+                "room_paused",
+                f"Partie {room.code} en attente : plus personne à la table",
+                game=room.game,
+                room=room.code,
+            )
         elif room.status is GameStatus.PLAYING and room.spec.current_turn(room.state) == seat_index:
             _schedule_absence(room, seat_index)
         await _broadcast_state(room, [])
@@ -537,8 +565,10 @@ async def _after_move(room: Room, events: list[dict]) -> None:
     # La liste des tables ouvertes bouge tant qu'on est en lobby, et au démarrage.
     if room.status is GameStatus.LOBBY or any(e["type"] == "game_started" for e in events):
         await lobby.notify(room.game)
+    if _asleep(room):
+        room.bot_token += 1  # ce qui était programmé est caduc
     # En maintenance, les bots d'une table en attente ne se déclarent plus prêts.
-    if not (manager.maintenance and room.status is GameStatus.LOBBY):
+    elif not (manager.maintenance and room.status is GameStatus.LOBBY):
         room.spec.schedule_bots(room, _after_move)
     if finished and manager.maintenance:
         # Peut-être la dernière partie en cours : la fermeture approche.
@@ -595,10 +625,33 @@ def _compact(message: dict) -> dict:
     return {str(k)[:30]: str(v)[:80] for k, v in list(message.items())[:10]}
 
 
+def _asleep(room: Room) -> bool:
+    """Partie en cours que plus aucun humain ne regarde : elle attend, sans coup d'office
+    ni coup de bot, qu'un joueur revienne (room_ws la relance) ou que cleanup_loop la
+    supprime. Des bots qui jouent entre eux ne servent personne, et leurs coups, comptés
+    comme de l'activité, gardaient la table en vie jusqu'au bout de la partie.
+
+    Deux exceptions : les jeux où le temps fait partie de la partie (GameSpec.real_time),
+    et la maintenance, où chaque partie doit se terminer d'elle-même pour que le serveur
+    puisse redémarrer."""
+    return (
+        room.status is GameStatus.PLAYING
+        and room.connected_count() == 0
+        and not room.spec.real_time
+        and not manager.maintenance
+    )
+
+
+def _sleep(room: Room) -> None:
+    """Le dernier humain vient de partir : timers et coups de bots programmés sont caducs."""
+    room.bot_token += 1
+    _schedule_turn_timer(room)
+
+
 def _schedule_turn_timer(room: Room) -> None:
     """(Re)programme l'échéance du tour courant ; invalide le timer précédent."""
     room.turn_token += 1
-    if room.status is not GameStatus.PLAYING:
+    if room.status is not GameStatus.PLAYING or _asleep(room):
         room.turn_deadline = None
         return
     seat = room.spec.current_turn(room.state)
@@ -790,6 +843,9 @@ async def _record_stats(room: Room) -> None:
 
 async def set_maintenance(enabled: bool) -> None:
     """Interrupteur du panneau admin : ferme (ou rouvre) l'arrivée de nouvelles parties."""
+    # Les parties qui attendaient un joueur (voir _asleep), relevées avant la bascule : en
+    # maintenance, plus aucune n'attend.
+    asleep = [room for room in manager.rooms.values() if _asleep(room)] if enabled else []
     manager.maintenance = enabled
     if enabled:
         # Un bot allait se déclarer prêt et lancer la partie : son coup est annulé, pour
@@ -798,8 +854,22 @@ async def set_maintenance(enabled: bool) -> None:
         for room in manager.rooms.values():
             if room.status is GameStatus.LOBBY:
                 room.bot_token += 1
+        # Elles repartent pour se terminer (coups d'office, puis bots), sinon chacune
+        # retiendrait la fermeture jusqu'à sa suppression.
+        for room in asleep:
+            async with room.lock:
+                if (
+                    manager.maintenance
+                    and manager.get(room.code) is room
+                    and room.status is GameStatus.PLAYING
+                ):
+                    _schedule_turn_timer(room)
+                    room.spec.schedule_bots(room, _after_move)
     else:
         for room in list(manager.rooms.values()):
+            if _asleep(room):
+                # Maintenance levée : une partie sans personne se remet à attendre.
+                _sleep(room)
             if room.status is not GameStatus.LOBBY:
                 continue
             async with room.lock:

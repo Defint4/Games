@@ -69,6 +69,10 @@ class GameSpec(ABC):
     # Vrai : la revanche attend que tous les humains la demandent (échecs) ; faux : le
     # premier qui la demande emmène toute la table.
     rematch_consent: bool = False
+    # Vrai : le temps fait partie de la partie (pendules, course), elle continue même si
+    # plus aucun joueur n'est connecté. Faux : elle attend leur retour, sans coup d'office
+    # ni coup de bot (voir rooms/router.py, _asleep).
+    real_time: bool = False
 
     # --- Cycle de vie de l'état ----------------------------------------------
 

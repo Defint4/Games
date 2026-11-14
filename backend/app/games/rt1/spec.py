@@ -310,6 +310,7 @@ class Rt1Race(GameSpec):
     name = "RT1"
     min_players = MIN_PILOTS
     max_players = rules.MAX_PILOTS
+    real_time = True
 
     # --- État ----------------------------------------------------------------
 

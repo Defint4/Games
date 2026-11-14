@@ -44,6 +44,7 @@ class Chess(GameSpec):
     absent_seconds = ABSENT_SECONDS
     initial_rating = INITIAL_RATING
     rematch_consent = True
+    real_time = True
 
     # --- État ----------------------------------------------------------------
 
