@@ -157,6 +157,10 @@ async def record_game_results(
     loser_id: uuid.UUID,
 ) -> None:
     """Stats de fin de partie sur ce jeu : tous ont joué, un gagnant, un perdant."""
+    # Un compte supprimé en cours de partie n'a plus de profil : sa ligne de stats violerait
+    # la clé étrangère et ferait perdre celles de toute la table.
+    alive = set(await db.scalars(select(Player.id).where(Player.id.in_(player_ids))))
+    player_ids = [player_id for player_id in player_ids if player_id in alive]
     existing = {
         s.player_id: s
         for s in await db.scalars(

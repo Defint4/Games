@@ -30,6 +30,7 @@ async def record_online_game(db: AsyncSession, room: Room) -> None:
         return
     seats = [state.white, 1 - state.white]  # blancs, noirs
     ids = [room.seats[i].player_id for i in seats]
+    alive = set(await db.scalars(select(Player.id).where(Player.id.in_(ids))))
     # Lignes verrouillées dans un ordre fixe : deux parties qui finissent ensemble avec un
     # joueur en commun ne s'interbloquent pas.
     rows = {
@@ -41,11 +42,22 @@ async def record_online_game(db: AsyncSession, room: Room) -> None:
             .with_for_update()
         )
     }
-    for player_id in ids:
-        if player_id not in rows:
-            rows[player_id] = PlayerGameStats(
-                player_id=player_id, game=SLUG, played=0, won=0, lost=0, rating=None
-            )
+    for seat, player_id in zip(seats, ids, strict=True):
+        if player_id in rows:
+            continue
+        # Compte supprimé pendant la partie : une ligne hors session, pour le calcul seul
+        # (sa cote d'entrée). L'enregistrer violerait la clé étrangère, et son adversaire
+        # y perdrait son résultat et l'archive de la partie.
+        gone = player_id not in alive
+        rows[player_id] = PlayerGameStats(
+            player_id=player_id,
+            game=SLUG,
+            played=0,
+            won=0,
+            lost=0,
+            rating=room.seats[seat].rating if gone else None,
+        )
+        if not gone:
             db.add(rows[player_id])
 
     stats = [rows[i] for i in ids]
@@ -63,8 +75,8 @@ async def record_online_game(db: AsyncSession, room: Room) -> None:
 
     white, black = (room.seats[i] for i in seats)
     game = ChessGame(
-        white_id=white.player_id,
-        black_id=black.player_id,
+        white_id=white.player_id if white.player_id in alive else None,
+        black_id=black.player_id if black.player_id in alive else None,
         white_pseudo=white.pseudo,
         black_pseudo=black.pseudo,
         white_avatar=white.avatar,
